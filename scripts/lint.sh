@@ -14,7 +14,7 @@ git ls-files '*.sh' | xargs shellcheck
 git ls-files '*.md' | xargs markdownlint
 
 # shellcheck disable=SC2046
-http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$' | grep -vP 'internal/server/static') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s:|Found string|example.com' || true; })
+http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$' | grep -vP 'internal/server/static') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s|Found string|example.com' || true; })
 if [[ -n $http_locations ]]; then
     echo "Found string 'https://' in code. This should be avoided. All needed files should be embeded into the binary via go:embed"
     echo
