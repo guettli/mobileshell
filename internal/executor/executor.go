@@ -54,13 +54,13 @@ func (e *Executor) Execute(command string) (*Process, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer stdout.Close()
+	defer func() { _ = stdout.Close() }()
 
 	stderr, err := os.Create(stderrFile)
 	if err != nil {
 		return nil, err
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdout = stdout
@@ -85,7 +85,7 @@ func (e *Executor) Execute(command string) (*Process, error) {
 
 	// Monitor process completion in background
 	go func() {
-		cmd.Wait()
+		_ = cmd.Wait()
 		e.mu.Lock()
 		proc.Status = "completed"
 		e.saveProcesses()
@@ -128,7 +128,7 @@ func (e *Executor) saveProcesses() {
 	if err != nil {
 		return
 	}
-	os.WriteFile(stateFile, data, 0644)
+	_ = os.WriteFile(stateFile, data, 0644)
 }
 
 func (e *Executor) loadProcesses() {
@@ -137,5 +137,5 @@ func (e *Executor) loadProcesses() {
 	if err != nil {
 		return
 	}
-	json.Unmarshal(data, &e.processes)
+	_ = json.Unmarshal(data, &e.processes)
 }

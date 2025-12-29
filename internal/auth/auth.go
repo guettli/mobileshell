@@ -76,7 +76,7 @@ func (a *Auth) saveSessions() {
 	if err != nil {
 		return
 	}
-	os.WriteFile(a.sessionFile, data, 0600)
+	_ = os.WriteFile(a.sessionFile, data, 0600)
 }
 
 func (a *Auth) loadSessions() {
@@ -84,11 +84,11 @@ func (a *Auth) loadSessions() {
 	if err != nil {
 		return
 	}
-	json.Unmarshal(data, &a.sessions)
+	_ = json.Unmarshal(data, &a.sessions)
 }
 
 func generateToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }

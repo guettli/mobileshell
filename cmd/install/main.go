@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -49,7 +48,7 @@ func main() {
 	serviceContent = strings.ReplaceAll(serviceContent, "{{PASSWORD}}", password)
 
 	tmpServiceFile := "/tmp/mobileshell.service"
-	if err := os.WriteFile(tmpServiceFile, []byte(serviceContent), 0644); err != nil {
+	if err := os.WriteFile(tmpServiceFile, []byte(serviceContent), 0o644); err != nil {
 		log.Fatalf("Failed to write service file: %v", err)
 	}
 
@@ -92,8 +91,8 @@ func main() {
 	}
 
 	// Clean up local files
-	os.Remove("mobileshell")
-	os.Remove(tmpServiceFile)
+	_ = os.Remove("mobileshell")
+	_ = os.Remove(tmpServiceFile)
 
 	fmt.Println("\n=== Installation Complete ===")
 	fmt.Printf("MobileShell is now running on %s\n", hostname)

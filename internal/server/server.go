@@ -56,7 +56,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 		return
 	}
-	s.tmpl.ExecuteTemplate(w, "login.html", nil)
+	_ = s.tmpl.ExecuteTemplate(w, "login.html", nil)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	token, ok := s.auth.Authenticate(password)
 
 	if !ok {
-		s.tmpl.ExecuteTemplate(w, "login.html", map[string]string{"error": "Invalid password"})
+		_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]string{"error": "Invalid password"})
 		return
 	}
 
@@ -97,7 +97,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	s.tmpl.ExecuteTemplate(w, "dashboard.html", nil)
+	_ = s.tmpl.ExecuteTemplate(w, "dashboard.html", nil)
 }
 
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -119,21 +119,21 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(proc)
+	_ = json.NewEncoder(w).Encode(proc)
 }
 
 func (s *Server) handleProcesses(w http.ResponseWriter, r *http.Request) {
 	processes := s.executor.ListProcesses()
 
 	if r.Header.Get("HX-Request") == "true" {
-		s.tmpl.ExecuteTemplate(w, "processes.html", map[string]interface{}{
+		_ = s.tmpl.ExecuteTemplate(w, "processes.html", map[string]interface{}{
 			"Processes": processes,
 		})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(processes)
+	_ = json.NewEncoder(w).Encode(processes)
 }
 
 func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +160,7 @@ func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.tmpl.ExecuteTemplate(w, "output.html", map[string]interface{}{
+	_ = s.tmpl.ExecuteTemplate(w, "output.html", map[string]interface{}{
 		"Process": proc,
 		"Content": content,
 		"Type":    outputType,
