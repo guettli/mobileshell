@@ -14,7 +14,7 @@ git ls-files '*.sh' | xargs shellcheck
 git ls-files '*.md' | xargs markdownlint
 
 # shellcheck disable=SC2046
-http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s:|Found string' || true; })
+http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$' | grep -vP 'internal/server/static') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s:|Found string|example.com' || true; })
 if [[ -n $http_locations ]]; then
     echo "Found string 'https://' in code. This should be avoided. All needed files should be embeded into the binary via go:embed"
     echo
@@ -22,4 +22,12 @@ if [[ -n $http_locations ]]; then
     exit 1
 fi
 
+# shellcheck disable=SC2046
+absolute_links_to_static=$(rg -n '="/static/' $(git ls-files | grep -vP 'internal/server/static'))
+if [[ -n $absolute_links_to_static ]]; then
+    echo "Found absolute links to '/static/' in code/html/templates. Use relative paths instead (e.g., './static/') so the application works when served behind a reverse proxy at a sub-path like https://myserver.example.com/mobileshell"
+    echo
+    echo "$absolute_links_to_static"
+    exit 1
+fi
 golangci-lint run ./...
