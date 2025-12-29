@@ -19,7 +19,6 @@ Bootstrap.
 
 #### `internal/auth` ([auth.go](internal/auth/auth.go))
 
-- UUID-based password authentication
 - Session token generation using crypto/rand
 - 24-hour session expiration
 - Session persistence to disk
@@ -46,7 +45,6 @@ Bootstrap.
 
 - Automated remote installation via SSH
 - Builds binary locally
-- Generates UUID password
 - Copies binary and systemd service
 - Installs and starts systemd service
 
@@ -131,8 +129,7 @@ To use in production:
 1. Set up nginx reverse proxy with TLS
 2. Run installation command on target server
 3. Configure firewall rules
-4. Save the UUID password securely
-5. Access via HTTPS through nginx
+4. Access via HTTPS through nginx
 
 ## Technologies Used
 

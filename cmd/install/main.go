@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	_ "embed"
 	"fmt"
 	"log"
@@ -27,25 +26,14 @@ func main() {
 
 	// Build the binary
 	fmt.Println("Building mobileshell binary...")
-	buildCmd := exec.Command("go", "build", "-o", "mobileshell", "./cmd/mobileshell")
+	buildCmd := exec.Command("./scripts/build.sh")
 	buildCmd.Stdout = os.Stdout
 	buildCmd.Stderr = os.Stderr
 	if err := buildCmd.Run(); err != nil {
 		log.Fatalf("Failed to build binary: %v", err)
 	}
 
-	// Generate a UUID for password
-	uuidCmd := exec.Command("uuidgen")
-	var uuidOut bytes.Buffer
-	uuidCmd.Stdout = &uuidOut
-	if err := uuidCmd.Run(); err != nil {
-		log.Fatalf("Failed to generate UUID: %v", err)
-	}
-	password := strings.TrimSpace(uuidOut.String())
-
-	// Create systemd service file with the password
 	serviceContent := strings.ReplaceAll(systemdService, "{{USER}}", username)
-	serviceContent = strings.ReplaceAll(serviceContent, "{{PASSWORD}}", password)
 
 	tmpServiceFile := "/tmp/mobileshell.service"
 	if err := os.WriteFile(tmpServiceFile, []byte(serviceContent), 0o644); err != nil {
@@ -97,7 +85,5 @@ func main() {
 	fmt.Println("\n=== Installation Complete ===")
 	fmt.Printf("MobileShell is now running on %s\n", hostname)
 	fmt.Printf("Access it at: http://%s:22123/\n", hostname)
-	fmt.Printf("Login password (UUID): %s\n", password)
 	fmt.Println("\nMake sure to configure TLS termination (e.g., nginx) for production use.")
-	fmt.Println("Save the password securely - you'll need it to login.")
 }

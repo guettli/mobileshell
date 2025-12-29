@@ -1,46 +1,56 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
 
+const MinPasswordLength = 36
+
 type Auth struct {
-	password     string
-	sessions     map[string]time.Time
-	mu           sync.RWMutex
-	sessionFile  string
+	sessions map[string]time.Time
+	mu       sync.RWMutex
+	stateDir string
 }
 
-func New(password, dataDir string) (*Auth, error) {
-	sessionFile := filepath.Join(dataDir, "sessions.json")
-
+func New(stateDir string) (*Auth, error) {
 	a := &Auth{
-		password:    password,
-		sessions:    make(map[string]time.Time),
-		sessionFile: sessionFile,
+		stateDir: stateDir,
+		sessions: make(map[string]time.Time),
 	}
-
-	a.loadSessions()
 
 	return a, nil
 }
 
-func (a *Auth) Authenticate(password string) (string, bool) {
-	if password != a.password {
+func (a *Auth) Authenticate(ctx context.Context, password string) (string, bool) {
+	if len(password) < MinPasswordLength {
+		slog.Debug("Password too short")
+		return "", false
+	}
+	// Hash the password
+	hash := sha256.Sum256([]byte(password))
+	hashedPassword := hex.EncodeToString(hash[:])
+
+	// Check if file exists in stateDir/hashed-passwords/
+	passwordFilePath := filepath.Join(a.stateDir, "hashed-passwords", hashedPassword)
+	if _, err := os.Stat(passwordFilePath); os.IsNotExist(err) {
+		slog.Debug("password file not found. Authenticate failed", "path", passwordFilePath)
 		return "", false
 	}
 
 	token := generateToken()
 
+	// Store the session
 	a.mu.Lock()
 	a.sessions[token] = time.Now().Add(24 * time.Hour)
-	a.saveSessions()
 	a.mu.Unlock()
 
 	return token, true
@@ -59,36 +69,36 @@ func (a *Auth) ValidateSession(token string) bool {
 }
 
 func (a *Auth) CleanExpiredSessions() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	now := time.Now()
-	for token, expiry := range a.sessions {
-		if now.After(expiry) {
-			delete(a.sessions, token)
-		}
-	}
-	a.saveSessions()
-}
-
-func (a *Auth) saveSessions() {
-	data, err := json.MarshalIndent(a.sessions, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(a.sessionFile, data, 0600)
-}
-
-func (a *Auth) loadSessions() {
-	data, err := os.ReadFile(a.sessionFile)
-	if err != nil {
-		return
-	}
-	_ = json.Unmarshal(data, &a.sessions)
+	// TODO
 }
 
 func generateToken() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// AddPassword adds a password to the hashed-passwords directory
+func AddPassword(stateDir, password string) error {
+	if len(password) < MinPasswordLength {
+		return fmt.Errorf("password must be at least %d characters long", MinPasswordLength)
+	}
+
+	// Hash the password
+	hash := sha256.Sum256([]byte(password))
+	hashedPassword := hex.EncodeToString(hash[:])
+
+	// Create the hashed-passwords directory if it doesn't exist
+	hashedPasswordsDir := filepath.Join(stateDir, "hashed-passwords")
+	if err := os.MkdirAll(hashedPasswordsDir, 0700); err != nil {
+		return fmt.Errorf("failed to create hashed-passwords directory: %w", err)
+	}
+
+	// Create the password file
+	passwordFilePath := filepath.Join(hashedPasswordsDir, hashedPassword)
+	if err := os.WriteFile(passwordFilePath, []byte{}, 0600); err != nil {
+		return fmt.Errorf("failed to write password file: %w", err)
+	}
+
+	return nil
 }

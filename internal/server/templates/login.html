@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
     <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
 </head>
+
 <body class="bg-light">
     <div class="container">
         <div class="row justify-content-center mt-5">
@@ -19,8 +21,9 @@
                         {{end}}
                         <form hx-post="{{.BasePath}}/login" hx-target="body">
                             <div class="mb-3">
-                                <label for="password" class="form-label">Password (UUID)</label>
-                                <input type="password" class="form-control" id="password" name="password" required autofocus>
+                                <label for="password" class="form-label">Password</label>
+                                <input type="password" class="form-control" id="password" name="password" required
+                                    autofocus>
                             </div>
                             <button type="submit" class="btn btn-primary w-100">Login</button>
                         </form>
@@ -30,4 +33,5 @@
         </div>
     </div>
 </body>
+
 </html>

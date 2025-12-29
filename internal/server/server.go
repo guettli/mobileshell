@@ -1,11 +1,17 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,131 +46,260 @@ func New(auth *auth.Auth, executor *executor.Executor) (*Server, error) {
 	return s, nil
 }
 
+// handlerFunc is the new signature for all handlers
+type handlerFunc func(context.Context, *http.Request) ([]byte, error)
+
+// wrapHandler adapts a handlerFunc to http.HandlerFunc
+func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		data, err := h(ctx, r)
+		if err != nil {
+			// Check for special error types that need custom handling
+			if re, ok := err.(*redirectError); ok {
+				http.Redirect(w, r, re.url, re.statusCode)
+				return
+			}
+			if cre, ok := err.(*cookieRedirectError); ok {
+				if cre.cookie != nil {
+					http.SetCookie(w, cre.cookie)
+				}
+				if cre.hxRedirect != "" {
+					w.Header().Set("HX-Redirect", cre.hxRedirect)
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				if cre.redirect != "" {
+					http.Redirect(w, r, cre.redirect, cre.statusCode)
+					return
+				}
+				return
+			}
+			if cte, ok := err.(*contentTypeError); ok {
+				w.Header().Set("Content-Type", cte.contentType)
+				_, _ = w.Write(cte.data)
+				return
+			}
+			// Check if it's an httpError with status code
+			if he, ok := err.(*httpError); ok {
+				http.Error(w, he.message, he.statusCode)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// If we have data to write, write it
+		if len(data) > 0 {
+			_, _ = w.Write(data)
+		}
+	}
+}
+
+// httpError represents an HTTP error with a status code
+type httpError struct {
+	message    string
+	statusCode int
+}
+
+func (e *httpError) Error() string {
+	return e.message
+}
+
+func newHTTPError(statusCode int, message string) error {
+	return &httpError{statusCode: statusCode, message: message}
+}
+
+// redirectError represents an HTTP redirect
+type redirectError struct {
+	url        string
+	statusCode int
+}
+
+func (e *redirectError) Error() string {
+	return fmt.Sprintf("redirect to %s", e.url)
+}
+
+// cookieRedirectError represents setting a cookie and redirecting
+type cookieRedirectError struct {
+	cookie     *http.Cookie
+	redirect   string
+	hxRedirect string
+	statusCode int
+}
+
+func (e *cookieRedirectError) Error() string {
+	return "cookie and redirect"
+}
+
+// contentTypeError represents a response with a specific content type
+type contentTypeError struct {
+	contentType string
+	data        []byte
+}
+
+func (e *contentTypeError) Error() string {
+	return fmt.Sprintf("response with content-type: %s", e.contentType)
+}
+
 func (s *Server) SetupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	// Serve static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	mux.HandleFunc("/", s.handleIndex)
-	mux.HandleFunc("/login", s.handleLogin)
-	mux.HandleFunc("/logout", s.handleLogout)
-	mux.HandleFunc("/dashboard", s.authMiddleware(s.handleDashboard))
-	mux.HandleFunc("/execute", s.authMiddleware(s.handleExecute))
-	mux.HandleFunc("/processes", s.authMiddleware(s.handleProcesses))
-	mux.HandleFunc("/output/", s.authMiddleware(s.handleOutput))
+	mux.HandleFunc("/", s.wrapHandler(s.handleIndex))
+	mux.HandleFunc("/login", s.wrapHandler(s.handleLogin))
+	mux.HandleFunc("/logout", s.wrapHandler(s.handleLogout))
+	mux.HandleFunc("/dashboard", s.authMiddleware(s.wrapHandler(s.handleDashboard)))
+	mux.HandleFunc("/execute", s.authMiddleware(s.wrapHandler(s.handleExecute)))
+	mux.HandleFunc("/processes", s.authMiddleware(s.wrapHandler(s.handleProcesses)))
+	mux.HandleFunc("/output/", s.authMiddleware(s.wrapHandler(s.handleOutput)))
 
 	return mux
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleIndex(ctx context.Context, r *http.Request) ([]byte, error) {
 	token := s.getSessionToken(r)
 	if token != "" && s.auth.ValidateSession(token) {
 		basePath := s.getBasePath(r)
-		http.Redirect(w, r, basePath+"/dashboard", http.StatusSeeOther)
-		return
+		// Return redirect as a special marker (we'll handle this in wrapHandler)
+		return nil, &redirectError{url: basePath + "/dashboard", statusCode: http.StatusSeeOther}
 	}
-	_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]interface{}{
+
+	var buf bytes.Buffer
+	err := s.tmpl.ExecuteTemplate(&buf, "login.html", map[string]interface{}{
 		"BasePath": s.getBasePath(r),
 	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 	}
 
 	password := r.FormValue("password")
-	token, ok := s.auth.Authenticate(password)
+	token, ok := s.auth.Authenticate(ctx, password)
 	basePath := s.getBasePath(r)
 
 	if !ok {
-		_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]interface{}{
+		var buf bytes.Buffer
+		err := s.tmpl.ExecuteTemplate(&buf, "login.html", map[string]interface{}{
 			"error":    "Invalid password",
 			"BasePath": basePath,
 		})
-		return
+		if err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   86400, // 24 hours
-	})
-
-	w.Header().Set("HX-Redirect", basePath+"/dashboard")
-	w.WriteHeader(http.StatusOK)
+	// Return cookie and HX-Redirect header
+	return nil, &cookieRedirectError{
+		cookie: &http.Cookie{
+			Name:     "session",
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   86400, // 24 hours
+		},
+		hxRedirect: basePath + "/dashboard",
+	}
 }
 
-func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLogout(ctx context.Context, r *http.Request) ([]byte, error) {
 	basePath := s.getBasePath(r)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   -1,
-	})
 	redirectPath := basePath + "/"
 	if redirectPath == "/" {
 		redirectPath = "/"
 	}
-	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+
+	return nil, &cookieRedirectError{
+		cookie: &http.Cookie{
+			Name:     "session",
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			MaxAge:   -1,
+		},
+		redirect:   redirectPath,
+		statusCode: http.StatusSeeOther,
+	}
 }
 
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	_ = s.tmpl.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
+func (s *Server) handleDashboard(ctx context.Context, r *http.Request) ([]byte, error) {
+	var buf bytes.Buffer
+	err := s.tmpl.ExecuteTemplate(&buf, "dashboard.html", map[string]interface{}{
 		"BasePath": s.getBasePath(r),
 	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
-func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 	}
 
 	command := r.FormValue("command")
 	if command == "" {
-		http.Error(w, "Command is required", http.StatusBadRequest)
-		return
+		return nil, newHTTPError(http.StatusBadRequest, "Command is required")
 	}
 
 	proc, err := s.executor.Execute(command)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(proc)
+	data, err := json.Marshal(proc)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, &contentTypeError{
+		contentType: "application/json",
+		data:        data,
+	}
 }
 
-func (s *Server) handleProcesses(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
 	processes := s.executor.ListProcesses()
 
 	if r.Header.Get("HX-Request") == "true" {
-		_ = s.tmpl.ExecuteTemplate(w, "processes.html", map[string]interface{}{
+		var buf bytes.Buffer
+		err := s.tmpl.ExecuteTemplate(&buf, "processes.html", map[string]interface{}{
 			"Processes": processes,
 			"BasePath":  s.getBasePath(r),
 		})
-		return
+		if err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(processes)
+	data, err := json.Marshal(processes)
+	if err != nil {
+		return nil, err
+	}
+
+	return data, &contentTypeError{
+		contentType: "application/json",
+		data:        data,
+	}
 }
 
-func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOutput(ctx context.Context, r *http.Request) ([]byte, error) {
 	id := r.URL.Path[len("/output/"):]
 
 	proc, ok := s.executor.GetProcess(id)
 	if !ok {
-		http.Error(w, "Process not found", http.StatusNotFound)
-		return
+		return nil, newHTTPError(http.StatusNotFound, "Process not found")
 	}
 
 	outputType := r.URL.Query().Get("type")
@@ -178,16 +313,20 @@ func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 
-	_ = s.tmpl.ExecuteTemplate(w, "output.html", map[string]interface{}{
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "output.html", map[string]interface{}{
 		"Process":  proc,
 		"Content":  content,
 		"Type":     outputType,
 		"BasePath": s.getBasePath(r),
 	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -231,6 +370,78 @@ func (s *Server) Start(addr string) error {
 		}
 	}()
 
-	log.Printf("Starting server on %s", addr)
+	log.Printf("Starting server on http://%s", addr)
 	return http.ListenAndServe(addr, s.SetupRoutes())
+}
+
+// GetStateDir returns the state directory, using the provided value,
+// or falling back to $STATE_DIRECTORY environment variable, or .mobileshell.
+// If createIfMissing is true, it will create the directory if it doesn't exist.
+func GetStateDir(stateDir string, createIfMissing bool) (string, error) {
+	if stateDir == "" {
+		stateDir = os.Getenv("STATE_DIRECTORY")
+		if stateDir == "" {
+			stateDir = ".mobileshell"
+		}
+	}
+
+	_, err := os.Stat(stateDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if createIfMissing {
+				if err := os.MkdirAll(stateDir, 0700); err != nil {
+					return "", fmt.Errorf("failed to create state directory: %w", err)
+				}
+				return stateDir, nil
+			}
+			return "", fmt.Errorf("STATE_DIRECTORY not set, and %q does not exist. Provide either the env variable or the directory: %w", stateDir, err)
+		}
+		return "", fmt.Errorf("STATE_DIRECTORY=%s: %w", stateDir, err)
+	}
+
+	return stateDir, nil
+}
+
+// Run starts the server with the given configuration
+func Run(stateDir, port string) error {
+	var err error
+	stateDir, err = GetStateDir(stateDir, false)
+	if err != nil {
+		return err
+	}
+
+	// Create hashed-passwords directory if it doesn't exist
+	passwordDir := filepath.Join(stateDir, "hashed-passwords")
+	if err := os.MkdirAll(passwordDir, 0o700); err != nil {
+		return fmt.Errorf("failed to create hashed-passwords directory: %w", err)
+	}
+
+	// Check if any passwords are configured
+	entries, err := os.ReadDir(passwordDir)
+	if err != nil {
+		return fmt.Errorf("failed to read hashed-passwords directory: %w", err)
+	}
+	if len(entries) == 0 {
+		slog.Warn("No passwords configured yet. Add one with: mobileshell add-password")
+	}
+
+	outputDir := filepath.Join(stateDir, "outputs")
+
+	authSvc, err := auth.New(stateDir)
+	if err != nil {
+		return fmt.Errorf("failed to create auth service: %w", err)
+	}
+
+	exec, err := executor.New(outputDir)
+	if err != nil {
+		return fmt.Errorf("failed to create executor: %w", err)
+	}
+
+	srv, err := New(authSvc, exec)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	addr := fmt.Sprintf("localhost:%s", port)
+	return srv.Start(addr)
 }

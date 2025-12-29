@@ -27,8 +27,8 @@ It is up to you to configure TLS termination. Example snippet for nginx:
         }
 ```
 
-This will give you a login prompt. You need to authenticate with a UUID. After successfull auth, you
-are able to execute commands.
+This will give you a login prompt. You need to authenticate with a password. After successfull auth,
+you are able to execute commands.
 
 Commands are executed with `nohup` and redirecting stdout and stderr to files.
 
@@ -50,7 +50,7 @@ go build -o mobileshell ./cmd/mobileshell
 
 ## Features
 
-- **Authentication**: Secure UUID-based password authentication with session management
+- **Authentication**: Secure password authentication with session management
 - **Command Execution**: Execute shell commands asynchronously
 - **Process Management**: View running and completed processes
 - **Output Viewing**: View stdout and stderr for each process
@@ -64,7 +64,6 @@ go build -o mobileshell ./cmd/mobileshell
 
 - Go 1.21 or later
 - SSH access to the target server with root privileges
-- `uuidgen` command available on your local machine
 
 ### Remote Installation
 
@@ -75,10 +74,9 @@ go run ./cmd/install myserver.example.com myuser
 This will:
 
 1. Build the MobileShell binary
-2. Generate a UUID password
-3. Copy the binary and systemd service to the remote server
+2. Copy the binary and systemd service to the remote server
+3. Create a password with `mobileshell add-password`.
 4. Install and start the systemd service
-5. Display the UUID password for login
 
 ### Manual Installation
 

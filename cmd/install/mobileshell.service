@@ -6,7 +6,9 @@ After=network.target
 Type=simple
 User={{USER}}
 WorkingDirectory=/home/{{USER}}
-ExecStart=/home/{{USER}}/mobileshell -password={{PASSWORD}} -port=22123
+ExecStart=/home/{{USER}}/mobileshell run
+StateDirectory=mobileshell-{{USER}}
+StateDirectoryMode=0700
 Restart=always
 RestartSec=10
 
