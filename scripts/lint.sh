@@ -10,3 +10,5 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
 fi
 
 git ls-files '*.sh' | xargs shellcheck
+
+git ls-files '*.md' | xargs markdownlint

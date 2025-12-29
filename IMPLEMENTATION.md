@@ -2,13 +2,15 @@
 
 ## Overview
 
-MobileShell is now fully implemented as a web-based shell access tool built with Go, htmx, and Bootstrap.
+MobileShell is now fully implemented as a web-based shell access tool built with Go, htmx, and
+Bootstrap.
 
 ## Components Implemented
 
 ### 1. Core Packages
 
 #### `internal/executor` ([executor.go](internal/executor/executor.go))
+
 - Manages command execution using shell subprocess
 - Tracks running and completed processes
 - Stores stdout/stderr to separate files
@@ -16,6 +18,7 @@ MobileShell is now fully implemented as a web-based shell access tool built with
 - Thread-safe process management with mutex locks
 
 #### `internal/auth` ([auth.go](internal/auth/auth.go))
+
 - UUID-based password authentication
 - Session token generation using crypto/rand
 - 24-hour session expiration
@@ -23,6 +26,7 @@ MobileShell is now fully implemented as a web-based shell access tool built with
 - Automatic cleanup of expired sessions
 
 #### `internal/server` ([server.go](internal/server/server.go))
+
 - HTTP server with multiple endpoints
 - Authentication middleware
 - htmx integration for dynamic updates
@@ -32,12 +36,14 @@ MobileShell is now fully implemented as a web-based shell access tool built with
 ### 2. Command Line Tools
 
 #### `cmd/mobileshell` ([main.go](cmd/mobileshell/main.go))
+
 - Main server binary
 - Configurable port (default: 22123)
 - Configurable data directory (default: ~/.mobileshell)
 - Password authentication required
 
 #### `cmd/install` ([main.go](cmd/install/main.go))
+
 - Automated remote installation via SSH
 - Builds binary locally
 - Generates UUID password
@@ -72,6 +78,7 @@ All templates use Bootstrap 5 and htmx 1.9.10:
 ## How to Use
 
 ### Local Testing
+
 ```bash
 ./run-local.sh
 # Access: http://localhost:22123
@@ -79,6 +86,7 @@ All templates use Bootstrap 5 and htmx 1.9.10:
 ```
 
 ### Remote Installation
+
 ```bash
 go run ./cmd/install myserver.example.com myuser
 ```
@@ -93,7 +101,7 @@ go run ./cmd/install myserver.example.com myuser
 
 ## File Structure
 
-```
+```tree
 mobileshell/
 ├── cmd/
 │   ├── mobileshell/main.go        # Main server
