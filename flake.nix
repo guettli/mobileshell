@@ -20,10 +20,6 @@
             golangci-lint
           ];
 
-          shellHook = ''
-            echo "Development environment loaded"
-            echo "Available tools: shellcheck $(shellcheck --version | head -n2 | tail -n1), go $(go version | cut -d' ' -f3)"
-          '';
         };
       }
     );
