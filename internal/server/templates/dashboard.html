@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MobileShell - Dashboard</title>
-    <link href="/static/static/bootstrap.min.css" rel="stylesheet">
-    <script src="/static/static/htmx.min.js"></script>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
     <style>
         .process-card { margin-bottom: 1rem; }
         .output-container {
@@ -23,7 +23,7 @@
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
             <span class="navbar-brand mb-0 h1">MobileShell</span>
-            <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
         </div>
     </nav>
 
@@ -31,7 +31,7 @@
         <div class="card mb-4">
             <div class="card-body">
                 <h5 class="card-title">Execute Command</h5>
-                <form hx-post="/execute" hx-target="#processes" hx-swap="beforeend" hx-on::after-request="this.reset()">
+                <form hx-post="{{.BasePath}}/execute" hx-target="#processes" hx-swap="beforeend" hx-on::after-request="this.reset()">
                     <div class="mb-3">
                         <input type="text" class="form-control" name="command" placeholder="Enter command..." required autofocus>
                     </div>
@@ -43,7 +43,7 @@
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">Running Processes</h5>
-                <div id="processes" hx-get="/processes" hx-trigger="load, every 3s" hx-swap="innerHTML">
+                <div id="processes" hx-get="{{.BasePath}}/processes" hx-trigger="load, every 3s" hx-swap="innerHTML">
                     Loading...
                 </div>
             </div>

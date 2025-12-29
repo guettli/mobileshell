@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"mobileshell/internal/auth"
@@ -59,10 +60,13 @@ func (s *Server) SetupRoutes() http.Handler {
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	token := s.getSessionToken(r)
 	if token != "" && s.auth.ValidateSession(token) {
-		http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
+		basePath := s.getBasePath(r)
+		http.Redirect(w, r, basePath+"/dashboard", http.StatusSeeOther)
 		return
 	}
-	_ = s.tmpl.ExecuteTemplate(w, "login.html", nil)
+	_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]interface{}{
+		"BasePath": s.getBasePath(r),
+	})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -73,9 +77,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	password := r.FormValue("password")
 	token, ok := s.auth.Authenticate(password)
+	basePath := s.getBasePath(r)
 
 	if !ok {
-		_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]string{"error": "Invalid password"})
+		_ = s.tmpl.ExecuteTemplate(w, "login.html", map[string]interface{}{
+			"error":    "Invalid password",
+			"BasePath": basePath,
+		})
 		return
 	}
 
@@ -87,11 +95,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400, // 24 hours
 	})
 
-	w.Header().Set("HX-Redirect", "/dashboard")
+	w.Header().Set("HX-Redirect", basePath+"/dashboard")
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	basePath := s.getBasePath(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    "",
@@ -99,11 +108,17 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		MaxAge:   -1,
 	})
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirectPath := basePath + "/"
+	if redirectPath == "/" {
+		redirectPath = "/"
+	}
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	_ = s.tmpl.ExecuteTemplate(w, "dashboard.html", nil)
+	_ = s.tmpl.ExecuteTemplate(w, "dashboard.html", map[string]interface{}{
+		"BasePath": s.getBasePath(r),
+	})
 }
 
 func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
@@ -134,6 +149,7 @@ func (s *Server) handleProcesses(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "true" {
 		_ = s.tmpl.ExecuteTemplate(w, "processes.html", map[string]interface{}{
 			"Processes": processes,
+			"BasePath":  s.getBasePath(r),
 		})
 		return
 	}
@@ -167,9 +183,10 @@ func (s *Server) handleOutput(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = s.tmpl.ExecuteTemplate(w, "output.html", map[string]interface{}{
-		"Process": proc,
-		"Content": content,
-		"Type":    outputType,
+		"Process":  proc,
+		"Content":  content,
+		"Type":     outputType,
+		"BasePath": s.getBasePath(r),
 	})
 }
 
@@ -177,7 +194,12 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := s.getSessionToken(r)
 		if token == "" || !s.auth.ValidateSession(token) {
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			basePath := s.getBasePath(r)
+			redirectPath := basePath + "/"
+			if redirectPath == "/" {
+				redirectPath = "/"
+			}
+			http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 			return
 		}
 		next(w, r)
@@ -190,6 +212,14 @@ func (s *Server) getSessionToken(r *http.Request) string {
 		return ""
 	}
 	return cookie.Value
+}
+
+func (s *Server) getBasePath(r *http.Request) string {
+	// Check for reverse proxy header (standard convention)
+	if prefix := r.Header.Get("X-Forwarded-Prefix"); prefix != "" {
+		return strings.TrimSuffix(prefix, "/")
+	}
+	return ""
 }
 
 func (s *Server) Start(addr string) error {

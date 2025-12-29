@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MobileShell - Login</title>
-    <link href="/static/static/bootstrap.min.css" rel="stylesheet">
-    <script src="/static/static/htmx.min.js"></script>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
 </head>
 <body class="bg-light">
     <div class="container">
@@ -17,7 +17,7 @@
                         {{if .error}}
                         <div class="alert alert-danger">{{.error}}</div>
                         {{end}}
-                        <form hx-post="/login" hx-target="body">
+                        <form hx-post="{{.BasePath}}/login" hx-target="body">
                             <div class="mb-3">
                                 <label for="password" class="form-label">Password (UUID)</label>
                                 <input type="password" class="form-control" id="password" name="password" required autofocus>

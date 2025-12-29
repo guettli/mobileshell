@@ -23,11 +23,11 @@ if [[ -n $http_locations ]]; then
 fi
 
 # shellcheck disable=SC2046
-absolute_links_to_static=$(rg -n '="/static/' $(git ls-files | grep -vP 'internal/server/static'))
-if [[ -n $absolute_links_to_static ]]; then
-    echo "Found absolute links to '/static/' in code/html/templates. Use relative paths instead (e.g., './static/') so the application works when served behind a reverse proxy at a sub-path like https://myserver.example.com/mobileshell"
+absolute_links=$(rg -n '(href|src)="/' $(git ls-files | grep -vP 'internal/server/static') || true)
+if [[ -n $absolute_links ]]; then
+    echo "Found absolute links in code/html/templates. Use relative paths instead (e.g., './static/') so the application works when served behind a reverse proxy at a sub-path like https://myserver.example.com/mobileshell"
     echo
-    echo "$absolute_links_to_static"
+    echo "$absolute_links"
     exit 1
 fi
 golangci-lint run ./...
