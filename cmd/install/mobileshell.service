@@ -1,0 +1,14 @@
+[Unit]
+Description=MobileShell - Web-based shell access
+After=network.target
+
+[Service]
+Type=simple
+User={{USER}}
+WorkingDirectory=/home/{{USER}}
+ExecStart=/home/{{USER}}/mobileshell -password={{PASSWORD}} -port=22123
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

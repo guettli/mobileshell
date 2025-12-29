@@ -1,0 +1,11 @@
+mobileshell
+*.exe
+*.dll
+*.so
+*.dylib
+.mobileshell/
+*.log
+.claude
+.envrc
+.env
+.direnv
