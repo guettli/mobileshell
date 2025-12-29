@@ -18,6 +18,8 @@
             markdownlint-cli
             go
             golangci-lint
+            nodejs
+            nodePackages.pnpm
           ];
 
         };

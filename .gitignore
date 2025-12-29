@@ -9,3 +9,4 @@ mobileshell
 .envrc
 .env
 .direnv
+node_modules/

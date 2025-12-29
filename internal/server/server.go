@@ -15,6 +15,9 @@ import (
 //go:embed templates/*
 var templatesFS embed.FS
 
+//go:embed static/*
+var staticFS embed.FS
+
 type Server struct {
 	auth     *auth.Auth
 	executor *executor.Executor
@@ -38,6 +41,9 @@ func New(auth *auth.Auth, executor *executor.Executor) (*Server, error) {
 
 func (s *Server) SetupRoutes() http.Handler {
 	mux := http.NewServeMux()
+
+	// Serve static files
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/login", s.handleLogin)
