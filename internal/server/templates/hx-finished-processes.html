@@ -4,9 +4,15 @@
         <div class="d-flex justify-content-between align-items-start">
             <div>
                 <h6 class="card-subtitle mb-2">
+                    {{if and .ExitCode (ne (deref .ExitCode) 0)}}
+                    <span class="badge bg-danger">
+                        {{.Status}} (exit {{deref .ExitCode}})
+                    </span>
+                    {{else}}
                     <span class="badge bg-success">
                         {{.Status}}
                     </span>
+                    {{end}}
                     PID: {{.PID}}
                 </h6>
                 <p class="card-text">
@@ -15,21 +21,8 @@
                 </p>
             </div>
         </div>
-        <div class="btn-group btn-group-sm" role="group">
-            <button class="btn btn-outline-primary"
-                    hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=stdout"
-                    hx-target="#output-{{.ID}}"
-                    hx-swap="innerHTML">
-                View Stdout
-            </button>
-            <button class="btn btn-outline-danger"
-                    hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=stderr"
-                    hx-target="#output-{{.ID}}"
-                    hx-swap="innerHTML">
-                View Stderr
-            </button>
+        <div id="output-{{.ID}}" class="mt-2" hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=combined" hx-trigger="load" hx-swap="innerHTML">
         </div>
-        <div id="output-{{.ID}}" class="mt-2"></div>
     </div>
 </div>
 {{end}}

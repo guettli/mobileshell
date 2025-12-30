@@ -33,6 +33,7 @@ type Server struct {
 func New(stateDir string) (*Server, error) {
 	funcMap := template.FuncMap{
 		"formatDuration": formatDuration,
+		"deref":          derefInt,
 	}
 	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
@@ -45,6 +46,14 @@ func New(stateDir string) (*Server, error) {
 	}
 
 	return s, nil
+}
+
+// derefInt safely dereferences an *int, returning 0 if nil
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // formatDuration formats a duration in seconds to a human-readable string
@@ -114,9 +123,20 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 			}
 			// Check if it's an httpError with status code
 			if he, ok := err.(*httpError); ok {
+				slog.Error("HTTP handler error",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", he.statusCode,
+					"error", he.message)
 				http.Error(w, he.message, he.statusCode)
 				return
 			}
+			// Log internal server errors
+			slog.Error("HTTP handler error",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", http.StatusInternalServerError,
+				"error", err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -606,30 +626,152 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	outputType := r.URL.Query().Get("type")
-	var content string
-	var err error
-
-	if outputType == "stderr" {
-		content, err = executor.ReadOutput(proc.StderrFile)
-	} else {
-		content, err = executor.ReadOutput(proc.StdoutFile)
-	}
-
-	if err != nil {
-		return nil, err
-	}
+	expand := r.URL.Query().Get("expand") == "true"
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
-		"Process":  proc,
-		"Content":  content,
-		"Type":     outputType,
-		"BasePath": s.getBasePath(r),
-	})
-	if err != nil {
-		return nil, err
+
+	if outputType == "combined" {
+		// Read both stdout and stderr
+		stdout, errOut := executor.ReadOutput(proc.StdoutFile)
+		if errOut != nil {
+			stdout = ""
+		}
+		stderr, errErr := executor.ReadOutput(proc.StderrFile)
+		if errErr != nil {
+			stderr = ""
+		}
+
+		// Calculate total size and lines
+		totalSize := len(stdout) + len(stderr)
+		stdoutLines := strings.Split(stdout, "\n")
+		stderrLines := strings.Split(stderr, "\n")
+		totalLines := len(stdoutLines) + len(stderrLines)
+		if stdout != "" && stdoutLines[len(stdoutLines)-1] == "" {
+			totalLines--
+		}
+		if stderr != "" && stderrLines[len(stderrLines)-1] == "" {
+			totalLines--
+		}
+
+		// Decide whether to show automatically
+		autoShow := totalSize < 1000 && totalLines <= 5
+
+		// Prepare preview (first 5 lines combined, up to 1000 bytes)
+		var previewStdout, previewStderr string
+		needsExpand := false
+
+		if !autoShow && !expand {
+			// Show preview
+			previewStdout, previewStderr, needsExpand = truncateOutput(stdout, stderr, 5, 1000)
+		} else if expand {
+			// Show full output
+			previewStdout = stdout
+			previewStderr = stderr
+		} else {
+			// Auto-show (small enough)
+			previewStdout = stdout
+			previewStderr = stderr
+		}
+
+		err := s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
+			"Process":      proc,
+			"Stdout":       previewStdout,
+			"Stderr":       previewStderr,
+			"Type":         "combined",
+			"NeedsExpand":  needsExpand,
+			"Expanded":     expand,
+			"BasePath":     s.getBasePath(r),
+			"WorkspaceID":  filepath.Base(filepath.Dir(filepath.Dir(proc.StdoutFile))),
+		})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Legacy single output type
+		var content string
+		var err error
+
+		if outputType == "stderr" {
+			content, err = executor.ReadOutput(proc.StderrFile)
+		} else {
+			content, err = executor.ReadOutput(proc.StdoutFile)
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
+			"Process":  proc,
+			"Content":  content,
+			"Type":     outputType,
+			"BasePath": s.getBasePath(r),
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	return buf.Bytes(), nil
+}
+
+// truncateOutput returns the first maxLines lines (up to maxBytes total) from stdout and stderr
+// Returns whether truncation occurred (needsExpand)
+func truncateOutput(stdout, stderr string, maxLines, maxBytes int) (string, string, bool) {
+	stdoutLines := strings.Split(stdout, "\n")
+	stderrLines := strings.Split(stderr, "\n")
+
+	// Remove trailing empty line if present
+	if len(stdoutLines) > 0 && stdoutLines[len(stdoutLines)-1] == "" {
+		stdoutLines = stdoutLines[:len(stdoutLines)-1]
+	}
+	if len(stderrLines) > 0 && stderrLines[len(stderrLines)-1] == "" {
+		stderrLines = stderrLines[:len(stderrLines)-1]
+	}
+
+	totalLines := len(stdoutLines) + len(stderrLines)
+	needsExpand := totalLines > maxLines || len(stdout)+len(stderr) > maxBytes
+
+	if !needsExpand {
+		return stdout, stderr, false
+	}
+
+	// Truncate to first maxLines
+	var resultStdout, resultStderr string
+	linesLeft := maxLines
+	bytesLeft := maxBytes
+
+	// First, try to include stdout lines
+	for i := 0; i < len(stdoutLines) && linesLeft > 0 && bytesLeft > 0; i++ {
+		line := stdoutLines[i]
+		if i > 0 {
+			line = "\n" + line
+		}
+		if len(line) <= bytesLeft {
+			resultStdout += line
+			linesLeft--
+			bytesLeft -= len(line)
+		} else {
+			break
+		}
+	}
+
+	// Then include stderr lines
+	for i := 0; i < len(stderrLines) && linesLeft > 0 && bytesLeft > 0; i++ {
+		line := stderrLines[i]
+		if i > 0 {
+			line = "\n" + line
+		}
+		if len(line) <= bytesLeft {
+			resultStderr += line
+			linesLeft--
+			bytesLeft -= len(line)
+		} else {
+			break
+		}
+	}
+
+	return resultStdout, resultStderr, true
 }
 
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
