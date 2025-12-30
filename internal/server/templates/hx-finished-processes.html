@@ -1,0 +1,46 @@
+{{range .FinishedProcesses}}
+<div class="card process-card mb-2">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <h6 class="card-subtitle mb-2">
+                    <span class="badge bg-success">
+                        {{.Status}}
+                    </span>
+                    PID: {{.PID}}
+                </h6>
+                <p class="card-text">
+                    <strong>Command:</strong> <code>{{.Command}}</code><br>
+                    <small class="text-muted">Started: {{.StartTime.Format "2006-01-02 15:04:05"}}{{$duration := formatDuration .StartTime .EndTime}}{{if $duration}} ({{$duration}}){{end}}</small>
+                </p>
+            </div>
+        </div>
+        <div class="btn-group btn-group-sm" role="group">
+            <button class="btn btn-outline-primary"
+                    hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=stdout"
+                    hx-target="#output-{{.ID}}"
+                    hx-swap="innerHTML">
+                View Stdout
+            </button>
+            <button class="btn btn-outline-danger"
+                    hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=stderr"
+                    hx-target="#output-{{.ID}}"
+                    hx-swap="innerHTML">
+                View Stderr
+            </button>
+        </div>
+        <div id="output-{{.ID}}" class="mt-2"></div>
+    </div>
+</div>
+{{end}}
+
+{{if .HasMore}}
+<div id="load-more-trigger"
+     hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/hx-finished-processes?offset={{.Offset}}"
+     hx-trigger="revealed"
+     hx-swap="afterend">
+    <div class="text-center text-muted py-2">
+        <small>Scroll down to load more...</small>
+    </div>
+</div>
+{{end}}

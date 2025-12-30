@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,7 +31,10 @@ type Server struct {
 }
 
 func New(stateDir string) (*Server, error) {
-	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
+	funcMap := template.FuncMap{
+		"formatDuration": formatDuration,
+	}
+	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +45,38 @@ func New(stateDir string) (*Server, error) {
 	}
 
 	return s, nil
+}
+
+// formatDuration formats a duration in seconds to a human-readable string
+// Returns empty string if duration is less than 1 second
+func formatDuration(start, end time.Time) string {
+	if end.IsZero() {
+		return ""
+	}
+	duration := end.Sub(start)
+	if duration < time.Second {
+		return ""
+	}
+
+	// Format duration
+	seconds := int(duration.Seconds())
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	remainingSeconds := seconds % 60
+	if minutes < 60 {
+		if remainingSeconds > 0 {
+			return fmt.Sprintf("%dm %ds", minutes, remainingSeconds)
+		}
+		return fmt.Sprintf("%dm", minutes)
+	}
+	hours := minutes / 60
+	remainingMinutes := minutes % 60
+	if remainingMinutes > 0 {
+		return fmt.Sprintf("%dh %dm", hours, remainingMinutes)
+	}
+	return fmt.Sprintf("%dh", hours)
 }
 
 // handlerFunc is the new signature for all handlers
@@ -195,6 +231,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
 	mux.HandleFunc("/workspaces/{id}/hx-processes", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceProcesses)))
+	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
@@ -454,19 +491,104 @@ func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request
 		return nil, err
 	}
 
-	// Filter for unfinished processes (not completed)
-	var unfinishedProcesses []*executor.Process
+	// Separate running and finished processes
+	var runningProcesses []*executor.Process
+	var finishedProcesses []*executor.Process
 	for _, p := range allProcesses {
-		if p.Status != "completed" {
-			unfinishedProcesses = append(unfinishedProcesses, p)
+		if p.Status == "completed" {
+			finishedProcesses = append(finishedProcesses, p)
+		} else {
+			runningProcesses = append(runningProcesses, p)
 		}
+	}
+
+	// Sort finished processes by end time (newest first)
+	sort.Slice(finishedProcesses, func(i, j int) bool {
+		return finishedProcesses[i].EndTime.After(finishedProcesses[j].EndTime)
+	})
+
+	// Get first 10 finished processes
+	const initialFinishedLimit = 10
+	if len(finishedProcesses) > initialFinishedLimit {
+		finishedProcesses = finishedProcesses[:initialFinishedLimit]
 	}
 
 	var buf bytes.Buffer
 	err = s.tmpl.ExecuteTemplate(&buf, "hx-processes.html", map[string]interface{}{
-		"Processes":   unfinishedProcesses,
-		"BasePath":    s.getBasePath(r),
-		"WorkspaceID": workspaceID,
+		"RunningProcesses":  runningProcesses,
+		"FinishedProcesses": finishedProcesses,
+		"HasMore":           len(finishedProcesses) == initialFinishedLimit,
+		"Offset":            initialFinishedLimit,
+		"BasePath":          s.getBasePath(r),
+		"WorkspaceID":       workspaceID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Get workspace ID from path parameter
+	workspaceID := r.PathValue("id")
+	if workspaceID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+	}
+
+	// Get offset from query parameter
+	offsetStr := r.URL.Query().Get("offset")
+	offset := 0
+	if offsetStr != "" {
+		_, _ = fmt.Sscanf(offsetStr, "%d", &offset)
+	}
+
+	// Get the workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace not found: %w", err)
+	}
+
+	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter for finished processes only
+	var finishedProcesses []*executor.Process
+	for _, p := range allProcesses {
+		if p.Status == "completed" {
+			finishedProcesses = append(finishedProcesses, p)
+		}
+	}
+
+	// Sort finished processes by end time (newest first)
+	sort.Slice(finishedProcesses, func(i, j int) bool {
+		return finishedProcesses[i].EndTime.After(finishedProcesses[j].EndTime)
+	})
+
+	// Apply pagination
+	const pageSize = 10
+	start := offset
+	end := offset + pageSize
+	if start >= len(finishedProcesses) {
+		// No more processes
+		return []byte{}, nil
+	}
+	if end > len(finishedProcesses) {
+		end = len(finishedProcesses)
+	}
+
+	paginatedProcesses := finishedProcesses[start:end]
+	hasMore := end < len(finishedProcesses)
+	newOffset := end
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-finished-processes.html", map[string]interface{}{
+		"FinishedProcesses": paginatedProcesses,
+		"HasMore":           hasMore,
+		"Offset":            newOffset,
+		"BasePath":          s.getBasePath(r),
+		"WorkspaceID":       workspaceID,
 	})
 	if err != nil {
 		return nil, err
