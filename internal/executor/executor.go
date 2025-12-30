@@ -77,7 +77,7 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 	proc := &Process{
 		ID:          hash,
 		Command:     command,
-		StartTime:   time.Now(),
+		StartTime:   time.Now().UTC(),
 		StdoutFile:  filepath.Join(processDir, "stdout"),
 		StderrFile:  filepath.Join(processDir, "stderr"),
 		Status:      "pending",

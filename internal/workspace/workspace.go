@@ -80,7 +80,7 @@ func CreateWorkspace(stateDir, name, directory, preCommand string) (*Workspace, 
 		Name:       name,
 		Directory:  directory,
 		PreCommand: preCommand,
-		CreatedAt:  time.Now(),
+		CreatedAt:  time.Now().UTC(),
 		Path:       workspacePath,
 	}
 
@@ -144,7 +144,7 @@ func ListWorkspaces(stateDir string) ([]*Workspace, error) {
 // CreateProcess creates a new process in a workspace
 func CreateProcess(ws *Workspace, command string) (string, error) {
 	// Generate hash for the process
-	hash := generateProcessHash(command, time.Now())
+	hash := generateProcessHash(command, time.Now().UTC())
 
 	processDir := filepath.Join(ws.Path, "processes", hash)
 	if err := os.MkdirAll(processDir, 0700); err != nil {
@@ -154,7 +154,7 @@ func CreateProcess(ws *Workspace, command string) (string, error) {
 	proc := &Process{
 		Hash:      hash,
 		Command:   command,
-		StartTime: time.Now(),
+		StartTime: time.Now().UTC(),
 		Status:    "pending",
 	}
 
@@ -217,7 +217,7 @@ func UpdateProcessExit(ws *Workspace, hash string, exitCode int) error {
 	}
 
 	// Write endtime file
-	endTime := time.Now().Format(time.RFC3339Nano)
+	endTime := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := os.WriteFile(filepath.Join(processDir, "endtime"), []byte(endTime), 0600); err != nil {
 		return fmt.Errorf("failed to write endtime file: %w", err)
 	}

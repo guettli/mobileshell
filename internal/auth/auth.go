@@ -44,7 +44,7 @@ func Authenticate(ctx context.Context, stateDir, password string) (string, bool)
 	}
 
 	token := generateToken()
-	expiry := time.Now().Add(24 * time.Hour)
+	expiry := time.Now().UTC().Add(24 * time.Hour)
 
 	// Hash the token for storage (security: don't store raw tokens)
 	tokenHash := sha256.Sum256([]byte(token))
@@ -96,7 +96,7 @@ func ValidateSession(stateDir, token string) (bool, error) {
 	expiry := time.Unix(expiryUnix, 0)
 
 	// Check if expired
-	if time.Now().After(expiry) {
+	if time.Now().UTC().After(expiry) {
 		// Clean up expired session
 		_ = os.Remove(sessionPath)
 		return false, nil
@@ -106,7 +106,7 @@ func ValidateSession(stateDir, token string) (bool, error) {
 }
 
 func CleanExpiredSessions(stateDir string) {
-	now := time.Now()
+	now := time.Now().UTC()
 	sessionsDir := filepath.Join(stateDir, "sessions")
 
 	entries, err := os.ReadDir(sessionsDir)
