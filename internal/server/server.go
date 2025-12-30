@@ -147,26 +147,63 @@ func (e *hxRedirectError) Error() string {
 	return fmt.Sprintf("htmx redirect to %s", e.url)
 }
 
+// loggingMiddleware logs each HTTP request
+func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Create a response writer wrapper to capture status code
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+		// Call the next handler
+		next.ServeHTTP(wrapped, r)
+
+		// Log the request
+		duration := time.Since(start)
+		slog.Info("HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", wrapped.statusCode,
+			"duration_ms", duration.Milliseconds(),
+		)
+	})
+}
+
+// responseWriter wraps http.ResponseWriter to capture status code
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
 func (s *Server) SetupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
 	// Serve static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
+	// Public routes
 	mux.HandleFunc("/", s.wrapHandler(s.handleIndex))
 	mux.HandleFunc("/login", s.wrapHandler(s.handleLogin))
 	mux.HandleFunc("/logout", s.wrapHandler(s.handleLogout))
+
+	// Workspace routes
 	mux.HandleFunc("/workspaces", s.authMiddleware(s.wrapHandler(s.handleWorkspaces)))
 	mux.HandleFunc("/workspaces/create", s.authMiddleware(s.wrapHandler(s.handleWorkspaceCreate)))
-	mux.HandleFunc("/workspaces/", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
-	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
-	mux.HandleFunc("/workspace/list", s.authMiddleware(s.wrapHandler(s.handleWorkspaceList)))
-	mux.HandleFunc("/execute", s.authMiddleware(s.wrapHandler(s.handleExecute)))
-	mux.HandleFunc("/processes", s.authMiddleware(s.wrapHandler(s.handleProcesses)))
-	mux.HandleFunc("/hx-workspace-processes", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceProcesses)))
-	mux.HandleFunc("/output/", s.authMiddleware(s.wrapHandler(s.handleOutput)))
+	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
+	mux.HandleFunc("/workspaces/{id}/execute", s.authMiddleware(s.wrapHandler(s.handleExecute)))
+	mux.HandleFunc("/workspaces/{id}/processes", s.authMiddleware(s.wrapHandler(s.handleWorkspaceProcesses)))
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}/output", s.authMiddleware(s.wrapHandler(s.handleOutput)))
 
-	return mux
+	// Legacy/compatibility routes (can be removed later if needed)
+	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
+
+	// Wrap all routes with logging middleware
+	return s.loggingMiddleware(mux)
 }
 
 func (s *Server) handleIndex(ctx context.Context, r *http.Request) ([]byte, error) {
@@ -316,10 +353,8 @@ func (s *Server) handleWorkspaceCreate(ctx context.Context, r *http.Request) ([]
 
 // handleWorkspaceByID handles /workspaces/{id}
 func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]byte, error) {
-	// Extract workspace ID from URL path
-	path := strings.TrimPrefix(r.URL.Path, s.getBasePath(r)+"/workspaces/")
-	workspaceID := strings.TrimSuffix(path, "/")
-
+	// Extract workspace ID from path parameter
+	workspaceID := r.PathValue("id")
 	if workspaceID == "" || workspaceID == "create" {
 		return nil, newHTTPError(http.StatusNotFound, "Not found")
 	}
@@ -358,34 +393,6 @@ func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]b
 	return nil, &redirectError{url: basePath + "/workspaces", statusCode: http.StatusSeeOther}
 }
 
-func (s *Server) handleWorkspaceList(ctx context.Context, r *http.Request) ([]byte, error) {
-	workspaces, err := executor.ListWorkspaces(s.stateDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list workspaces: %w", err)
-	}
-
-	// Convert to template data
-	var wsData []map[string]any
-	for _, ws := range workspaces {
-		wsData = append(wsData, map[string]any{
-			"ID":         ws.ID,
-			"Name":       ws.Name,
-			"Directory":  ws.Directory,
-			"PreCommand": ws.PreCommand,
-		})
-	}
-
-	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "workspace-list.html", map[string]any{
-		"BasePath":   s.getBasePath(r),
-		"Workspaces": wsData,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
 func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
 		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
@@ -396,8 +403,8 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 		return nil, newHTTPError(http.StatusBadRequest, "Command is required")
 	}
 
-	// Get workspace ID from form
-	workspaceID := r.FormValue("workspace_id")
+	// Get workspace ID from path parameter
+	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
 		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
 	}
@@ -424,23 +431,9 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 	}
 }
 
-func (s *Server) handleProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
-	processes := executor.ListProcesses(s.stateDir)
-
-	data, err := json.Marshal(processes)
-	if err != nil {
-		return nil, err
-	}
-
-	return data, &contentTypeError{
-		contentType: "application/json",
-		data:        data,
-	}
-}
-
-func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
-	// Get workspace ID from query parameter
-	workspaceID := r.URL.Query().Get("workspace_id")
+func (s *Server) handleWorkspaceProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Get workspace ID from path parameter
+	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
 		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
 	}
@@ -466,8 +459,9 @@ func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request
 
 	var buf bytes.Buffer
 	err = s.tmpl.ExecuteTemplate(&buf, "processes.html", map[string]interface{}{
-		"Processes": unfinishedProcesses,
-		"BasePath":  s.getBasePath(r),
+		"Processes":   unfinishedProcesses,
+		"BasePath":    s.getBasePath(r),
+		"WorkspaceID": workspaceID,
 	})
 	if err != nil {
 		return nil, err
@@ -476,9 +470,10 @@ func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request
 }
 
 func (s *Server) handleOutput(ctx context.Context, r *http.Request) ([]byte, error) {
-	id := r.URL.Path[len("/output/"):]
+	// Get process ID from path parameter
+	processID := r.PathValue("processID")
 
-	proc, ok := executor.GetProcess(s.stateDir, id)
+	proc, ok := executor.GetProcess(s.stateDir, processID)
 	if !ok {
 		return nil, newHTTPError(http.StatusNotFound, "Process not found")
 	}
