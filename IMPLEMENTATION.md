@@ -54,7 +54,6 @@ All templates use Bootstrap 5 and htmx 1.9.10:
 
 - **login.html**: Login form with password input
 - **dashboard.html**: Main interface with command input and process list
-- **processes.html**: Dynamic process list (refreshes every 3s)
 - **output.html**: Stdout/stderr viewer for individual processes
 
 ### 4. Systemd Integration
@@ -114,7 +113,6 @@ mobileshell/
 │       └── templates/            # HTML templates
 │           ├── login.html
 │           ├── dashboard.html
-│           ├── processes.html
 │           └── output.html
 ├── go.mod
 ├── .gitignore

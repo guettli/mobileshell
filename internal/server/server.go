@@ -64,15 +64,14 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 				if cre.cookie != nil {
 					http.SetCookie(w, cre.cookie)
 				}
-				if cre.hxRedirect != "" {
-					w.Header().Set("HX-Redirect", cre.hxRedirect)
-					w.WriteHeader(http.StatusOK)
-					return
-				}
 				if cre.redirect != "" {
 					http.Redirect(w, r, cre.redirect, cre.statusCode)
 					return
 				}
+				return
+			}
+			if hxre, ok := err.(*hxRedirectError); ok {
+				w.Header().Set("HX-Redirect", hxre.url)
 				return
 			}
 			if cte, ok := err.(*contentTypeError); ok {
@@ -124,7 +123,6 @@ func (e *redirectError) Error() string {
 type cookieRedirectError struct {
 	cookie     *http.Cookie
 	redirect   string
-	hxRedirect string
 	statusCode int
 }
 
@@ -142,6 +140,15 @@ func (e *contentTypeError) Error() string {
 	return fmt.Sprintf("response with content-type: %s", e.contentType)
 }
 
+// hxRedirectError represents an htmx redirect using HX-Redirect header
+type hxRedirectError struct {
+	url string
+}
+
+func (e *hxRedirectError) Error() string {
+	return fmt.Sprintf("htmx redirect to %s", e.url)
+}
+
 func (s *Server) SetupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -151,7 +158,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/", s.wrapHandler(s.handleIndex))
 	mux.HandleFunc("/login", s.wrapHandler(s.handleLogin))
 	mux.HandleFunc("/logout", s.wrapHandler(s.handleLogout))
-	mux.HandleFunc("/dashboard", s.authMiddleware(s.wrapHandler(s.handleDashboard)))
+	mux.HandleFunc("/workspaces", s.authMiddleware(s.wrapHandler(s.handleWorkspaces)))
+	mux.HandleFunc("/workspaces/create", s.authMiddleware(s.wrapHandler(s.handleWorkspaceCreate)))
+	mux.HandleFunc("/workspaces/", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
+	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
+	mux.HandleFunc("/workspace/list", s.authMiddleware(s.wrapHandler(s.handleWorkspaceList)))
 	mux.HandleFunc("/execute", s.authMiddleware(s.wrapHandler(s.handleExecute)))
 	mux.HandleFunc("/processes", s.authMiddleware(s.wrapHandler(s.handleProcesses)))
 	mux.HandleFunc("/output/", s.authMiddleware(s.wrapHandler(s.handleOutput)))
@@ -169,7 +180,7 @@ func (s *Server) handleIndex(ctx context.Context, r *http.Request) ([]byte, erro
 		if valid {
 			basePath := s.getBasePath(r)
 			// Return redirect as a special marker (we'll handle this in wrapHandler)
-			return nil, &redirectError{url: basePath + "/dashboard", statusCode: http.StatusSeeOther}
+			return nil, &redirectError{url: basePath + "/workspaces", statusCode: http.StatusSeeOther}
 		}
 	}
 
@@ -204,7 +215,7 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 		return buf.Bytes(), nil
 	}
 
-	// Return cookie and HX-Redirect header
+	// Return cookie and redirect
 	return nil, &cookieRedirectError{
 		cookie: &http.Cookie{
 			Name:     "session",
@@ -213,7 +224,8 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 			HttpOnly: true,
 			MaxAge:   86400, // 24 hours
 		},
-		hxRedirect: basePath + "/dashboard",
+		redirect:   basePath + "/workspaces",
+		statusCode: http.StatusSeeOther,
 	}
 }
 
@@ -237,10 +249,143 @@ func (s *Server) handleLogout(ctx context.Context, r *http.Request) ([]byte, err
 	}
 }
 
-func (s *Server) handleDashboard(ctx context.Context, r *http.Request) ([]byte, error) {
+func (s *Server) handleWorkspaces(ctx context.Context, r *http.Request) ([]byte, error) {
+	basePath := s.getBasePath(r)
+
+	// Get all workspaces for the list
+	workspaces, _ := s.executor.ListWorkspaces()
+	var workspaceList []map[string]any
+	for _, ws := range workspaces {
+		workspaceList = append(workspaceList, map[string]any{
+			"ID":         ws.ID,
+			"Name":       ws.Name,
+			"Directory":  ws.Directory,
+			"PreCommand": ws.PreCommand,
+		})
+	}
+
 	var buf bytes.Buffer
-	err := s.tmpl.ExecuteTemplate(&buf, "dashboard.html", map[string]interface{}{
-		"BasePath": s.getBasePath(r),
+	err := s.tmpl.ExecuteTemplate(&buf, "workspaces.html", map[string]any{
+		"BasePath":   basePath,
+		"Workspaces": workspaceList,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (s *Server) handleWorkspaceCreate(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	name := r.FormValue("name")
+	directory := r.FormValue("directory")
+	preCommand := r.FormValue("pre_command")
+
+	if name == "" || directory == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Name and directory are required")
+	}
+
+	// Create the workspace
+	err := s.executor.SetWorkspace(name, directory, preCommand)
+	if err != nil {
+		// Return just the form partial with error and preserved values
+		basePath := s.getBasePath(r)
+		var buf bytes.Buffer
+		renderErr := s.tmpl.ExecuteTemplate(&buf, "workspace-form.html", map[string]any{
+			"BasePath": basePath,
+			"Error":    err.Error(),
+			"FormValues": map[string]string{
+				"Name":       name,
+				"Directory":  directory,
+				"PreCommand": preCommand,
+			},
+		})
+		if renderErr != nil {
+			return nil, renderErr
+		}
+		return buf.Bytes(), nil
+	}
+
+	// Get the newly created workspace
+	ws := s.executor.GetCurrentWorkspace()
+
+	// Use HX-Redirect header for htmx requests
+	basePath := s.getBasePath(r)
+	redirectURL := fmt.Sprintf("%s/workspaces/%s", basePath, ws.ID)
+	return nil, &hxRedirectError{url: redirectURL}
+}
+
+// handleWorkspaceByID handles /workspaces/{id}
+func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Extract workspace ID from URL path
+	path := strings.TrimPrefix(r.URL.Path, s.getBasePath(r)+"/workspaces/")
+	workspaceID := strings.TrimSuffix(path, "/")
+
+	if workspaceID == "" || workspaceID == "create" {
+		return nil, newHTTPError(http.StatusNotFound, "Not found")
+	}
+
+	// Select the workspace by ID
+	err := s.executor.SelectWorkspaceByID(workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace not found: %w", err)
+	}
+
+	// Get workspace details
+	ws := s.executor.GetCurrentWorkspace()
+
+	// Render workspace page
+	basePath := s.getBasePath(r)
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "workspaces.html", map[string]any{
+		"BasePath": basePath,
+		"CurrentWorkspace": map[string]any{
+			"ID":         ws.ID,
+			"Name":       ws.Name,
+			"Directory":  ws.Directory,
+			"PreCommand": ws.PreCommand,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	// Redirect to workspaces page
+	basePath := s.getBasePath(r)
+	return nil, &redirectError{url: basePath + "/workspaces", statusCode: http.StatusSeeOther}
+}
+
+func (s *Server) handleWorkspaceList(ctx context.Context, r *http.Request) ([]byte, error) {
+	workspaces, err := s.executor.ListWorkspaces()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workspaces: %w", err)
+	}
+
+	// Convert to template data
+	var wsData []map[string]any
+	for _, ws := range workspaces {
+		wsData = append(wsData, map[string]any{
+			"ID":         ws.ID,
+			"Name":       ws.Name,
+			"Directory":  ws.Directory,
+			"PreCommand": ws.PreCommand,
+		})
+	}
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "workspace-list.html", map[string]any{
+		"BasePath":   s.getBasePath(r),
+		"Workspaces": wsData,
 	})
 	if err != nil {
 		return nil, err
@@ -276,18 +421,6 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 
 func (s *Server) handleProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
 	processes := s.executor.ListProcesses()
-
-	if r.Header.Get("HX-Request") == "true" {
-		var buf bytes.Buffer
-		err := s.tmpl.ExecuteTemplate(&buf, "processes.html", map[string]interface{}{
-			"Processes": processes,
-			"BasePath":  s.getBasePath(r),
-		})
-		if err != nil {
-			return nil, err
-		}
-		return buf.Bytes(), nil
-	}
 
 	data, err := json.Marshal(processes)
 	if err != nil {
@@ -405,7 +538,7 @@ func GetStateDir(stateDir string, createIfMissing bool) (string, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			if createIfMissing {
-				if err := os.MkdirAll(stateDir, 0700); err != nil {
+				if err := os.MkdirAll(stateDir, 0o700); err != nil {
 					return "", fmt.Errorf("failed to create state directory: %w", err)
 				}
 				return stateDir, nil
@@ -441,14 +574,12 @@ func Run(stateDir, port string) error {
 		slog.Warn("No passwords configured yet. Add one with: mobileshell add-password")
 	}
 
-	outputDir := filepath.Join(stateDir, "outputs")
-
 	authSvc, err := auth.New(stateDir)
 	if err != nil {
 		return fmt.Errorf("failed to create auth service: %w", err)
 	}
 
-	exec, err := executor.New(outputDir)
+	exec, err := executor.New(stateDir)
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)
 	}

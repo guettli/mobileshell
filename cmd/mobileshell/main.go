@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"mobileshell/internal/auth"
+	"mobileshell/internal/nohup"
 	"mobileshell/internal/server"
 
 	"github.com/spf13/cobra"
@@ -66,14 +67,36 @@ var addPasswordCmd = &cobra.Command{
 	},
 }
 
+var nohupCmd = &cobra.Command{
+	Use:    "nohup WORKSPACE_TIMESTAMP PROCESS_HASH",
+	Short:  "Execute a process in nohup mode (internal use)",
+	Long:   `Execute a process in nohup mode within a workspace. This command is used internally by the server.`,
+	Hidden: true, // Hide from help since it's for internal use
+	Args:   cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dir, err := server.GetStateDir(stateDir, false)
+		if err != nil {
+			return err
+		}
+
+		workspaceTimestamp := args[0]
+		processHash := args[1]
+
+		return nohup.Run(dir, workspaceTimestamp, processHash, args[2:])
+	},
+}
+
 func init() {
 	runCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 	runCmd.Flags().StringVarP(&port, "port", "p", "22123", "Port to listen on")
 
 	addPasswordCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 
+	nohupCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
+
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(addPasswordCmd)
+	rootCmd.AddCommand(nohupCmd)
 }
 
 func main() {

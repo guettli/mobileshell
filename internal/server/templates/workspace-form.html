@@ -1,0 +1,23 @@
+<div id="workspace-form-container">
+    {{if .Error}}
+    <div class="alert alert-danger" role="alert">
+        {{.Error}}
+    </div>
+    {{end}}
+    <form hx-post="{{.BasePath}}/workspaces/create" hx-target="#workspace-form-container" hx-swap="outerHTML">
+        <div class="mb-3">
+            <label for="name" class="form-label">Workspace Name</label>
+            <input type="text" class="form-control" id="name" name="name" value="{{.FormValues.Name}}" placeholder="e.g., frontend, backend" required autofocus>
+        </div>
+        <div class="mb-3">
+            <label for="directory" class="form-label">Working Directory</label>
+            <input type="text" class="form-control" id="directory" name="directory" value="{{.FormValues.Directory}}" placeholder="/home/user/project" required>
+        </div>
+        <div class="mb-3">
+            <label for="pre_command" class="form-label">Pre-command (optional)</label>
+            <input type="text" class="form-control" id="pre_command" name="pre_command" value="{{.FormValues.PreCommand}}" placeholder="e.g., source .env">
+            <div class="form-text">This command runs before every command in this workspace</div>
+        </div>
+        <button type="submit" class="btn btn-primary">Create Workspace</button>
+    </form>
+</div>
