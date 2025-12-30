@@ -182,7 +182,7 @@ func TestProcessUpdate(t *testing.T) {
 	}
 
 	// Update exit
-	err = UpdateProcessExit(ws, hash, 0)
+	err = UpdateProcessExit(ws, hash, 0, "")
 	if err != nil {
 		t.Fatalf("Failed to update exit: %v", err)
 	}

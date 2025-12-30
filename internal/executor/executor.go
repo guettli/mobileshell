@@ -21,6 +21,7 @@ type Process struct {
 	WorkspaceTS string    `json:"workspace_timestamp"`
 	Hash        string    `json:"hash"`
 	ExitCode    *int      `json:"exit_code,omitempty"`
+	Signal      string    `json:"signal,omitempty"`
 	EndTime     time.Time `json:"end_time,omitempty"`
 }
 
@@ -121,6 +122,7 @@ func ListProcesses(stateDir string) []*Process {
 				WorkspaceTS: workspaceTS,
 				Hash:        wp.Hash,
 				ExitCode:    wp.ExitCode,
+				Signal:      wp.Signal,
 			}
 
 			allProcesses = append(allProcesses, proc)
@@ -160,6 +162,7 @@ func ListWorkspaceProcesses(ws *workspace.Workspace) ([]*Process, error) {
 			WorkspaceTS: workspaceTS,
 			Hash:        wp.Hash,
 			ExitCode:    wp.ExitCode,
+			Signal:      wp.Signal,
 		}
 
 		processes = append(processes, proc)
@@ -197,6 +200,7 @@ func GetProcess(stateDir, id string) (*Process, bool) {
 			WorkspaceTS: workspaceTS,
 			Hash:        wp.Hash,
 			ExitCode:    wp.ExitCode,
+			Signal:      wp.Signal,
 		}
 
 		return proc, true

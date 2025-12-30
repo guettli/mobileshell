@@ -29,6 +29,7 @@ type Process struct {
 	StartTime time.Time `json:"start_time"`
 	EndTime   time.Time `json:"end_time,omitempty"`
 	ExitCode  *int      `json:"exit_code,omitempty"` // nil if not exited yet
+	Signal    string    `json:"signal,omitempty"`    // signal name if terminated by signal
 	Status    string    `json:"status"`              // "running" or "completed"
 }
 
@@ -208,12 +209,19 @@ func UpdateProcessPID(ws *Workspace, hash string, pid int) error {
 }
 
 // UpdateProcessExit updates a process when it exits
-func UpdateProcessExit(ws *Workspace, hash string, exitCode int) error {
+func UpdateProcessExit(ws *Workspace, hash string, exitCode int, signal string) error {
 	processDir := filepath.Join(ws.Path, "processes", hash)
 
 	// Write exit-status file
 	if err := os.WriteFile(filepath.Join(processDir, "exit-status"), []byte(strconv.Itoa(exitCode)), 0600); err != nil {
 		return fmt.Errorf("failed to write exit-status file: %w", err)
+	}
+
+	// Write signal file if process was terminated by signal
+	if signal != "" {
+		if err := os.WriteFile(filepath.Join(processDir, "signal"), []byte(signal), 0600); err != nil {
+			return fmt.Errorf("failed to write signal file: %w", err)
+		}
 	}
 
 	// Write endtime file
@@ -412,6 +420,12 @@ func loadProcessFiles(processDir string, proc *Process) error {
 		if err == nil {
 			proc.ExitCode = &exitCode
 		}
+	}
+
+	// Read signal file (optional)
+	signalData, err := os.ReadFile(filepath.Join(processDir, "signal"))
+	if err == nil && len(signalData) > 0 {
+		proc.Signal = strings.TrimSpace(string(signalData))
 	}
 
 	return nil

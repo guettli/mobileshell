@@ -250,7 +250,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/hx-create", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceCreate)))
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
-	mux.HandleFunc("/workspaces/{id}/hx-processes", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceProcesses)))
+	mux.HandleFunc("/workspaces/{id}/hx-running-processes", s.authMiddleware(s.wrapHandler(s.hxHandleRunningProcesses)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 
@@ -480,12 +480,12 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 		return nil, err
 	}
 
-	// Render the process as HTML using the processes template
+	// Render the new process as HTML using the running processes template
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "hx-processes.html", map[string]interface{}{
-		"Processes":   []*executor.Process{proc},
-		"BasePath":    s.getBasePath(r),
-		"WorkspaceID": workspaceID,
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-running-processes.html", map[string]interface{}{
+		"RunningProcesses": []*executor.Process{proc},
+		"BasePath":         s.getBasePath(r),
+		"WorkspaceID":      workspaceID,
 	})
 	if err != nil {
 		return nil, err
@@ -493,7 +493,7 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 	return buf.Bytes(), nil
 }
 
-func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
+func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
@@ -511,36 +511,19 @@ func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request
 		return nil, err
 	}
 
-	// Separate running and finished processes
+	// Filter for running processes only
 	var runningProcesses []*executor.Process
-	var finishedProcesses []*executor.Process
 	for _, p := range allProcesses {
-		if p.Status == "completed" {
-			finishedProcesses = append(finishedProcesses, p)
-		} else {
+		if p.Status != "completed" {
 			runningProcesses = append(runningProcesses, p)
 		}
 	}
 
-	// Sort finished processes by end time (newest first)
-	sort.Slice(finishedProcesses, func(i, j int) bool {
-		return finishedProcesses[i].EndTime.After(finishedProcesses[j].EndTime)
-	})
-
-	// Get first 10 finished processes
-	const initialFinishedLimit = 10
-	if len(finishedProcesses) > initialFinishedLimit {
-		finishedProcesses = finishedProcesses[:initialFinishedLimit]
-	}
-
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "hx-processes.html", map[string]interface{}{
-		"RunningProcesses":  runningProcesses,
-		"FinishedProcesses": finishedProcesses,
-		"HasMore":           len(finishedProcesses) == initialFinishedLimit,
-		"Offset":            initialFinishedLimit,
-		"BasePath":          s.getBasePath(r),
-		"WorkspaceID":       workspaceID,
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-running-processes.html", map[string]interface{}{
+		"RunningProcesses": runningProcesses,
+		"BasePath":         s.getBasePath(r),
+		"WorkspaceID":      workspaceID,
 	})
 	if err != nil {
 		return nil, err
@@ -603,7 +586,14 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	newOffset := end
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "hx-finished-processes.html", map[string]interface{}{
+
+	// Use different template for initial load vs pagination
+	templateName := "hx-finished-processes-page.html"
+	if offset == 0 {
+		templateName = "hx-finished-processes-initial.html"
+	}
+
+	err = s.tmpl.ExecuteTemplate(&buf, templateName, map[string]interface{}{
 		"FinishedProcesses": paginatedProcesses,
 		"HasMore":           hasMore,
 		"Offset":            newOffset,

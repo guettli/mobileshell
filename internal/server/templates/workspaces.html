@@ -70,11 +70,21 @@
             </div>
         </div>
 
-        <!-- Processes Section -->
+        <!-- Running Processes Section -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5 class="card-title">Running Processes</h5>
+                <div id="running-processes" hx-get="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-running-processes" hx-trigger="load, every 3s" hx-swap="innerHTML">
+                    Loading...
+                </div>
+            </div>
+        </div>
+
+        <!-- Finished Processes Section -->
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">Processes</h5>
-                <div id="processes" hx-get="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-processes" hx-trigger="load, every 3s" hx-swap="innerHTML">
+                <h5 class="card-title">Finished Processes</h5>
+                <div id="finished-processes" hx-get="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-finished-processes?offset=0" hx-trigger="load" hx-swap="innerHTML">
                     Loading...
                 </div>
             </div>

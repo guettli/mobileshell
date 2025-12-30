@@ -85,11 +85,18 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Wait for the process to complete
 	err = cmd.Wait()
 
-	// Get exit code
+	// Get exit code and signal
 	exitCode := 0
+	signalName := ""
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
+			// Check if process was terminated by a signal
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				if status.Signaled() {
+					signalName = status.Signal().String()
+				}
+			}
 		} else {
 			exitCode = 1
 		}
@@ -102,7 +109,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	}
 
 	// Update process metadata with exit information
-	if err := workspace.UpdateProcessExit(ws, processHash, exitCode); err != nil {
+	if err := workspace.UpdateProcessExit(ws, processHash, exitCode, signalName); err != nil {
 		return fmt.Errorf("failed to update process exit: %w", err)
 	}
 

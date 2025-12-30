@@ -1,0 +1,25 @@
+{{if .RunningProcesses}}
+    {{range .RunningProcesses}}
+    <div class="card process-card mb-2">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h6 class="card-subtitle mb-2">
+                        <span class="badge bg-primary">
+                            {{.Status}}
+                        </span>
+                    </h6>
+                    <p class="card-text">
+                        <strong>Command:</strong> <code>{{.Command}}</code><br>
+                        <small class="text-muted">Started: {{.StartTime.Format "2006-01-02 15:04:05"}}</small>
+                    </p>
+                </div>
+            </div>
+            <div id="output-{{.ID}}" class="mt-2" hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=combined" hx-trigger="load" hx-swap="innerHTML">
+            </div>
+        </div>
+    </div>
+    {{end}}
+{{else}}
+    <p class="text-muted">No processes running</p>
+{{end}}

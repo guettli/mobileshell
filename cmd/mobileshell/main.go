@@ -33,6 +33,10 @@ var runCmd = &cobra.Command{
 	},
 }
 
+var (
+	fromStdin bool
+)
+
 var addPasswordCmd = &cobra.Command{
 	Use:           "add-password",
 	Short:         "Add a password for authentication",
@@ -46,16 +50,24 @@ var addPasswordCmd = &cobra.Command{
 			return err
 		}
 
-		// Read password from stdin without echoing
-		fmt.Fprintf(os.Stderr, "Enter password (min %d characters, hint: openssl rand -base64 32): ", auth.MinPasswordLength)
-		passwordBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(os.Stderr) // Print newline after password input
-		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
+		var password string
+		if fromStdin {
+			// Read password from stdin without prompting
+			passwordBytes, err := os.ReadFile("/dev/stdin")
+			if err != nil {
+				return fmt.Errorf("failed to read password from stdin: %w", err)
+			}
+			password = strings.TrimSpace(string(passwordBytes))
+		} else {
+			// Read password from stdin without echoing
+			fmt.Fprintf(os.Stderr, "Enter password (min %d characters, hint: openssl rand -base64 32): ", auth.MinPasswordLength)
+			passwordBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Fprintln(os.Stderr) // Print newline after password input
+			if err != nil {
+				return fmt.Errorf("failed to read password: %w", err)
+			}
+			password = strings.TrimSpace(string(passwordBytes))
 		}
-
-		// Convert bytes to string and trim whitespace
-		password := strings.TrimSpace(string(passwordBytes))
 
 		// Add the password
 		if err := auth.AddPassword(dir, password); err != nil {
@@ -91,6 +103,7 @@ func init() {
 	runCmd.Flags().StringVarP(&port, "port", "p", "22123", "Port to listen on")
 
 	addPasswordCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
+	addPasswordCmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "Read password from stdin without prompting (for scripts)")
 
 	nohupCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 
