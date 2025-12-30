@@ -267,3 +267,42 @@ func TestListProcesses(t *testing.T) {
 		t.Errorf("Expected 2 processes, got %d", len(processes))
 	}
 }
+
+func TestWorkspaceWithSpecialCharacters(t *testing.T) {
+	tmpDir := t.TempDir()
+	workDir := t.TempDir()
+
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
+	}
+
+	// Test workspace name with only special characters should fail
+	_, err := CreateWorkspace(tmpDir, "üüü", workDir, "")
+	if err == nil {
+		t.Error("Expected error when creating workspace with only special characters")
+	}
+	if err != nil && err.Error() != "workspace name must contain at least one valid character (a-z, 0-9)" {
+		t.Errorf("Expected specific error message, got: %v", err)
+	}
+
+	// Test workspace name with mixed special and valid characters should work
+	ws, err := CreateWorkspace(tmpDir, "test-üüü-workspace", workDir, "")
+	if err != nil {
+		t.Fatalf("Failed to create workspace with mixed characters: %v", err)
+	}
+	if ws.ID != "test-workspace" {
+		t.Errorf("Expected workspace ID 'test-workspace', got '%s'", ws.ID)
+	}
+
+	// Test workspace name with only symbols should fail
+	_, err = CreateWorkspace(tmpDir, "!!!", workDir, "")
+	if err == nil {
+		t.Error("Expected error when creating workspace with only symbols")
+	}
+
+	// Test workspace name with spaces and special characters should fail
+	_, err = CreateWorkspace(tmpDir, "   ", workDir, "")
+	if err == nil {
+		t.Error("Expected error when creating workspace with only spaces")
+	}
+}

@@ -52,16 +52,17 @@ func CreateWorkspace(stateDir, name, directory, preCommand string) (*Workspace, 
 	}
 
 	// Generate URL-safe ID from name
-	id := generateWorkspaceID(name)
+	id, err := generateWorkspaceID(name)
+	if err != nil {
+		return nil, err
+	}
 
-	// Create directory name: YYYY-MM-DD_ID
-	dateStr := time.Now().Format("2006-01-02")
-	workspaceDirName := fmt.Sprintf("%s_%s", dateStr, id)
-	workspacePath := filepath.Join(stateDir, "workspaces", workspaceDirName)
+	// Create directory name: ID
+	workspacePath := filepath.Join(stateDir, "workspaces", id)
 
-	// Check if workspace with this ID already exists today
+	// Check if workspace with this ID already exists
 	if _, err := os.Stat(workspacePath); err == nil {
-		return nil, fmt.Errorf("workspace with ID '%s' already exists for today", id)
+		return nil, fmt.Errorf("workspace with ID '%s' already exists", id)
 	}
 
 	if err := os.MkdirAll(workspacePath, 0700); err != nil {
@@ -91,7 +92,7 @@ func CreateWorkspace(stateDir, name, directory, preCommand string) (*Workspace, 
 	return ws, nil
 }
 
-// GetWorkspace retrieves a workspace by its directory name (YYYY-MM-DD_ID)
+// GetWorkspace retrieves a workspace by its directory name (ID)
 func GetWorkspace(stateDir, dirName string) (*Workspace, error) {
 	workspacePath := filepath.Join(stateDir, "workspaces", dirName)
 
@@ -108,42 +109,8 @@ func GetWorkspace(stateDir, dirName string) (*Workspace, error) {
 }
 
 // GetWorkspaceByID retrieves a workspace by its ID
-// If multiple workspaces exist with the same ID (from different days), returns the most recent
 func GetWorkspaceByID(stateDir, id string) (*Workspace, error) {
-	workspacesDir := filepath.Join(stateDir, "workspaces")
-	entries, err := os.ReadDir(workspacesDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read workspaces directory: %w", err)
-	}
-
-	// Find all workspaces with matching ID, sorted by date (newest first)
-	var matchingDirs []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		// Check if directory name ends with _ID
-		if strings.HasSuffix(entry.Name(), "_"+id) {
-			matchingDirs = append(matchingDirs, entry.Name())
-		}
-	}
-
-	if len(matchingDirs) == 0 {
-		return nil, fmt.Errorf("workspace not found: %s", id)
-	}
-
-	// Sort in reverse order to get most recent first
-	// Since format is YYYY-MM-DD_ID, lexicographic sort works
-	for i := 0; i < len(matchingDirs); i++ {
-		for j := i + 1; j < len(matchingDirs); j++ {
-			if matchingDirs[i] < matchingDirs[j] {
-				matchingDirs[i], matchingDirs[j] = matchingDirs[j], matchingDirs[i]
-			}
-		}
-	}
-
-	// Return the most recent one
-	return GetWorkspace(stateDir, matchingDirs[0])
+	return GetWorkspace(stateDir, id)
 }
 
 // ListWorkspaces returns all workspaces
@@ -459,7 +426,7 @@ func generateProcessHash(command string, timestamp time.Time) string {
 
 // generateWorkspaceID generates a URL-safe ID from a name
 // The ID is based on the name but guaranteed to be URL-safe
-func generateWorkspaceID(name string) string {
+func generateWorkspaceID(name string) (string, error) {
 	// Convert to lowercase
 	id := strings.ToLower(name)
 
@@ -479,7 +446,7 @@ func generateWorkspaceID(name string) string {
 
 	// Ensure it's not empty
 	if id == "" {
-		id = "workspace"
+		return "", fmt.Errorf("workspace name must contain at least one valid character (a-z, 0-9)")
 	}
 
 	// Limit length
@@ -487,5 +454,5 @@ func generateWorkspaceID(name string) string {
 		id = id[:50]
 	}
 
-	return id
+	return id, nil
 }
