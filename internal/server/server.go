@@ -192,7 +192,6 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/logout", s.wrapHandler(s.handleLogout))
 
 	// Workspace routes
-	mux.HandleFunc("/workspaces", s.authMiddleware(s.wrapHandler(s.handleWorkspaces)))
 	mux.HandleFunc("/workspaces/create", s.authMiddleware(s.wrapHandler(s.handleWorkspaceCreate)))
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
 	mux.HandleFunc("/workspaces/{id}/execute", s.authMiddleware(s.wrapHandler(s.handleExecute)))
@@ -214,30 +213,38 @@ func (s *Server) handleIndex(ctx context.Context, r *http.Request) ([]byte, erro
 			return nil, fmt.Errorf("failed to validate session: %w", err)
 		}
 		if valid {
-			basePath := s.getBasePath(r)
-			// Return redirect as a special marker (we'll handle this in wrapHandler)
-			return nil, &redirectError{url: basePath + "/workspaces", statusCode: http.StatusSeeOther}
+			// User is logged in, show workspaces
+			return s.handleWorkspaces(ctx, r)
 		}
 	}
 
-	var buf bytes.Buffer
-	err := s.tmpl.ExecuteTemplate(&buf, "login.html", map[string]interface{}{
-		"BasePath": s.getBasePath(r),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	// User is not logged in, redirect to login
+	basePath := s.getBasePath(r)
+	return nil, &redirectError{url: basePath + "/login", statusCode: http.StatusSeeOther}
 }
 
 func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, error) {
+	basePath := s.getBasePath(r)
+
+	// Handle GET request - show login form
+	if r.Method == http.MethodGet {
+		var buf bytes.Buffer
+		err := s.tmpl.ExecuteTemplate(&buf, "login.html", map[string]interface{}{
+			"BasePath": basePath,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+
+	// Handle POST request - authenticate
 	if r.Method != http.MethodPost {
 		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 	}
 
 	password := r.FormValue("password")
 	token, ok := auth.Authenticate(ctx, s.stateDir, password)
-	basePath := s.getBasePath(r)
 
 	if !ok {
 		var buf bytes.Buffer
@@ -251,7 +258,7 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 		return buf.Bytes(), nil
 	}
 
-	// Return cookie and redirect
+	// Return cookie and redirect to home (which will show workspaces)
 	return nil, &cookieRedirectError{
 		cookie: &http.Cookie{
 			Name:     "session",
@@ -260,17 +267,14 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 			HttpOnly: true,
 			MaxAge:   86400, // 24 hours
 		},
-		redirect:   basePath + "/workspaces",
+		redirect:   basePath + "/",
 		statusCode: http.StatusSeeOther,
 	}
 }
 
 func (s *Server) handleLogout(ctx context.Context, r *http.Request) ([]byte, error) {
 	basePath := s.getBasePath(r)
-	redirectPath := basePath + "/"
-	if redirectPath == "/" {
-		redirectPath = "/"
-	}
+	redirectPath := basePath + "/login"
 
 	return nil, &cookieRedirectError{
 		cookie: &http.Cookie{
@@ -388,9 +392,9 @@ func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]b
 		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 	}
 
-	// Redirect to workspaces page
+	// Redirect to home page
 	basePath := s.getBasePath(r)
-	return nil, &redirectError{url: basePath + "/workspaces", statusCode: http.StatusSeeOther}
+	return nil, &redirectError{url: basePath + "/", statusCode: http.StatusSeeOther}
 }
 
 func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, error) {
@@ -519,11 +523,9 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		if !valid {
+			slog.Info("ValidateSession returned false")
 			basePath := s.getBasePath(r)
-			redirectPath := basePath + "/"
-			if redirectPath == "/" {
-				redirectPath = "/"
-			}
+			redirectPath := basePath + "/login"
 			http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 			return
 		}
