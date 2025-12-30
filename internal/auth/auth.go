@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	mathrand "math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -26,7 +27,7 @@ func New(stateDir string) (*Auth, error) {
 
 	// Create sessions directory if it doesn't exist
 	sessionsDir := filepath.Join(stateDir, "sessions")
-	if err := os.MkdirAll(sessionsDir, 0700); err != nil {
+	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create sessions directory: %w", err)
 	}
 
@@ -45,6 +46,8 @@ func (a *Auth) Authenticate(ctx context.Context, password string) (string, bool)
 	// Check if file exists in stateDir/hashed-passwords/
 	passwordFilePath := filepath.Join(a.stateDir, "hashed-passwords", hashedPassword)
 	if _, err := os.Stat(passwordFilePath); os.IsNotExist(err) {
+		// Add random delay to mitigate timing attacks
+		time.Sleep(time.Duration(10+mathrand.Int32N(1000)) * time.Microsecond)
 		slog.Debug("password file not found. Authenticate failed", "path", passwordFilePath)
 		return "", false
 	}
@@ -71,10 +74,10 @@ func (a *Auth) saveSession(hashedToken string, expiry time.Time) error {
 
 	// Write expiry time as Unix timestamp
 	expiryStr := strconv.FormatInt(expiry.Unix(), 10)
-	return os.WriteFile(sessionPath, []byte(expiryStr), 0600)
+	return os.WriteFile(sessionPath, []byte(expiryStr), 0o600)
 }
 
-func (a *Auth) ValidateSession(token string) bool {
+func (a *Auth) ValidateSession(token string) (bool, error) {
 	// Hash the token to look it up
 	tokenHash := sha256.Sum256([]byte(token))
 	hashedToken := hex.EncodeToString(tokenHash[:])
@@ -85,13 +88,18 @@ func (a *Auth) ValidateSession(token string) bool {
 	// Read session file
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
-		return false
+		if os.IsNotExist(err) {
+			// Add random delay to mitigate timing attacks
+			time.Sleep(time.Duration(10+mathrand.Int32N(1000)) * time.Microsecond)
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	// Parse expiry time
 	expiryUnix, err := strconv.ParseInt(string(data), 10, 64)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("failed to parse session expiry: %w", err)
 	}
 
 	expiry := time.Unix(expiryUnix, 0)
@@ -100,10 +108,10 @@ func (a *Auth) ValidateSession(token string) bool {
 	if time.Now().After(expiry) {
 		// Clean up expired session
 		_ = os.Remove(sessionPath)
-		return false
+		return false, nil
 	}
 
-	return true
+	return true, nil
 }
 
 func (a *Auth) CleanExpiredSessions() {
@@ -156,13 +164,13 @@ func AddPassword(stateDir, password string) error {
 
 	// Create the hashed-passwords directory if it doesn't exist
 	hashedPasswordsDir := filepath.Join(stateDir, "hashed-passwords")
-	if err := os.MkdirAll(hashedPasswordsDir, 0700); err != nil {
+	if err := os.MkdirAll(hashedPasswordsDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create hashed-passwords directory: %w", err)
 	}
 
 	// Create the password file
 	passwordFilePath := filepath.Join(hashedPasswordsDir, hashedPassword)
-	if err := os.WriteFile(passwordFilePath, []byte{}, 0600); err != nil {
+	if err := os.WriteFile(passwordFilePath, []byte{}, 0o600); err != nil {
 		return fmt.Errorf("failed to write password file: %w", err)
 	}
 

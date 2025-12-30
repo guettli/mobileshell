@@ -161,10 +161,16 @@ func (s *Server) SetupRoutes() http.Handler {
 
 func (s *Server) handleIndex(ctx context.Context, r *http.Request) ([]byte, error) {
 	token := s.getSessionToken(r)
-	if token != "" && s.auth.ValidateSession(token) {
-		basePath := s.getBasePath(r)
-		// Return redirect as a special marker (we'll handle this in wrapHandler)
-		return nil, &redirectError{url: basePath + "/dashboard", statusCode: http.StatusSeeOther}
+	if token != "" {
+		valid, err := s.auth.ValidateSession(token)
+		if err != nil {
+			return nil, fmt.Errorf("failed to validate session: %w", err)
+		}
+		if valid {
+			basePath := s.getBasePath(r)
+			// Return redirect as a special marker (we'll handle this in wrapHandler)
+			return nil, &redirectError{url: basePath + "/dashboard", statusCode: http.StatusSeeOther}
+		}
 	}
 
 	var buf bytes.Buffer
@@ -332,7 +338,17 @@ func (s *Server) handleOutput(ctx context.Context, r *http.Request) ([]byte, err
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := s.getSessionToken(r)
-		if token == "" || !s.auth.ValidateSession(token) {
+		valid := false
+		if token != "" {
+			var err error
+			valid, err = s.auth.ValidateSession(token)
+			if err != nil {
+				slog.Error("Failed to validate session", "error", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+		if !valid {
 			basePath := s.getBasePath(r)
 			redirectPath := basePath + "/"
 			if redirectPath == "/" {
