@@ -9,6 +9,8 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     exec nix develop --command "$0" "$@"
 fi
 
+
+
 git ls-files '*.sh' | xargs shellcheck
 
 git ls-files '*.md' | xargs markdownlint
@@ -38,4 +40,23 @@ if [[ -n $absolute_links ]]; then
     echo "$absolute_links"
     exit 1
 fi
+
+# Check that all HTML templates are used in Go code
+echo "Checking that all HTML templates are used..."
+unused_templates=""
+for template_file in internal/server/templates/*.html; do
+    template_name=$(basename "$template_file")
+    # Search for the template name in Go files
+    if ! grep -r "\"$template_name\"" internal/server/*.go >/dev/null 2>&1; then
+        unused_templates="$unused_templates$template_file\n"
+    fi
+done
+
+if [[ -n $unused_templates ]]; then
+    echo "Found unused HTML templates. All templates should be used in Go code or removed:"
+    echo
+    echo -e "$unused_templates"
+    exit 1
+fi
+
 golangci-lint run ./...

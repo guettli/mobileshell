@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -424,15 +423,17 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 		return nil, err
 	}
 
-	data, err := json.Marshal(proc)
+	// Render the process as HTML using the processes template
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "processes.html", map[string]interface{}{
+		"Processes":   []*executor.Process{proc},
+		"BasePath":    s.getBasePath(r),
+		"WorkspaceID": workspaceID,
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	return data, &contentTypeError{
-		contentType: "application/json",
-		data:        data,
-	}
+	return buf.Bytes(), nil
 }
 
 func (s *Server) handleWorkspaceProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
