@@ -15,7 +15,6 @@ Bootstrap.
 - Tracks running and completed processes
 - Stores stdout/stderr to separate files
 - Persists process state to JSON for persistence across restarts
-- Thread-safe process management with mutex locks
 
 #### `internal/auth` ([auth.go](internal/auth/auth.go))
 

@@ -14,13 +14,12 @@ func TestWorkspaceCreation(t *testing.T) {
 	// Create temporary workspace directory that exists
 	workDir := t.TempDir()
 
-	mgr, err := New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
 	// Create a workspace
-	ws, err := mgr.CreateWorkspace("test-workspace", workDir, "source .env")
+	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "source .env")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
@@ -78,18 +77,17 @@ func TestProcessCreation(t *testing.T) {
 	tmpDir := t.TempDir()
 	workDir := t.TempDir()
 
-	mgr, err := New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
-	ws, err := mgr.CreateWorkspace("test", workDir, "")
+	ws, err := CreateWorkspace(tmpDir, "test", workDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
 	// Create a process
-	hash, err := mgr.CreateProcess(ws, "echo hello")
+	hash, err := CreateProcess(ws, "echo hello")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
@@ -99,7 +97,7 @@ func TestProcessCreation(t *testing.T) {
 	}
 
 	// Verify process directory exists
-	processDir := mgr.GetProcessDir(ws, hash)
+	processDir := GetProcessDir(ws, hash)
 	if _, err := os.Stat(processDir); os.IsNotExist(err) {
 		t.Errorf("Process directory does not exist: %s", processDir)
 	}
@@ -133,7 +131,7 @@ func TestProcessCreation(t *testing.T) {
 	}
 
 	// Get the process
-	proc, err := mgr.GetProcess(ws, hash)
+	proc, err := GetProcess(ws, hash)
 	if err != nil {
 		t.Fatalf("Failed to get process: %v", err)
 	}
@@ -150,28 +148,27 @@ func TestProcessCreation(t *testing.T) {
 func TestProcessUpdate(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	mgr, err := New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
-	ws, err := mgr.CreateWorkspace("test", t.TempDir(), "")
+	ws, err := CreateWorkspace(tmpDir, "test", t.TempDir(), "")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
-	hash, err := mgr.CreateProcess(ws, "sleep 1")
+	hash, err := CreateProcess(ws, "sleep 1")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
 
 	// Update PID
-	err = mgr.UpdateProcessPID(ws, hash, 12345)
+	err = UpdateProcessPID(ws, hash, 12345)
 	if err != nil {
 		t.Fatalf("Failed to update PID: %v", err)
 	}
 
-	proc, err := mgr.GetProcess(ws, hash)
+	proc, err := GetProcess(ws, hash)
 	if err != nil {
 		t.Fatalf("Failed to get process: %v", err)
 	}
@@ -185,12 +182,12 @@ func TestProcessUpdate(t *testing.T) {
 	}
 
 	// Update exit
-	err = mgr.UpdateProcessExit(ws, hash, 0)
+	err = UpdateProcessExit(ws, hash, 0)
 	if err != nil {
 		t.Fatalf("Failed to update exit: %v", err)
 	}
 
-	proc, err = mgr.GetProcess(ws, hash)
+	proc, err = GetProcess(ws, hash)
 	if err != nil {
 		t.Fatalf("Failed to get process: %v", err)
 	}
@@ -211,25 +208,24 @@ func TestProcessUpdate(t *testing.T) {
 func TestListWorkspaces(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	mgr, err := New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
 	// Create multiple workspaces
-	_, err = mgr.CreateWorkspace("ws1", t.TempDir(), "")
+	_, err := CreateWorkspace(tmpDir, "ws1", t.TempDir(), "")
 	if err != nil {
 		t.Fatalf("Failed to create workspace 1: %v", err)
 	}
 
 	time.Sleep(10 * time.Millisecond) // Ensure different timestamps
 
-	_, err = mgr.CreateWorkspace("ws2", t.TempDir(), "source .bashrc")
+	_, err = CreateWorkspace(tmpDir, "ws2", t.TempDir(), "source .bashrc")
 	if err != nil {
 		t.Fatalf("Failed to create workspace 2: %v", err)
 	}
 
-	workspaces, err := mgr.ListWorkspaces()
+	workspaces, err := ListWorkspaces(tmpDir)
 	if err != nil {
 		t.Fatalf("Failed to list workspaces: %v", err)
 	}
@@ -242,28 +238,27 @@ func TestListWorkspaces(t *testing.T) {
 func TestListProcesses(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	mgr, err := New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
-	ws, err := mgr.CreateWorkspace("test", t.TempDir(), "")
+	ws, err := CreateWorkspace(tmpDir, "test", t.TempDir(), "")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
 	// Create multiple processes
-	_, err = mgr.CreateProcess(ws, "echo 1")
+	_, err = CreateProcess(ws, "echo 1")
 	if err != nil {
 		t.Fatalf("Failed to create process 1: %v", err)
 	}
 
-	_, err = mgr.CreateProcess(ws, "echo 2")
+	_, err = CreateProcess(ws, "echo 2")
 	if err != nil {
 		t.Fatalf("Failed to create process 2: %v", err)
 	}
 
-	processes, err := mgr.ListProcesses(ws)
+	processes, err := ListProcesses(ws)
 	if err != nil {
 		t.Fatalf("Failed to list processes: %v", err)
 	}

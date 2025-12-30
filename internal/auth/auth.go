@@ -16,25 +16,16 @@ import (
 
 const MinPasswordLength = 36
 
-type Auth struct {
-	stateDir string
-}
-
-func New(stateDir string) (*Auth, error) {
-	a := &Auth{
-		stateDir: stateDir,
-	}
-
+func InitAuth(stateDir string) error {
 	// Create sessions directory if it doesn't exist
 	sessionsDir := filepath.Join(stateDir, "sessions")
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
-		return nil, fmt.Errorf("failed to create sessions directory: %w", err)
+		return fmt.Errorf("failed to create sessions directory: %w", err)
 	}
-
-	return a, nil
+	return nil
 }
 
-func (a *Auth) Authenticate(ctx context.Context, password string) (string, bool) {
+func Authenticate(ctx context.Context, stateDir, password string) (string, bool) {
 	if len(password) < MinPasswordLength {
 		slog.Debug("Password too short")
 		return "", false
@@ -44,7 +35,7 @@ func (a *Auth) Authenticate(ctx context.Context, password string) (string, bool)
 	hashedPassword := hex.EncodeToString(hash[:])
 
 	// Check if file exists in stateDir/hashed-passwords/
-	passwordFilePath := filepath.Join(a.stateDir, "hashed-passwords", hashedPassword)
+	passwordFilePath := filepath.Join(stateDir, "hashed-passwords", hashedPassword)
 	if _, err := os.Stat(passwordFilePath); os.IsNotExist(err) {
 		// Add random delay to mitigate timing attacks
 		time.Sleep(time.Duration(10+mathrand.Int32N(1000)) * time.Microsecond)
@@ -60,7 +51,7 @@ func (a *Auth) Authenticate(ctx context.Context, password string) (string, bool)
 	hashedToken := hex.EncodeToString(tokenHash[:])
 
 	// Persist session to disk
-	if err := a.saveSession(hashedToken, expiry); err != nil {
+	if err := saveSession(stateDir, hashedToken, expiry); err != nil {
 		slog.Warn("Failed to persist session", "error", err)
 	}
 
@@ -68,8 +59,8 @@ func (a *Auth) Authenticate(ctx context.Context, password string) (string, bool)
 }
 
 // saveSession saves a session to disk
-func (a *Auth) saveSession(hashedToken string, expiry time.Time) error {
-	sessionsDir := filepath.Join(a.stateDir, "sessions")
+func saveSession(stateDir, hashedToken string, expiry time.Time) error {
+	sessionsDir := filepath.Join(stateDir, "sessions")
 	sessionPath := filepath.Join(sessionsDir, hashedToken)
 
 	// Write expiry time as Unix timestamp
@@ -77,12 +68,12 @@ func (a *Auth) saveSession(hashedToken string, expiry time.Time) error {
 	return os.WriteFile(sessionPath, []byte(expiryStr), 0o600)
 }
 
-func (a *Auth) ValidateSession(token string) (bool, error) {
+func ValidateSession(stateDir, token string) (bool, error) {
 	// Hash the token to look it up
 	tokenHash := sha256.Sum256([]byte(token))
 	hashedToken := hex.EncodeToString(tokenHash[:])
 
-	sessionsDir := filepath.Join(a.stateDir, "sessions")
+	sessionsDir := filepath.Join(stateDir, "sessions")
 	sessionPath := filepath.Join(sessionsDir, hashedToken)
 
 	// Read session file
@@ -114,9 +105,9 @@ func (a *Auth) ValidateSession(token string) (bool, error) {
 	return true, nil
 }
 
-func (a *Auth) CleanExpiredSessions() {
+func CleanExpiredSessions(stateDir string) {
 	now := time.Now()
-	sessionsDir := filepath.Join(a.stateDir, "sessions")
+	sessionsDir := filepath.Join(stateDir, "sessions")
 
 	entries, err := os.ReadDir(sessionsDir)
 	if err != nil {

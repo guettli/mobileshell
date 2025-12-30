@@ -26,20 +26,18 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	auth     *auth.Auth
-	executor *executor.Executor
+	stateDir string
 	tmpl     *template.Template
 }
 
-func New(auth *auth.Auth, executor *executor.Executor) (*Server, error) {
+func New(stateDir string) (*Server, error) {
 	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Server{
-		auth:     auth,
-		executor: executor,
+		stateDir: stateDir,
 		tmpl:     tmpl,
 	}
 
@@ -165,6 +163,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspace/list", s.authMiddleware(s.wrapHandler(s.handleWorkspaceList)))
 	mux.HandleFunc("/execute", s.authMiddleware(s.wrapHandler(s.handleExecute)))
 	mux.HandleFunc("/processes", s.authMiddleware(s.wrapHandler(s.handleProcesses)))
+	mux.HandleFunc("/hx-workspace-processes", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceProcesses)))
 	mux.HandleFunc("/output/", s.authMiddleware(s.wrapHandler(s.handleOutput)))
 
 	return mux
@@ -173,7 +172,7 @@ func (s *Server) SetupRoutes() http.Handler {
 func (s *Server) handleIndex(ctx context.Context, r *http.Request) ([]byte, error) {
 	token := s.getSessionToken(r)
 	if token != "" {
-		valid, err := s.auth.ValidateSession(token)
+		valid, err := auth.ValidateSession(s.stateDir, token)
 		if err != nil {
 			return nil, fmt.Errorf("failed to validate session: %w", err)
 		}
@@ -200,7 +199,7 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 	}
 
 	password := r.FormValue("password")
-	token, ok := s.auth.Authenticate(ctx, password)
+	token, ok := auth.Authenticate(ctx, s.stateDir, password)
 	basePath := s.getBasePath(r)
 
 	if !ok {
@@ -253,7 +252,7 @@ func (s *Server) handleWorkspaces(ctx context.Context, r *http.Request) ([]byte,
 	basePath := s.getBasePath(r)
 
 	// Get all workspaces for the list
-	workspaces, _ := s.executor.ListWorkspaces()
+	workspaces, _ := executor.ListWorkspaces(s.stateDir)
 	var workspaceList []map[string]any
 	for _, ws := range workspaces {
 		workspaceList = append(workspaceList, map[string]any{
@@ -289,7 +288,7 @@ func (s *Server) handleWorkspaceCreate(ctx context.Context, r *http.Request) ([]
 	}
 
 	// Create the workspace
-	err := s.executor.SetWorkspace(name, directory, preCommand)
+	ws, err := executor.CreateWorkspace(s.stateDir, name, directory, preCommand)
 	if err != nil {
 		// Return just the form partial with error and preserved values
 		basePath := s.getBasePath(r)
@@ -309,9 +308,6 @@ func (s *Server) handleWorkspaceCreate(ctx context.Context, r *http.Request) ([]
 		return buf.Bytes(), nil
 	}
 
-	// Get the newly created workspace
-	ws := s.executor.GetCurrentWorkspace()
-
 	// Use HX-Redirect header for htmx requests
 	basePath := s.getBasePath(r)
 	redirectURL := fmt.Sprintf("%s/workspaces/%s", basePath, ws.ID)
@@ -328,14 +324,11 @@ func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]by
 		return nil, newHTTPError(http.StatusNotFound, "Not found")
 	}
 
-	// Select the workspace by ID
-	err := s.executor.SelectWorkspaceByID(workspaceID)
+	// Get the workspace by ID
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("workspace not found: %w", err)
 	}
-
-	// Get workspace details
-	ws := s.executor.GetCurrentWorkspace()
 
 	// Render workspace page
 	basePath := s.getBasePath(r)
@@ -366,7 +359,7 @@ func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]b
 }
 
 func (s *Server) handleWorkspaceList(ctx context.Context, r *http.Request) ([]byte, error) {
-	workspaces, err := s.executor.ListWorkspaces()
+	workspaces, err := executor.ListWorkspaces(s.stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list workspaces: %w", err)
 	}
@@ -403,7 +396,19 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 		return nil, newHTTPError(http.StatusBadRequest, "Command is required")
 	}
 
-	proc, err := s.executor.Execute(command)
+	// Get workspace ID from form
+	workspaceID := r.FormValue("workspace_id")
+	if workspaceID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+	}
+
+	// Get the workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace not found: %w", err)
+	}
+
+	proc, err := executor.Execute(s.stateDir, ws, command)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +425,7 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 }
 
 func (s *Server) handleProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
-	processes := s.executor.ListProcesses()
+	processes := executor.ListProcesses(s.stateDir)
 
 	data, err := json.Marshal(processes)
 	if err != nil {
@@ -433,10 +438,47 @@ func (s *Server) handleProcesses(ctx context.Context, r *http.Request) ([]byte, 
 	}
 }
 
+func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Get workspace ID from query parameter
+	workspaceID := r.URL.Query().Get("workspace_id")
+	if workspaceID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+	}
+
+	// Get the workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("workspace not found: %w", err)
+	}
+
+	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter for unfinished processes (not completed)
+	var unfinishedProcesses []*executor.Process
+	for _, p := range allProcesses {
+		if p.Status != "completed" {
+			unfinishedProcesses = append(unfinishedProcesses, p)
+		}
+	}
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "processes.html", map[string]interface{}{
+		"Processes": unfinishedProcesses,
+		"BasePath":  s.getBasePath(r),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 func (s *Server) handleOutput(ctx context.Context, r *http.Request) ([]byte, error) {
 	id := r.URL.Path[len("/output/"):]
 
-	proc, ok := s.executor.GetProcess(id)
+	proc, ok := executor.GetProcess(s.stateDir, id)
 	if !ok {
 		return nil, newHTTPError(http.StatusNotFound, "Process not found")
 	}
@@ -446,9 +488,9 @@ func (s *Server) handleOutput(ctx context.Context, r *http.Request) ([]byte, err
 	var err error
 
 	if outputType == "stderr" {
-		content, err = s.executor.ReadOutput(proc.StderrFile)
+		content, err = executor.ReadOutput(proc.StderrFile)
 	} else {
-		content, err = s.executor.ReadOutput(proc.StdoutFile)
+		content, err = executor.ReadOutput(proc.StdoutFile)
 	}
 
 	if err != nil {
@@ -474,7 +516,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		valid := false
 		if token != "" {
 			var err error
-			valid, err = s.auth.ValidateSession(token)
+			valid, err = auth.ValidateSession(s.stateDir, token)
 			if err != nil {
 				slog.Error("Failed to validate session", "error", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -515,7 +557,7 @@ func (s *Server) Start(addr string) error {
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		for range ticker.C {
-			s.auth.CleanExpiredSessions()
+			auth.CleanExpiredSessions(s.stateDir)
 		}
 	}()
 
@@ -574,17 +616,17 @@ func Run(stateDir, port string) error {
 		slog.Warn("No passwords configured yet. Add one with: mobileshell add-password")
 	}
 
-	authSvc, err := auth.New(stateDir)
-	if err != nil {
-		return fmt.Errorf("failed to create auth service: %w", err)
+	// Initialize auth
+	if err := auth.InitAuth(stateDir); err != nil {
+		return fmt.Errorf("failed to initialize auth: %w", err)
 	}
 
-	exec, err := executor.New(stateDir)
-	if err != nil {
-		return fmt.Errorf("failed to create executor: %w", err)
+	// Initialize executor
+	if err := executor.InitExecutor(stateDir); err != nil {
+		return fmt.Errorf("failed to initialize executor: %w", err)
 	}
 
-	srv, err := New(authSvc, exec)
+	srv, err := New(stateDir)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}

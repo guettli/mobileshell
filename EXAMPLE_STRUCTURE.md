@@ -55,7 +55,8 @@ All metadata is stored as **individual plain text files**. No JSON.
 
 ### Workspace Level
 
-- **`YYYY-MM-DD_HH:MM:SS.ZZZ/`**: Timestamp-based directory name ensures uniqueness and chronological ordering
+- **`YYYY-MM-DD_HH:MM:SS.ZZZ/`**: Timestamp-based directory name ensures uniqueness
+  and chronological ordering
 - **`name`**: Plain text file with workspace name (e.g., "frontend", "backend")
 - **`directory`**: Plain text file with working directory path
 - **`pre-command`**: (optional) Plain text file with command to run before each command

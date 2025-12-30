@@ -13,6 +13,14 @@ git ls-files '*.sh' | xargs shellcheck
 
 git ls-files '*.md' | xargs markdownlint
 
+go_mutex=$(git ls-files '*.go' | { xargs rg -n 'Mutex' || true; })
+if [[ -n $go_mutex ]]; then
+    echo "Found 'Mutex' in Go source code. Please avoid mutexes. This is stateless http. There should be a way to avoid mutexes"
+    echo
+    echo "$go_mutex"
+    exit 1
+fi
+
 # shellcheck disable=SC2046
 http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$' | grep -vP 'internal/server/static') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s|Found string|example.com' || true; })
 if [[ -n $http_locations ]]; then

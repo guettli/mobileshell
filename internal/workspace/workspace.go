@@ -13,8 +13,8 @@ import (
 
 // Workspace represents a workspace with a name, directory, and pre-command
 type Workspace struct {
-	ID         string    `json:"id"`          // URL-safe immutable identifier
-	Name       string    `json:"name"`        // Display name (can be changed)
+	ID         string    `json:"id"`   // URL-safe immutable identifier
+	Name       string    `json:"name"` // Display name (can be changed)
 	Directory  string    `json:"directory"`
 	PreCommand string    `json:"pre_command"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -32,25 +32,17 @@ type Process struct {
 	Status    string    `json:"status"`              // "running" or "completed"
 }
 
-// Manager manages workspaces and processes
-type Manager struct {
-	stateDir string
-}
-
-// New creates a new workspace manager
-func New(stateDir string) (*Manager, error) {
+// InitWorkspaces creates the workspaces directory
+func InitWorkspaces(stateDir string) error {
 	workspacesDir := filepath.Join(stateDir, "workspaces")
 	if err := os.MkdirAll(workspacesDir, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create workspaces directory: %w", err)
+		return fmt.Errorf("failed to create workspaces directory: %w", err)
 	}
-
-	return &Manager{
-		stateDir: stateDir,
-	}, nil
+	return nil
 }
 
 // CreateWorkspace creates a new workspace with the given name, directory, and pre-command
-func (m *Manager) CreateWorkspace(name, directory, preCommand string) (*Workspace, error) {
+func CreateWorkspace(stateDir, name, directory, preCommand string) (*Workspace, error) {
 	// Validate that the directory exists
 	if _, err := os.Stat(directory); err != nil {
 		if os.IsNotExist(err) {
@@ -65,7 +57,7 @@ func (m *Manager) CreateWorkspace(name, directory, preCommand string) (*Workspac
 	// Create directory name: YYYY-MM-DD_ID
 	dateStr := time.Now().Format("2006-01-02")
 	workspaceDirName := fmt.Sprintf("%s_%s", dateStr, id)
-	workspacePath := filepath.Join(m.stateDir, "workspaces", workspaceDirName)
+	workspacePath := filepath.Join(stateDir, "workspaces", workspaceDirName)
 
 	// Check if workspace with this ID already exists today
 	if _, err := os.Stat(workspacePath); err == nil {
@@ -92,7 +84,7 @@ func (m *Manager) CreateWorkspace(name, directory, preCommand string) (*Workspac
 	}
 
 	// Save workspace metadata as individual files
-	if err := m.saveWorkspaceFiles(ws); err != nil {
+	if err := saveWorkspaceFiles(ws); err != nil {
 		return nil, err
 	}
 
@@ -100,15 +92,15 @@ func (m *Manager) CreateWorkspace(name, directory, preCommand string) (*Workspac
 }
 
 // GetWorkspace retrieves a workspace by its directory name (YYYY-MM-DD_ID)
-func (m *Manager) GetWorkspace(dirName string) (*Workspace, error) {
-	workspacePath := filepath.Join(m.stateDir, "workspaces", dirName)
+func GetWorkspace(stateDir, dirName string) (*Workspace, error) {
+	workspacePath := filepath.Join(stateDir, "workspaces", dirName)
 
 	ws := &Workspace{
 		Path: workspacePath,
 	}
 
 	// Read individual files
-	if err := m.loadWorkspaceFiles(ws); err != nil {
+	if err := loadWorkspaceFiles(ws); err != nil {
 		return nil, err
 	}
 
@@ -117,8 +109,8 @@ func (m *Manager) GetWorkspace(dirName string) (*Workspace, error) {
 
 // GetWorkspaceByID retrieves a workspace by its ID
 // If multiple workspaces exist with the same ID (from different days), returns the most recent
-func (m *Manager) GetWorkspaceByID(id string) (*Workspace, error) {
-	workspacesDir := filepath.Join(m.stateDir, "workspaces")
+func GetWorkspaceByID(stateDir, id string) (*Workspace, error) {
+	workspacesDir := filepath.Join(stateDir, "workspaces")
 	entries, err := os.ReadDir(workspacesDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read workspaces directory: %w", err)
@@ -151,12 +143,12 @@ func (m *Manager) GetWorkspaceByID(id string) (*Workspace, error) {
 	}
 
 	// Return the most recent one
-	return m.GetWorkspace(matchingDirs[0])
+	return GetWorkspace(stateDir, matchingDirs[0])
 }
 
 // ListWorkspaces returns all workspaces
-func (m *Manager) ListWorkspaces() ([]*Workspace, error) {
-	workspacesDir := filepath.Join(m.stateDir, "workspaces")
+func ListWorkspaces(stateDir string) ([]*Workspace, error) {
+	workspacesDir := filepath.Join(stateDir, "workspaces")
 	entries, err := os.ReadDir(workspacesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -171,7 +163,7 @@ func (m *Manager) ListWorkspaces() ([]*Workspace, error) {
 			continue
 		}
 
-		ws, err := m.GetWorkspace(entry.Name())
+		ws, err := GetWorkspace(stateDir, entry.Name())
 		if err != nil {
 			// Skip invalid workspaces
 			continue
@@ -183,7 +175,7 @@ func (m *Manager) ListWorkspaces() ([]*Workspace, error) {
 }
 
 // CreateProcess creates a new process in a workspace
-func (m *Manager) CreateProcess(ws *Workspace, command string) (string, error) {
+func CreateProcess(ws *Workspace, command string) (string, error) {
 	// Generate hash for the process
 	hash := generateProcessHash(command, time.Now())
 
@@ -200,7 +192,7 @@ func (m *Manager) CreateProcess(ws *Workspace, command string) (string, error) {
 	}
 
 	// Save process metadata as individual files
-	if err := m.saveProcessFiles(processDir, proc); err != nil {
+	if err := saveProcessFiles(processDir, proc); err != nil {
 		return "", err
 	}
 
@@ -216,7 +208,7 @@ func (m *Manager) CreateProcess(ws *Workspace, command string) (string, error) {
 }
 
 // GetProcess retrieves a process from a workspace
-func (m *Manager) GetProcess(ws *Workspace, hash string) (*Process, error) {
+func GetProcess(ws *Workspace, hash string) (*Process, error) {
 	processDir := filepath.Join(ws.Path, "processes", hash)
 
 	proc := &Process{
@@ -224,7 +216,7 @@ func (m *Manager) GetProcess(ws *Workspace, hash string) (*Process, error) {
 	}
 
 	// Read individual files
-	if err := m.loadProcessFiles(processDir, proc); err != nil {
+	if err := loadProcessFiles(processDir, proc); err != nil {
 		return nil, err
 	}
 
@@ -232,7 +224,7 @@ func (m *Manager) GetProcess(ws *Workspace, hash string) (*Process, error) {
 }
 
 // UpdateProcessPID updates the PID of a running process
-func (m *Manager) UpdateProcessPID(ws *Workspace, hash string, pid int) error {
+func UpdateProcessPID(ws *Workspace, hash string, pid int) error {
 	processDir := filepath.Join(ws.Path, "processes", hash)
 
 	// Write PID file
@@ -249,7 +241,7 @@ func (m *Manager) UpdateProcessPID(ws *Workspace, hash string, pid int) error {
 }
 
 // UpdateProcessExit updates a process when it exits
-func (m *Manager) UpdateProcessExit(ws *Workspace, hash string, exitCode int) error {
+func UpdateProcessExit(ws *Workspace, hash string, exitCode int) error {
 	processDir := filepath.Join(ws.Path, "processes", hash)
 
 	// Write exit-status file
@@ -272,7 +264,7 @@ func (m *Manager) UpdateProcessExit(ws *Workspace, hash string, exitCode int) er
 }
 
 // ListProcesses returns all processes in a workspace
-func (m *Manager) ListProcesses(ws *Workspace) ([]*Process, error) {
+func ListProcesses(ws *Workspace) ([]*Process, error) {
 	processesDir := filepath.Join(ws.Path, "processes")
 	entries, err := os.ReadDir(processesDir)
 	if err != nil {
@@ -288,7 +280,7 @@ func (m *Manager) ListProcesses(ws *Workspace) ([]*Process, error) {
 			continue
 		}
 
-		proc, err := m.GetProcess(ws, entry.Name())
+		proc, err := GetProcess(ws, entry.Name())
 		if err != nil {
 			// Skip invalid processes
 			continue
@@ -300,12 +292,12 @@ func (m *Manager) ListProcesses(ws *Workspace) ([]*Process, error) {
 }
 
 // GetProcessDir returns the directory path for a process
-func (m *Manager) GetProcessDir(ws *Workspace, hash string) string {
+func GetProcessDir(ws *Workspace, hash string) string {
 	return filepath.Join(ws.Path, "processes", hash)
 }
 
 // saveWorkspaceFiles saves workspace data as individual files
-func (m *Manager) saveWorkspaceFiles(ws *Workspace) error {
+func saveWorkspaceFiles(ws *Workspace) error {
 	// Write ID file
 	if err := os.WriteFile(filepath.Join(ws.Path, "id"), []byte(ws.ID), 0600); err != nil {
 		return fmt.Errorf("failed to write id file: %w", err)
@@ -338,7 +330,7 @@ func (m *Manager) saveWorkspaceFiles(ws *Workspace) error {
 }
 
 // loadWorkspaceFiles loads workspace data from individual files
-func (m *Manager) loadWorkspaceFiles(ws *Workspace) error {
+func loadWorkspaceFiles(ws *Workspace) error {
 	// Read ID file
 	idData, err := os.ReadFile(filepath.Join(ws.Path, "id"))
 	if err != nil {
@@ -381,7 +373,7 @@ func (m *Manager) loadWorkspaceFiles(ws *Workspace) error {
 }
 
 // saveProcessFiles saves process data as individual files
-func (m *Manager) saveProcessFiles(processDir string, proc *Process) error {
+func saveProcessFiles(processDir string, proc *Process) error {
 	// Write command file
 	if err := os.WriteFile(filepath.Join(processDir, "cmd"), []byte(proc.Command), 0600); err != nil {
 		return fmt.Errorf("failed to write cmd file: %w", err)
@@ -402,7 +394,7 @@ func (m *Manager) saveProcessFiles(processDir string, proc *Process) error {
 }
 
 // loadProcessFiles loads process data from individual files
-func (m *Manager) loadProcessFiles(processDir string, proc *Process) error {
+func loadProcessFiles(processDir string, proc *Process) error {
 	// Read command file
 	cmdData, err := os.ReadFile(filepath.Join(processDir, "cmd"))
 	if err != nil {

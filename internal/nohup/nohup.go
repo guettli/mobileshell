@@ -14,25 +14,19 @@ import (
 // Run executes a command in nohup mode within a workspace
 // This function is called by the `mobileshell nohup` command
 func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string) error {
-	// Initialize workspace manager
-	mgr, err := workspace.New(stateDir)
-	if err != nil {
-		return fmt.Errorf("failed to initialize workspace manager: %w", err)
-	}
-
 	// Get the workspace
-	ws, err := mgr.GetWorkspace(workspaceTimestamp)
+	ws, err := workspace.GetWorkspace(stateDir, workspaceTimestamp)
 	if err != nil {
 		return fmt.Errorf("failed to get workspace: %w", err)
 	}
 
 	// Get the process
-	proc, err := mgr.GetProcess(ws, processHash)
+	proc, err := workspace.GetProcess(ws, processHash)
 	if err != nil {
 		return fmt.Errorf("failed to get process: %w", err)
 	}
 
-	processDir := mgr.GetProcessDir(ws, processHash)
+	processDir := workspace.GetProcessDir(ws, processHash)
 
 	// Open stdout and stderr files
 	stdoutFile := filepath.Join(processDir, "stdout")
@@ -84,7 +78,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	}
 
 	// Update process metadata with PID
-	if err := mgr.UpdateProcessPID(ws, processHash, pid); err != nil {
+	if err := workspace.UpdateProcessPID(ws, processHash, pid); err != nil {
 		return fmt.Errorf("failed to update process PID: %w", err)
 	}
 
@@ -108,7 +102,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	}
 
 	// Update process metadata with exit information
-	if err := mgr.UpdateProcessExit(ws, processHash, exitCode); err != nil {
+	if err := workspace.UpdateProcessExit(ws, processHash, exitCode); err != nil {
 		return fmt.Errorf("failed to update process exit: %w", err)
 	}
 

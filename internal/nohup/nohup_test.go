@@ -13,19 +13,19 @@ import (
 func TestNohupRun(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create workspace manager and workspace
-	mgr, err := workspace.New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	// Initialize workspace storage
+	if err := workspace.InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
-	ws, err := mgr.CreateWorkspace("test", tmpDir, "")
+	// Create workspace
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
 	// Create a process
-	hash, err := mgr.CreateProcess(ws, "echo 'Hello, World!'")
+	hash, err := workspace.CreateProcess(ws, "echo 'Hello, World!'")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestNohupRun(t *testing.T) {
 	}
 
 	// Verify PID file was created
-	processDir := mgr.GetProcessDir(ws, hash)
+	processDir := workspace.GetProcessDir(ws, hash)
 	pidFile := filepath.Join(processDir, "pid")
 	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
 		t.Errorf("PID file does not exist: %s", pidFile)
@@ -75,7 +75,7 @@ func TestNohupRun(t *testing.T) {
 	}
 
 	// Verify process metadata was updated
-	proc, err := mgr.GetProcess(ws, hash)
+	proc, err := workspace.GetProcess(ws, hash)
 	if err != nil {
 		t.Fatalf("Failed to get process: %v", err)
 	}
@@ -100,19 +100,19 @@ func TestNohupRun(t *testing.T) {
 func TestNohupRunWithPreCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create workspace manager and workspace with pre-command
-	mgr, err := workspace.New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	// Initialize workspace storage
+	if err := workspace.InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
-	ws, err := mgr.CreateWorkspace("test", tmpDir, "export TEST_VAR=hello")
+	// Create workspace with pre-command
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "export TEST_VAR=hello")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
 	// Create a process that uses the environment variable
-	hash, err := mgr.CreateProcess(ws, "echo $TEST_VAR")
+	hash, err := workspace.CreateProcess(ws, "echo $TEST_VAR")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 	}
 
 	// Verify stdout contains the environment variable value
-	processDir := mgr.GetProcessDir(ws, hash)
+	processDir := workspace.GetProcessDir(ws, hash)
 	stdoutFile := filepath.Join(processDir, "stdout")
 	stdoutData, err := os.ReadFile(stdoutFile)
 	if err != nil {
@@ -140,19 +140,19 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 func TestNohupRunWithFailingCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create workspace manager and workspace
-	mgr, err := workspace.New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	// Initialize workspace storage
+	if err := workspace.InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
-	ws, err := mgr.CreateWorkspace("test", tmpDir, "")
+	// Create workspace
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
 	// Create a process that will fail
-	hash, err := mgr.CreateProcess(ws, "exit 42")
+	hash, err := workspace.CreateProcess(ws, "exit 42")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 	}
 
 	// Verify exit status
-	processDir := mgr.GetProcessDir(ws, hash)
+	processDir := workspace.GetProcessDir(ws, hash)
 	exitStatusFile := filepath.Join(processDir, "exit-status")
 	exitStatusData, err := os.ReadFile(exitStatusFile)
 	if err != nil {
@@ -181,7 +181,7 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 	}
 
 	// Verify process metadata
-	proc, err := mgr.GetProcess(ws, hash)
+	proc, err := workspace.GetProcess(ws, hash)
 	if err != nil {
 		t.Fatalf("Failed to get process: %v", err)
 	}
@@ -205,19 +205,19 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
-	// Create workspace manager and workspace with specific directory
-	mgr, err := workspace.New(tmpDir)
-	if err != nil {
-		t.Fatalf("Failed to create manager: %v", err)
+	// Initialize workspace storage
+	if err := workspace.InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
 	}
 
-	ws, err := mgr.CreateWorkspace("test", tmpDir, "")
+	// Create workspace with specific directory
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
 	if err != nil {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
 	// Create a process that reads the file
-	hash, err := mgr.CreateProcess(ws, "cat test.txt")
+	hash, err := workspace.CreateProcess(ws, "cat test.txt")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify stdout contains the file content
-	processDir := mgr.GetProcessDir(ws, hash)
+	processDir := workspace.GetProcessDir(ws, hash)
 	stdoutFile := filepath.Join(processDir, "stdout")
 	stdoutData, err := os.ReadFile(stdoutFile)
 	if err != nil {

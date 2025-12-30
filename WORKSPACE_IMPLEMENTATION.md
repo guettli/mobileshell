@@ -3,6 +3,7 @@
 ## Overview
 
 Every process in mobileshell is now part of a workspace. A workspace has:
+
 - A unique URL-safe ID (immutable)
 - A display name (can be changed)
 - A working directory (must exist before creating workspace)
@@ -10,7 +11,7 @@ Every process in mobileshell is now part of a workspace. A workspace has:
 
 ## Directory Structure
 
-```
+```text
 statDir/
 └── workspaces/
     └── YYYY-MM-DD_ID/
@@ -109,7 +110,8 @@ Handles actual process execution in detached mode:
 
 CLI command: `mobileshell nohup WORKSPACE_DIR_NAME PROCESS_HASH`
 
-This command is used internally by the executor to spawn processes. It's hidden from the help menu as it's for internal use only.
+This command is used internally by the executor to spawn processes. It's hidden
+from the help menu as it's for internal use only.
 
 ### 4. Updated Executor (`internal/executor/`)
 
@@ -165,7 +167,6 @@ Major UI and workflow changes:
 - Map: `sessionWorkspaces[sessionToken] -> workspaceID`
 - Workspaces themselves are global (not per-session)
 - All sessions can see and select from all workspaces
-- Thread-safe with RWMutex
 
 ### 6. New Templates
 
@@ -214,7 +215,7 @@ Major UI and workflow changes:
 
 ## Example Directory Tree
 
-```
+```text
 .mobileshell/
 ├── hashed-passwords/
 │   └── a1b2c3d4...
