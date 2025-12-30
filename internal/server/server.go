@@ -191,11 +191,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/logout", s.wrapHandler(s.handleLogout))
 
 	// Workspace routes
-	mux.HandleFunc("/workspaces/create", s.authMiddleware(s.wrapHandler(s.handleWorkspaceCreate)))
+	mux.HandleFunc("/workspaces/hx-create", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceCreate)))
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
-	mux.HandleFunc("/workspaces/{id}/execute", s.authMiddleware(s.wrapHandler(s.handleExecute)))
-	mux.HandleFunc("/workspaces/{id}/processes", s.authMiddleware(s.wrapHandler(s.handleWorkspaceProcesses)))
-	mux.HandleFunc("/workspaces/{id}/processes/{processID}/output", s.authMiddleware(s.wrapHandler(s.handleOutput)))
+	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
+	mux.HandleFunc("/workspaces/{id}/hx-processes", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceProcesses)))
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -314,7 +314,7 @@ func (s *Server) handleWorkspaces(ctx context.Context, r *http.Request) ([]byte,
 	return buf.Bytes(), nil
 }
 
-func (s *Server) handleWorkspaceCreate(ctx context.Context, r *http.Request) ([]byte, error) {
+func (s *Server) hxHandleWorkspaceCreate(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
 		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -333,7 +333,7 @@ func (s *Server) handleWorkspaceCreate(ctx context.Context, r *http.Request) ([]
 		// Return just the form partial with error and preserved values
 		basePath := s.getBasePath(r)
 		var buf bytes.Buffer
-		renderErr := s.tmpl.ExecuteTemplate(&buf, "workspace-form.html", map[string]any{
+		renderErr := s.tmpl.ExecuteTemplate(&buf, "hx-workspace-form.html", map[string]any{
 			"BasePath": basePath,
 			"Error":    err.Error(),
 			"FormValues": map[string]string{
@@ -396,7 +396,7 @@ func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]b
 	return nil, &redirectError{url: basePath + "/", statusCode: http.StatusSeeOther}
 }
 
-func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, error) {
+func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
 		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -425,7 +425,7 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 
 	// Render the process as HTML using the processes template
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "processes.html", map[string]interface{}{
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-processes.html", map[string]interface{}{
 		"Processes":   []*executor.Process{proc},
 		"BasePath":    s.getBasePath(r),
 		"WorkspaceID": workspaceID,
@@ -436,7 +436,7 @@ func (s *Server) handleExecute(ctx context.Context, r *http.Request) ([]byte, er
 	return buf.Bytes(), nil
 }
 
-func (s *Server) handleWorkspaceProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
+func (s *Server) hxHandleWorkspaceProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
@@ -463,7 +463,7 @@ func (s *Server) handleWorkspaceProcesses(ctx context.Context, r *http.Request) 
 	}
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "processes.html", map[string]interface{}{
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-processes.html", map[string]interface{}{
 		"Processes":   unfinishedProcesses,
 		"BasePath":    s.getBasePath(r),
 		"WorkspaceID": workspaceID,
@@ -474,7 +474,7 @@ func (s *Server) handleWorkspaceProcesses(ctx context.Context, r *http.Request) 
 	return buf.Bytes(), nil
 }
 
-func (s *Server) handleOutput(ctx context.Context, r *http.Request) ([]byte, error) {
+func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, error) {
 	// Get process ID from path parameter
 	processID := r.PathValue("processID")
 
@@ -498,7 +498,7 @@ func (s *Server) handleOutput(ctx context.Context, r *http.Request) ([]byte, err
 	}
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "output.html", map[string]interface{}{
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
 		"Process":  proc,
 		"Content":  content,
 		"Type":     outputType,

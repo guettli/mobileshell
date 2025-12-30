@@ -18,13 +18,13 @@
             </div>
             <div class="btn-group btn-group-sm" role="group">
                 <button class="btn btn-outline-primary"
-                        hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/output?type=stdout"
+                        hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=stdout"
                         hx-target="#output-{{.ID}}"
                         hx-swap="innerHTML">
                     View Stdout
                 </button>
                 <button class="btn btn-outline-danger"
-                        hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/output?type=stderr"
+                        hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=stderr"
                         hx-target="#output-{{.ID}}"
                         hx-swap="innerHTML">
                     View Stderr

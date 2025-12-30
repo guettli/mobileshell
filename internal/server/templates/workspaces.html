@@ -51,7 +51,7 @@
         <div class="card mb-4">
             <div class="card-body">
                 <h5 class="card-title">Execute Command</h5>
-                <form hx-post="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/execute" hx-target="#processes" hx-swap="beforeend" hx-on::after-request="this.reset()">
+                <form hx-post="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute" hx-target="#processes" hx-swap="beforeend" hx-on::after-request="this.reset()">
                     <div class="mb-3">
                         <input type="text" class="form-control" name="command" placeholder="Enter command..." required autofocus>
                     </div>
@@ -64,7 +64,7 @@
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">Running Processes</h5>
-                <div id="processes" hx-get="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/processes" hx-trigger="load, every 3s" hx-swap="innerHTML">
+                <div id="processes" hx-get="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-processes" hx-trigger="load, every 3s" hx-swap="innerHTML">
                     Loading...
                 </div>
             </div>
@@ -82,7 +82,7 @@
                                 {{.Error}}
                             </div>
                             {{end}}
-                            <form hx-post="{{.BasePath}}/workspaces/create" hx-target="#workspace-form-container" hx-swap="outerHTML">
+                            <form hx-post="{{.BasePath}}/workspaces/hx-create" hx-target="#workspace-form-container" hx-swap="outerHTML">
                                 <div class="mb-3">
                                     <label for="name" class="form-label">Workspace Name</label>
                                     <input type="text" class="form-control" id="name" name="name" value="{{.FormValues.Name}}" placeholder="e.g., frontend, backend" required autofocus>
