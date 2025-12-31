@@ -1,15 +1,26 @@
 package nohup
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
 	"mobileshell/internal/workspace"
 )
+
+// OutputLine represents a single line of output from either stdout or stderr
+type OutputLine struct {
+	Stream    string    // "STDOUT" or "STDERR"
+	Timestamp time.Time // UTC timestamp
+	Line      string    // The actual line content
+}
 
 // Run executes a command in nohup mode within a workspace
 // This function is called by the `mobileshell nohup` command
@@ -28,21 +39,30 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 
 	processDir := workspace.GetProcessDir(ws, processHash)
 
-	// Open stdout and stderr files
-	stdoutFile := filepath.Join(processDir, "stdout")
-	stderrFile := filepath.Join(processDir, "stderr")
-
-	stdout, err := os.OpenFile(stdoutFile, os.O_WRONLY|os.O_APPEND, 0600)
+	// Open combined output file
+	outputFile := filepath.Join(processDir, "output.log")
+	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
-		return fmt.Errorf("failed to open stdout file: %w", err)
+		return fmt.Errorf("failed to open output.log file: %w", err)
 	}
-	defer func() { _ = stdout.Close() }()
+	defer func() { _ = outFile.Close() }()
 
-	stderr, err := os.OpenFile(stderrFile, os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return fmt.Errorf("failed to open stderr file: %w", err)
-	}
-	defer func() { _ = stderr.Close() }()
+	// Create channel for output lines
+	outputChan := make(chan OutputLine, 100)
+	writerDone := make(chan struct{})
+
+	// Start goroutine to write output lines to file
+	go func() {
+		defer close(writerDone)
+		for line := range outputChan {
+			// Format: "stdout 2025-01-01T12:34:56.789Z: line"
+			timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
+			stream := strings.ToLower(line.Stream)
+			formattedLine := fmt.Sprintf("%s %s: %s\n", stream, timestamp, line.Line)
+			_, _ = outFile.WriteString(formattedLine)
+			_ = outFile.Sync() // Flush after each line
+		}
+	}()
 
 	// Build the full command with pre-command if specified
 	var fullCommand string
@@ -55,9 +75,18 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Create the command
 	cmd := exec.Command("sh", "-c", fullCommand)
 	cmd.Dir = ws.Directory
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
 	cmd.Stdin = nil
+
+	// Create pipes for stdout and stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
 	// Detach from parent process
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -82,6 +111,19 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		return fmt.Errorf("failed to update process PID: %w", err)
 	}
 
+	// Start goroutines to read stdout and stderr line-by-line
+	readersDone := make(chan struct{}, 2)
+
+	go readLines(stdoutPipe, "STDOUT", outputChan, readersDone)
+	go readLines(stderrPipe, "STDERR", outputChan, readersDone)
+
+	// Wait for readers to finish
+	go func() {
+		<-readersDone
+		<-readersDone
+		close(outputChan)
+	}()
+
 	// Wait for the process to complete
 	err = cmd.Wait()
 
@@ -102,6 +144,9 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		}
 	}
 
+	// Wait for writer to finish
+	<-writerDone
+
 	// Write exit status to file
 	exitStatusFile := filepath.Join(processDir, "exit-status")
 	if err := os.WriteFile(exitStatusFile, []byte(strconv.Itoa(exitCode)), 0600); err != nil {
@@ -114,4 +159,19 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	}
 
 	return nil
+}
+
+// readLines reads lines from a reader and sends them to the output channel
+func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, done chan<- struct{}) {
+	defer func() { done <- struct{}{} }()
+
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		line := scanner.Text()
+		outputChan <- OutputLine{
+			Stream:    stream,
+			Timestamp: time.Now().UTC(),
+			Line:      line,
+		}
+	}
 }

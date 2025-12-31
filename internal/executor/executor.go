@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"mobileshell/internal/workspace"
@@ -14,8 +15,7 @@ type Process struct {
 	ID          string    `json:"id"`
 	Command     string    `json:"command"`
 	StartTime   time.Time `json:"start_time"`
-	StdoutFile  string    `json:"stdout_file"`
-	StderrFile  string    `json:"stderr_file"`
+	OutputFile  string    `json:"output_file"`
 	PID         int       `json:"pid"`
 	Status      string    `json:"status"` // "running", "completed", or "pending"
 	WorkspaceTS string    `json:"workspace_timestamp"`
@@ -79,8 +79,7 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 		ID:          hash,
 		Command:     command,
 		StartTime:   time.Now().UTC(),
-		StdoutFile:  filepath.Join(processDir, "stdout"),
-		StderrFile:  filepath.Join(processDir, "stderr"),
+		OutputFile:  filepath.Join(processDir, "output.log"),
 		Status:      "pending",
 		WorkspaceTS: workspaceTS,
 		Hash:        hash,
@@ -115,8 +114,7 @@ func ListProcesses(stateDir string) []*Process {
 				Command:     wp.Command,
 				StartTime:   wp.StartTime,
 				EndTime:     wp.EndTime,
-				StdoutFile:  filepath.Join(processDir, "stdout"),
-				StderrFile:  filepath.Join(processDir, "stderr"),
+				OutputFile:  filepath.Join(processDir, "output.log"),
 				PID:         wp.PID,
 				Status:      wp.Status,
 				WorkspaceTS: workspaceTS,
@@ -155,8 +153,7 @@ func ListWorkspaceProcesses(ws *workspace.Workspace) ([]*Process, error) {
 			Command:     wp.Command,
 			StartTime:   wp.StartTime,
 			EndTime:     wp.EndTime,
-			StdoutFile:  filepath.Join(processDir, "stdout"),
-			StderrFile:  filepath.Join(processDir, "stderr"),
+			OutputFile:  filepath.Join(processDir, "output.log"),
 			PID:         wp.PID,
 			Status:      wp.Status,
 			WorkspaceTS: workspaceTS,
@@ -193,8 +190,7 @@ func GetProcess(stateDir, id string) (*Process, bool) {
 			Command:     wp.Command,
 			StartTime:   wp.StartTime,
 			EndTime:     wp.EndTime,
-			StdoutFile:  filepath.Join(processDir, "stdout"),
-			StderrFile:  filepath.Join(processDir, "stderr"),
+			OutputFile:  filepath.Join(processDir, "output.log"),
 			PID:         wp.PID,
 			Status:      wp.Status,
 			WorkspaceTS: workspaceTS,
@@ -216,6 +212,46 @@ func ReadOutput(filename string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// ReadCombinedOutput reads and parses the combined output.log file
+// Returns stdout lines and stderr lines separately
+func ReadCombinedOutput(filename string) (stdout string, stderr string, err error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", "", err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var stdoutLines, stderrLines []string
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		// Parse format: "stdout 2025-01-01T12:34:56.789Z: content"
+		// or: "stderr 2025-01-01T12:34:56.789Z: content"
+		if len(line) > 37 { // Minimum length for prefix
+			if strings.HasPrefix(line, "stdout ") {
+				// Extract content after ": "
+				if idx := strings.Index(line[7:], ": "); idx != -1 {
+					content := line[7+idx+2:]
+					stdoutLines = append(stdoutLines, content)
+				}
+			} else if strings.HasPrefix(line, "stderr ") {
+				// Extract content after ": "
+				if idx := strings.Index(line[7:], ": "); idx != -1 {
+					content := line[7+idx+2:]
+					stderrLines = append(stderrLines, content)
+				}
+			}
+		}
+	}
+
+	stdout = strings.Join(stdoutLines, "\n")
+	stderr = strings.Join(stderrLines, "\n")
+	return stdout, stderr, nil
 }
 
 // ListWorkspaces returns all workspaces

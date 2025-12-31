@@ -102,16 +102,10 @@ func TestProcessCreation(t *testing.T) {
 		t.Errorf("Process directory does not exist: %s", processDir)
 	}
 
-	// Verify stdout file exists
-	stdoutFile := filepath.Join(processDir, "stdout")
-	if _, err := os.Stat(stdoutFile); os.IsNotExist(err) {
-		t.Errorf("Stdout file does not exist: %s", stdoutFile)
-	}
-
-	// Verify stderr file exists
-	stderrFile := filepath.Join(processDir, "stderr")
-	if _, err := os.Stat(stderrFile); os.IsNotExist(err) {
-		t.Errorf("Stderr file does not exist: %s", stderrFile)
+	// Verify output.log file exists
+	outputFile := filepath.Join(processDir, "output.log")
+	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
+		t.Errorf("Output file does not exist: %s", outputFile)
 	}
 
 	// Verify individual metadata files exist

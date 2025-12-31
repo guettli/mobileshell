@@ -164,12 +164,9 @@ func CreateProcess(ws *Workspace, command string) (string, error) {
 		return "", err
 	}
 
-	// Create empty stdout/stderr files
-	if err := os.WriteFile(filepath.Join(processDir, "stdout"), []byte{}, 0600); err != nil {
-		return "", fmt.Errorf("failed to create stdout file: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(processDir, "stderr"), []byte{}, 0600); err != nil {
-		return "", fmt.Errorf("failed to create stderr file: %w", err)
+	// Create empty output.log file
+	if err := os.WriteFile(filepath.Join(processDir, "output.log"), []byte{}, 0600); err != nil {
+		return "", fmt.Errorf("failed to create output.log file: %w", err)
 	}
 
 	return hash, nil

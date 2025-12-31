@@ -615,91 +615,61 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 		return nil, newHTTPError(http.StatusNotFound, "Process not found")
 	}
 
-	outputType := r.URL.Query().Get("type")
 	expand := r.URL.Query().Get("expand") == "true"
 
 	var buf bytes.Buffer
 
-	if outputType == "combined" {
-		// Read both stdout and stderr
-		stdout, errOut := executor.ReadOutput(proc.StdoutFile)
-		if errOut != nil {
-			stdout = ""
-		}
-		stderr, errErr := executor.ReadOutput(proc.StderrFile)
-		if errErr != nil {
-			stderr = ""
-		}
+	// Read combined output from single file
+	stdout, stderr, err := executor.ReadCombinedOutput(proc.OutputFile)
+	if err != nil {
+		stdout = ""
+		stderr = ""
+	}
 
-		// Calculate total size and lines
-		totalSize := len(stdout) + len(stderr)
-		stdoutLines := strings.Split(stdout, "\n")
-		stderrLines := strings.Split(stderr, "\n")
-		totalLines := len(stdoutLines) + len(stderrLines)
-		if stdout != "" && stdoutLines[len(stdoutLines)-1] == "" {
-			totalLines--
-		}
-		if stderr != "" && stderrLines[len(stderrLines)-1] == "" {
-			totalLines--
-		}
+	// Calculate total size and lines
+	totalSize := len(stdout) + len(stderr)
+	stdoutLines := strings.Split(stdout, "\n")
+	stderrLines := strings.Split(stderr, "\n")
+	totalLines := len(stdoutLines) + len(stderrLines)
+	if stdout != "" && stdoutLines[len(stdoutLines)-1] == "" {
+		totalLines--
+	}
+	if stderr != "" && stderrLines[len(stderrLines)-1] == "" {
+		totalLines--
+	}
 
-		// Decide whether to show automatically
-		autoShow := totalSize < 1000 && totalLines <= 5
+	// Decide whether to show automatically
+	autoShow := totalSize < 1000 && totalLines <= 5
 
-		// Prepare preview (first 5 lines combined, up to 1000 bytes)
-		var previewStdout, previewStderr string
-		needsExpand := false
+	// Prepare preview (first 5 lines combined, up to 1000 bytes)
+	var previewStdout, previewStderr string
+	needsExpand := false
 
-		if !autoShow && !expand {
-			// Show preview
-			previewStdout, previewStderr, needsExpand = truncateOutput(stdout, stderr, 5, 1000)
-		} else if expand {
-			// Show full output
-			previewStdout = stdout
-			previewStderr = stderr
-		} else {
-			// Auto-show (small enough)
-			previewStdout = stdout
-			previewStderr = stderr
-		}
-
-		err := s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
-			"Process":      proc,
-			"Stdout":       previewStdout,
-			"Stderr":       previewStderr,
-			"Type":         "combined",
-			"NeedsExpand":  needsExpand,
-			"Expanded":     expand,
-			"BasePath":     s.getBasePath(r),
-			"WorkspaceID":  filepath.Base(filepath.Dir(filepath.Dir(proc.StdoutFile))),
-		})
-		if err != nil {
-			return nil, err
-		}
+	if !autoShow && !expand {
+		// Show preview
+		previewStdout, previewStderr, needsExpand = truncateOutput(stdout, stderr, 5, 1000)
+	} else if expand {
+		// Show full output
+		previewStdout = stdout
+		previewStderr = stderr
 	} else {
-		// Legacy single output type
-		var content string
-		var err error
+		// Auto-show (small enough)
+		previewStdout = stdout
+		previewStderr = stderr
+	}
 
-		if outputType == "stderr" {
-			content, err = executor.ReadOutput(proc.StderrFile)
-		} else {
-			content, err = executor.ReadOutput(proc.StdoutFile)
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
-			"Process":  proc,
-			"Content":  content,
-			"Type":     outputType,
-			"BasePath": s.getBasePath(r),
-		})
-		if err != nil {
-			return nil, err
-		}
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
+		"Process":      proc,
+		"Stdout":       previewStdout,
+		"Stderr":       previewStderr,
+		"Type":         "combined",
+		"NeedsExpand":  needsExpand,
+		"Expanded":     expand,
+		"BasePath":     s.getBasePath(r),
+		"WorkspaceID":  filepath.Base(filepath.Dir(filepath.Dir(proc.OutputFile))),
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return buf.Bytes(), nil

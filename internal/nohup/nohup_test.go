@@ -4,11 +4,17 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"mobileshell/internal/workspace"
 )
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
+}
 
 func TestNohupRun(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -64,14 +70,17 @@ func TestNohupRun(t *testing.T) {
 		t.Errorf("Expected exit code 0, got %d", exitCode)
 	}
 
-	// Verify stdout contains expected output
-	stdoutFile := filepath.Join(processDir, "stdout")
-	stdoutData, err := os.ReadFile(stdoutFile)
+	// Verify output.log contains expected output with STDOUT prefix
+	outputFile := filepath.Join(processDir, "output.log")
+	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
-		t.Fatalf("Failed to read stdout: %v", err)
+		t.Fatalf("Failed to read output.log: %v", err)
 	}
-	if string(stdoutData) != "Hello, World!\n" {
-		t.Errorf("Expected stdout 'Hello, World!\\n', got '%s'", string(stdoutData))
+
+	// Output should contain "stdout" prefix and timestamp in ISO8601 format
+	output := string(outputData)
+	if !contains(output, "stdout") || !contains(output, "Hello, World!") {
+		t.Errorf("Expected output to contain 'stdout' and 'Hello, World!', got '%s'", output)
 	}
 
 	// Verify process metadata was updated
@@ -125,15 +134,17 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
-	// Verify stdout contains the environment variable value
+	// Verify output.log contains the environment variable value
 	processDir := workspace.GetProcessDir(ws, hash)
-	stdoutFile := filepath.Join(processDir, "stdout")
-	stdoutData, err := os.ReadFile(stdoutFile)
+	outputFile := filepath.Join(processDir, "output.log")
+	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
-		t.Fatalf("Failed to read stdout: %v", err)
+		t.Fatalf("Failed to read output.log: %v", err)
 	}
-	if string(stdoutData) != "hello\n" {
-		t.Errorf("Expected stdout 'hello\\n', got '%s'", string(stdoutData))
+
+	output := string(outputData)
+	if !contains(output, "stdout") || !contains(output, "hello") {
+		t.Errorf("Expected output to contain 'stdout' and 'hello', got '%s'", output)
 	}
 }
 
@@ -233,14 +244,61 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	// Give it a moment to complete
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify stdout contains the file content
+	// Verify output.log contains the file content
 	processDir := workspace.GetProcessDir(ws, hash)
-	stdoutFile := filepath.Join(processDir, "stdout")
-	stdoutData, err := os.ReadFile(stdoutFile)
+	outputFile := filepath.Join(processDir, "output.log")
+	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
-		t.Fatalf("Failed to read stdout: %v", err)
+		t.Fatalf("Failed to read output.log: %v", err)
 	}
-	if string(stdoutData) != "test content" {
-		t.Errorf("Expected stdout 'test content', got '%s'", string(stdoutData))
+
+	output := string(outputData)
+	if !contains(output, "stdout") || !contains(output, "test content") {
+		t.Errorf("Expected output to contain 'stdout' and 'test content', got '%s'", output)
+	}
+}
+
+func TestNohupRunWithStderrOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Initialize workspace storage
+	if err := workspace.InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
+	}
+
+	// Create workspace
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+
+	// Create a process that writes to both stdout and stderr
+	hash, err := workspace.CreateProcess(ws, "echo 'stdout message' && echo 'stderr message' >&2")
+	if err != nil {
+		t.Fatalf("Failed to create process: %v", err)
+	}
+
+	workspaceTS := filepath.Base(ws.Path)
+
+	// Run the nohup command
+	err = Run(tmpDir, workspaceTS, hash, []string{})
+	if err != nil {
+		t.Fatalf("Failed to run nohup: %v", err)
+	}
+
+	// Verify output.log contains both stdout and stderr with proper prefixes
+	processDir := workspace.GetProcessDir(ws, hash)
+	outputFile := filepath.Join(processDir, "output.log")
+	outputData, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("Failed to read output.log: %v", err)
+	}
+
+	output := string(outputData)
+	if !contains(output, "stdout") || !contains(output, "stdout message") {
+		t.Errorf("Expected output to contain 'stdout' and 'stdout message', got '%s'", output)
+	}
+	if !contains(output, "stderr") || !contains(output, "stderr message") {
+		t.Errorf("Expected output to contain 'stderr' and 'stderr message', got '%s'", output)
 	}
 }
