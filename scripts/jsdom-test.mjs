@@ -80,6 +80,15 @@ async function runTests() {
     // Check for HTMX form submission
     const createForm = doc.querySelector('[hx-post*="hx-create"]');
     assert.ok(createForm, 'Should have workspace creation form with hx-post');
+
+    // Verify all hx-target selectors have matching elements
+    const elementsWithTarget = doc.querySelectorAll('[hx-target]');
+    for (const elem of elementsWithTarget) {
+      const targetSelector = elem.getAttribute('hx-target');
+      const targetExists = doc.querySelector(targetSelector);
+      assert.ok(targetExists, `hx-target="${targetSelector}" should have matching element in DOM`);
+    }
+
     console.log('✓ HTMX attributes found in page');
 
     // Create workspace via API (simulating HTMX hx-post)
@@ -113,6 +122,16 @@ async function runTests() {
 
     assert.equal(workspacePageResponse.status, 200, 'Should load workspace page');
     assert.ok(workspacePageResponse.text.includes('hx-execute'), 'Should have execute form');
+
+    // Verify all hx-target selectors have matching elements in workspace page
+    const workspaceDoc = parseHTML(workspacePageResponse.text);
+    const workspaceTargets = workspaceDoc.querySelectorAll('[hx-target]');
+    for (const elem of workspaceTargets) {
+      const targetSelector = elem.getAttribute('hx-target');
+      const targetExists = workspaceDoc.querySelector(targetSelector);
+      assert.ok(targetExists, `Workspace page: hx-target="${targetSelector}" should have matching element in DOM`);
+    }
+
     console.log('✓ Workspace page loaded');
 
     // Step 5: Execute a command via HTMX

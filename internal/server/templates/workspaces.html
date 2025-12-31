@@ -61,7 +61,7 @@
         <div class="card mb-4">
             <div class="card-body">
                 <h5 class="card-title">Execute Command</h5>
-                <form hx-post="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute" hx-target="#processes" hx-swap="beforeend" hx-on::after-request="this.reset()">
+                <form hx-post="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute" hx-target="#running-processes" hx-swap="beforeend" hx-on::after-request="this.reset()">
                     <div class="mb-3">
                         <input type="text" class="form-control" name="command" placeholder="Enter command..." required autofocus>
                     </div>
