@@ -519,6 +519,21 @@ func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) 
 	var runningProcesses []*executor.Process
 	for _, p := range allProcesses {
 		if p.Status != "completed" {
+			// Check if the process is actually still running
+			if p.PID > 0 {
+				// Try to find the process
+				process, err := os.FindProcess(p.PID)
+				if err == nil {
+					// On Unix, FindProcess always succeeds, so we need to send signal 0 to check
+					err = process.Signal(syscall.Signal(0))
+					if err != nil {
+						// Process doesn't exist anymore, mark as completed with unknown exit code
+						slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
+						_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
+						continue
+					}
+				}
+			}
 			runningProcesses = append(runningProcesses, p)
 		}
 	}
