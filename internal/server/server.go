@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
+	"mobileshell/internal/workspace"
 )
 
 //go:embed templates/*
@@ -253,6 +255,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/hx-running-processes", s.authMiddleware(s.wrapHandler(s.hxHandleRunningProcesses)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -620,21 +623,26 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 	var buf bytes.Buffer
 
 	// Read combined output from single file
-	stdout, stderr, err := executor.ReadCombinedOutput(proc.OutputFile)
+	stdout, stderr, stdin, err := executor.ReadCombinedOutput(proc.OutputFile)
 	if err != nil {
 		stdout = ""
 		stderr = ""
+		stdin = ""
 	}
 
 	// Calculate total size and lines
-	totalSize := len(stdout) + len(stderr)
+	totalSize := len(stdout) + len(stderr) + len(stdin)
 	stdoutLines := strings.Split(stdout, "\n")
 	stderrLines := strings.Split(stderr, "\n")
-	totalLines := len(stdoutLines) + len(stderrLines)
+	stdinLines := strings.Split(stdin, "\n")
+	totalLines := len(stdoutLines) + len(stderrLines) + len(stdinLines)
 	if stdout != "" && stdoutLines[len(stdoutLines)-1] == "" {
 		totalLines--
 	}
 	if stderr != "" && stderrLines[len(stderrLines)-1] == "" {
+		totalLines--
+	}
+	if stdin != "" && stdinLines[len(stdinLines)-1] == "" {
 		totalLines--
 	}
 
@@ -642,26 +650,32 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 	autoShow := totalSize < 1000 && totalLines <= 5
 
 	// Prepare preview (first 5 lines combined, up to 1000 bytes)
-	var previewStdout, previewStderr string
+	var previewStdout, previewStderr, previewStdin string
 	needsExpand := false
 
 	if !autoShow && !expand {
-		// Show preview
-		previewStdout, previewStderr, needsExpand = truncateOutput(stdout, stderr, 5, 1000)
+		// Show preview (simplified - just show everything for now)
+		previewStdout = stdout
+		previewStderr = stderr
+		previewStdin = stdin
+		needsExpand = true
 	} else if expand {
 		// Show full output
 		previewStdout = stdout
 		previewStderr = stderr
+		previewStdin = stdin
 	} else {
 		// Auto-show (small enough)
 		previewStdout = stdout
 		previewStderr = stderr
+		previewStdin = stdin
 	}
 
 	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
 		"Process":      proc,
 		"Stdout":       previewStdout,
 		"Stderr":       previewStderr,
+		"Stdin":        previewStdin,
 		"Type":         "combined",
 		"NeedsExpand":  needsExpand,
 		"Expanded":     expand,
@@ -675,63 +689,48 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 	return buf.Bytes(), nil
 }
 
-// truncateOutput returns the first maxLines lines (up to maxBytes total) from stdout and stderr
-// Returns whether truncation occurred (needsExpand)
-func truncateOutput(stdout, stderr string, maxLines, maxBytes int) (string, string, bool) {
-	stdoutLines := strings.Split(stdout, "\n")
-	stderrLines := strings.Split(stderr, "\n")
+func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Get workspace ID and process ID from path
+	workspaceID := r.PathValue("id")
+	processID := r.PathValue("processID")
 
-	// Remove trailing empty line if present
-	if len(stdoutLines) > 0 && stdoutLines[len(stdoutLines)-1] == "" {
-		stdoutLines = stdoutLines[:len(stdoutLines)-1]
-	}
-	if len(stderrLines) > 0 && stderrLines[len(stderrLines)-1] == "" {
-		stderrLines = stderrLines[:len(stderrLines)-1]
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
 	}
 
-	totalLines := len(stdoutLines) + len(stderrLines)
-	needsExpand := totalLines > maxLines || len(stdout)+len(stderr) > maxBytes
-
-	if !needsExpand {
-		return stdout, stderr, false
+	stdinData := r.FormValue("stdin")
+	if stdinData == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "No stdin data provided")
 	}
 
-	// Truncate to first maxLines
-	var resultStdout, resultStderr string
-	linesLeft := maxLines
-	bytesLeft := maxBytes
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
 
-	// First, try to include stdout lines
-	for i := 0; i < len(stdoutLines) && linesLeft > 0 && bytesLeft > 0; i++ {
-		line := stdoutLines[i]
-		if i > 0 {
-			line = "\n" + line
+	// Get process directory
+	processDir := workspace.GetProcessDir(ws, processID)
+	pipePath := filepath.Join(processDir, "stdin.pipe")
+
+	// Write to named pipe (non-blocking)
+	go func() {
+		file, err := os.OpenFile(pipePath, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			slog.Error("Failed to open stdin pipe", "error", err, "path", pipePath)
+			return
 		}
-		if len(line) <= bytesLeft {
-			resultStdout += line
-			linesLeft--
-			bytesLeft -= len(line)
-		} else {
-			break
-		}
-	}
+		defer func() { _ = file.Close() }()
 
-	// Then include stderr lines
-	for i := 0; i < len(stderrLines) && linesLeft > 0 && bytesLeft > 0; i++ {
-		line := stderrLines[i]
-		if i > 0 {
-			line = "\n" + line
+		_, err = file.WriteString(stdinData + "\n")
+		if err != nil {
+			slog.Error("Failed to write to stdin pipe", "error", err)
 		}
-		if len(line) <= bytesLeft {
-			resultStderr += line
-			linesLeft--
-			bytesLeft -= len(line)
-		} else {
-			break
-		}
-	}
+	}()
 
-	return resultStdout, resultStderr, true
+	// Return empty response (form will reset automatically via hx-on::after-request)
+	return []byte{}, nil
 }
 
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {

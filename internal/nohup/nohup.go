@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,7 +76,12 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Create the command
 	cmd := exec.Command("sh", "-c", fullCommand)
 	cmd.Dir = ws.Directory
-	cmd.Stdin = nil
+
+	// Create stdin pipe for the command
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
 
 	// Create pipes for stdout and stderr
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -110,6 +116,11 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	if err := workspace.UpdateProcessPID(ws, processHash, pid); err != nil {
 		return fmt.Errorf("failed to update process PID: %w", err)
 	}
+
+	// Start goroutine to read from named pipe and forward to process stdin
+	stdinDone := make(chan struct{})
+	namedPipePath := filepath.Join(processDir, "stdin.pipe")
+	go readStdinPipe(namedPipePath, stdinPipe, outputChan, stdinDone)
 
 	// Start goroutines to read stdout and stderr line-by-line
 	readersDone := make(chan struct{}, 2)
@@ -170,6 +181,44 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 		line := scanner.Text()
 		outputChan <- OutputLine{
 			Stream:    stream,
+			Timestamp: time.Now().UTC(),
+			Line:      line,
+		}
+	}
+}
+
+// readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
+// This runs in the background and exits when the pipe is closed or process ends
+func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- OutputLine, done chan<- struct{}) {
+	defer func() {
+		close(done)
+		_ = stdinWriter.Close()
+	}()
+
+	// Open the named pipe for reading in blocking mode
+	// This will block until a writer opens it
+	file, err := os.OpenFile(pipePath, os.O_RDONLY, 0)
+	if err != nil {
+		slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	// Read lines from the pipe continuously
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Write to process stdin
+		_, err := stdinWriter.Write([]byte(line + "\n"))
+		if err != nil {
+			// Process stdin closed, stop reading
+			return
+		}
+
+		// Also log to output.log
+		outputChan <- OutputLine{
+			Stream:    "stdin",
 			Timestamp: time.Now().UTC(),
 			Line:      line,
 		}

@@ -17,6 +17,14 @@
             </div>
             <div id="output-{{.ID}}" class="mt-2" hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=combined" hx-trigger="load" hx-swap="innerHTML">
             </div>
+            <div class="mt-2">
+                <form hx-post="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-send-stdin" hx-on::after-request="this.reset()">
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" name="stdin" placeholder="Send input to process..." autocomplete="off">
+                        <button type="submit" class="btn btn-outline-primary">Send</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
     {{end}}

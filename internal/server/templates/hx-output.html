@@ -1,5 +1,5 @@
 {{if eq .Type "combined"}}
-    {{if or .Stdout .Stderr}}
+    {{if or .Stdout .Stderr .Stdin}}
         {{if .Stdout}}
         <div class="output-section">
             <h6>Stdout:</h6>
@@ -10,6 +10,12 @@
         <div class="output-section">
             <h6>Stderr:</h6>
             <div class="output-container stderr">{{.Stderr}}</div>
+        </div>
+        {{end}}
+        {{if .Stdin}}
+        <div class="output-section">
+            <h6>Stdin:</h6>
+            <div class="output-container stdin">{{.Stdin}}</div>
         </div>
         {{end}}
         {{if .NeedsExpand}}

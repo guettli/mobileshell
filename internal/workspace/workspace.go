@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -167,6 +168,12 @@ func CreateProcess(ws *Workspace, command string) (string, error) {
 	// Create empty output.log file
 	if err := os.WriteFile(filepath.Join(processDir, "output.log"), []byte{}, 0600); err != nil {
 		return "", fmt.Errorf("failed to create output.log file: %w", err)
+	}
+
+	// Create named pipe for stdin
+	stdinPipe := filepath.Join(processDir, "stdin.pipe")
+	if err := syscall.Mkfifo(stdinPipe, 0600); err != nil {
+		return "", fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
 	return hash, nil

@@ -215,15 +215,15 @@ func ReadOutput(filename string) (string, error) {
 }
 
 // ReadCombinedOutput reads and parses the combined output.log file
-// Returns stdout lines and stderr lines separately
-func ReadCombinedOutput(filename string) (stdout string, stderr string, err error) {
+// Returns stdout, stderr, and stdin lines separately
+func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin string, err error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	lines := strings.Split(string(data), "\n")
-	var stdoutLines, stderrLines []string
+	var stdoutLines, stderrLines, stdinLines []string
 
 	for _, line := range lines {
 		if line == "" {
@@ -232,6 +232,7 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, err erro
 
 		// Parse format: "stdout 2025-01-01T12:34:56.789Z: content"
 		// or: "stderr 2025-01-01T12:34:56.789Z: content"
+		// or: "stdin 2025-01-01T12:34:56.789Z: content"
 		if len(line) > 37 { // Minimum length for prefix
 			if strings.HasPrefix(line, "stdout ") {
 				// Extract content after ": "
@@ -245,13 +246,20 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, err erro
 					content := line[7+idx+2:]
 					stderrLines = append(stderrLines, content)
 				}
+			} else if strings.HasPrefix(line, "stdin ") {
+				// Extract content after ": "
+				if idx := strings.Index(line[6:], ": "); idx != -1 {
+					content := line[6+idx+2:]
+					stdinLines = append(stdinLines, content)
+				}
 			}
 		}
 	}
 
 	stdout = strings.Join(stdoutLines, "\n")
 	stderr = strings.Join(stderrLines, "\n")
-	return stdout, stderr, nil
+	stdin = strings.Join(stdinLines, "\n")
+	return stdout, stderr, stdin, nil
 }
 
 // ListWorkspaces returns all workspaces
