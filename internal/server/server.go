@@ -738,9 +738,10 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := s.getSessionToken(r)
 		valid := false
+		var expiry time.Time
 		if token != "" {
 			var err error
-			valid, err = auth.ValidateSession(s.stateDir, token)
+			valid, expiry, err = auth.ValidateSessionWithExpiry(s.stateDir, token)
 			if err != nil {
 				slog.Error("Failed to validate session", "error", err)
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -754,6 +755,27 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(w, r, redirectPath, http.StatusSeeOther)
 			return
 		}
+
+		// Check if session expires in less than 30 minutes
+		timeUntilExpiry := time.Until(expiry)
+		if timeUntilExpiry < 30*time.Minute {
+			// Extend the session by creating a new token
+			newToken, ok := auth.ExtendSession(s.stateDir, token)
+			if ok {
+				// Set new session cookie
+				http.SetCookie(w, &http.Cookie{
+					Name:     "session",
+					Value:    newToken,
+					Path:     "/",
+					HttpOnly: true,
+					MaxAge:   86400, // 24 hours
+				})
+				slog.Debug("Session extended", "old_expiry", expiry, "time_until_expiry", timeUntilExpiry)
+			} else {
+				slog.Error("Failed to extend session")
+			}
+		}
+
 		next(w, r)
 	}
 }

@@ -69,6 +69,12 @@ func saveSession(stateDir, hashedToken string, expiry time.Time) error {
 }
 
 func ValidateSession(stateDir, token string) (bool, error) {
+	valid, _, err := ValidateSessionWithExpiry(stateDir, token)
+	return valid, err
+}
+
+// ValidateSessionWithExpiry validates a session and returns the expiry time
+func ValidateSessionWithExpiry(stateDir, token string) (bool, time.Time, error) {
 	// Hash the token to look it up
 	tokenHash := sha256.Sum256([]byte(token))
 	hashedToken := hex.EncodeToString(tokenHash[:])
@@ -82,15 +88,15 @@ func ValidateSession(stateDir, token string) (bool, error) {
 		if os.IsNotExist(err) {
 			// Add random delay to mitigate timing attacks
 			time.Sleep(time.Duration(10+mathrand.Int32N(1000)) * time.Microsecond)
-			return false, nil
+			return false, time.Time{}, nil
 		}
-		return false, fmt.Errorf("failed to read session file: %w", err)
+		return false, time.Time{}, fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	// Parse expiry time
 	expiryUnix, err := strconv.ParseInt(string(data), 10, 64)
 	if err != nil {
-		return false, fmt.Errorf("failed to parse session expiry: %w", err)
+		return false, time.Time{}, fmt.Errorf("failed to parse session expiry: %w", err)
 	}
 
 	expiry := time.Unix(expiryUnix, 0)
@@ -99,10 +105,36 @@ func ValidateSession(stateDir, token string) (bool, error) {
 	if time.Now().UTC().After(expiry) {
 		// Clean up expired session
 		_ = os.Remove(sessionPath)
-		return false, nil
+		return false, time.Time{}, nil
 	}
 
-	return true, nil
+	return true, expiry, nil
+}
+
+// ExtendSession extends an existing session by creating a new token
+// The old token remains valid until its original expiry time
+func ExtendSession(stateDir, oldToken string) (string, bool) {
+	// Validate the old session first
+	valid, _, err := ValidateSessionWithExpiry(stateDir, oldToken)
+	if err != nil || !valid {
+		return "", false
+	}
+
+	// Create new token with new expiry
+	newToken := generateToken()
+	expiry := time.Now().UTC().Add(24 * time.Hour)
+
+	// Hash the new token for storage
+	tokenHash := sha256.Sum256([]byte(newToken))
+	hashedToken := hex.EncodeToString(tokenHash[:])
+
+	// Persist new session to disk
+	if err := saveSession(stateDir, hashedToken, expiry); err != nil {
+		slog.Warn("Failed to persist extended session", "error", err)
+		return "", false
+	}
+
+	return newToken, true
 }
 
 func CleanExpiredSessions(stateDir string) {
