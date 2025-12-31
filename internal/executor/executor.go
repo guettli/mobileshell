@@ -233,6 +233,7 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 		// Parse format: "stdout 2025-01-01T12:34:56.789Z: content"
 		// or: "stderr 2025-01-01T12:34:56.789Z: content"
 		// or: "stdin 2025-01-01T12:34:56.789Z: content"
+		// or: "signal-sent 2025-01-01T12:34:56.789Z: 15 SIGTERM"
 		if len(line) > 37 { // Minimum length for prefix
 			if strings.HasPrefix(line, "stdout ") {
 				// Extract content after ": "
@@ -250,6 +251,12 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 				// Extract content after ": "
 				if idx := strings.Index(line[6:], ": "); idx != -1 {
 					content := line[6+idx+2:]
+					stdinLines = append(stdinLines, content)
+				}
+			} else if strings.HasPrefix(line, "signal-sent ") {
+				// Extract signal info after ": " and show in stdin (for visibility)
+				if idx := strings.Index(line[12:], ": "); idx != -1 {
+					content := "Signal sent: " + line[12+idx+2:]
 					stdinLines = append(stdinLines, content)
 				}
 			}

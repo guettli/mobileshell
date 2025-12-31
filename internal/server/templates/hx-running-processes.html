@@ -25,6 +25,23 @@
                     </div>
                 </form>
             </div>
+            <div class="mt-2">
+                <form hx-post="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-send-signal">
+                    <div class="input-group input-group-sm">
+                        <select class="form-select" name="signal" required>
+                            <option value="">Select signal...</option>
+                            <option value="15">SIGTERM (15)</option>
+                            <option value="9">SIGKILL (9)</option>
+                            <option value="2">SIGINT (2)</option>
+                            <option value="1">SIGHUP (1)</option>
+                            <option value="6">SIGABRT (6)</option>
+                            <option value="19">SIGSTOP (19)</option>
+                            <option value="18">SIGCONT (18)</option>
+                        </select>
+                        <button type="submit" class="btn btn-outline-danger">Send Signal</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
     {{end}}

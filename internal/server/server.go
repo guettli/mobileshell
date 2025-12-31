@@ -256,6 +256,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSendSignal)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -730,6 +731,79 @@ func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte
 	}()
 
 	// Return empty response (form will reset automatically via hx-on::after-request)
+	return []byte{}, nil
+}
+
+func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Get workspace ID and process ID from path
+	workspaceID := r.PathValue("id")
+	processID := r.PathValue("processID")
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	signalStr := r.FormValue("signal")
+	if signalStr == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "No signal provided")
+	}
+
+	// Parse signal number
+	var signalNum int
+	_, err := fmt.Sscanf(signalStr, "%d", &signalNum)
+	if err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Invalid signal number")
+	}
+
+	// Get signal name
+	signalName := syscall.Signal(signalNum).String()
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Get process to find PID
+	proc, ok := executor.GetProcess(s.stateDir, processID)
+	if !ok {
+		return nil, newHTTPError(http.StatusNotFound, "Process not found")
+	}
+
+	if proc.PID == 0 {
+		return nil, newHTTPError(http.StatusBadRequest, "Process has no PID")
+	}
+
+	// Send signal to process
+	process, err := os.FindProcess(proc.PID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, "Failed to find process")
+	}
+
+	err = process.Signal(syscall.Signal(signalNum))
+	if err != nil {
+		slog.Error("Failed to send signal to process", "error", err, "pid", proc.PID, "signal", signalName)
+		return nil, newHTTPError(http.StatusInternalServerError, "Failed to send signal")
+	}
+
+	// Log the signal send to output.log
+	processDir := workspace.GetProcessDir(ws, processID)
+	outputFile := filepath.Join(processDir, "output.log")
+
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	logLine := fmt.Sprintf("signal-sent %s: %d %s\n", timestamp, signalNum, signalName)
+
+	// Append to output.log
+	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0600)
+	if err == nil {
+		_, _ = f.WriteString(logLine)
+		_ = f.Close()
+	}
+
+	slog.Info("Signal sent to process", "pid", proc.PID, "signal", signalName, "signal_num", signalNum)
+
+	// Return empty response
 	return []byte{}, nil
 }
 
