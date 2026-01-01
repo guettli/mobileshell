@@ -206,6 +206,96 @@ async function runTests() {
       'Should show finished process or empty state');
     console.log('✓ Pagination endpoint works');
 
+    // Step 9: Test process transition from running to finished
+    console.log('\nStep 9: Testing process transition from running to finished...');
+
+    // Execute a short-lived command
+    const shortCommandResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+      body: 'command=sleep 0.1',
+    });
+
+    assert.equal(shortCommandResponse.status, 200, 'Should execute sleep command');
+    const sleepProcessMatch = shortCommandResponse.text.match(/processes\/([^\/]+)\/hx-output/);
+    assert.ok(sleepProcessMatch, 'Should have sleep process output link');
+    const sleepProcessId = sleepProcessMatch[1];
+    console.log(`  Command started (Process ID: ${sleepProcessId})`);
+
+    // Poll running processes to see the process while it's running
+    let foundInRunning = false;
+    for (let i = 0; i < 5; i++) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const runningCheck = await request('GET', `/workspaces/${workspaceId}/hx-running-processes`, {
+        headers: {
+          Cookie: sessionCookie,
+          'HX-Request': 'true',
+        },
+      });
+
+      if (runningCheck.text.includes(sleepProcessId) || runningCheck.text.includes('sleep')) {
+        foundInRunning = true;
+        console.log('  ✓ Process found in running processes');
+        break;
+      }
+    }
+
+    // Wait for the process to complete
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Now poll running processes and check for OOB swap trigger
+    let foundOobSwap = false;
+    let processMovedToFinished = false;
+
+    for (let i = 0; i < 10; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const runningAfterComplete = await request('GET', `/workspaces/${workspaceId}/hx-running-processes`, {
+        headers: {
+          Cookie: sessionCookie,
+          'HX-Request': 'true',
+        },
+      });
+
+      // Check if the response contains OOB swap for finished processes
+      if (runningAfterComplete.text.includes('hx-swap-oob') &&
+          runningAfterComplete.text.includes('finished-processes')) {
+        foundOobSwap = true;
+        console.log('  ✓ OOB swap detected in running processes response');
+      }
+
+      // Check if process is no longer in running
+      const stillRunning = runningAfterComplete.text.includes(sleepProcessId) ||
+                          runningAfterComplete.text.includes('sleep 0.1');
+
+      if (!stillRunning) {
+        console.log('  ✓ Process removed from running processes');
+
+        // Check if it appears in finished processes
+        const finishedCheck = await request('GET', `/workspaces/${workspaceId}/hx-finished-processes?offset=0`, {
+          headers: {
+            Cookie: sessionCookie,
+            'HX-Request': 'true',
+          },
+        });
+
+        if (finishedCheck.text.includes(sleepProcessId) || finishedCheck.text.includes('sleep 0.1')) {
+          processMovedToFinished = true;
+          console.log('  ✓ Process appears in finished processes');
+          break;
+        }
+      }
+    }
+
+    assert.ok(processMovedToFinished, 'Process should transition from running to finished');
+    if (foundInRunning) {
+      assert.ok(foundOobSwap, 'Should trigger OOB swap to refresh finished processes when process completes');
+    }
+    console.log('✓ Process transition works correctly');
+
     console.log('\n✅ All tests passed!');
     process.exit(0);
 

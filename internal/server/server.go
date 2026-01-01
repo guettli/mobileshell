@@ -536,8 +536,10 @@ func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) 
 		return nil, err
 	}
 
-	// Filter for running processes only
+	// Filter for running processes only and track if there are recent completions
 	var runningProcesses []*executor.Process
+	hasRecentCompletions := false
+	now := time.Now().UTC()
 	for _, p := range allProcesses {
 		if p.Status != "completed" {
 			// Check if the process is actually still running
@@ -551,11 +553,15 @@ func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) 
 						// Process doesn't exist anymore, mark as completed with unknown exit code
 						slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
 						_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
+						hasRecentCompletions = true
 						continue
 					}
 				}
 			}
 			runningProcesses = append(runningProcesses, p)
+		} else if !p.EndTime.IsZero() && now.Sub(p.EndTime) < 5*time.Second {
+			// Process completed recently (within last 5 seconds)
+			hasRecentCompletions = true
 		}
 	}
 
@@ -568,6 +574,14 @@ func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) 
 	if err != nil {
 		return nil, err
 	}
+
+	// If processes were recently completed, append an OOB swap to refresh finished processes
+	if hasRecentCompletions {
+		oob := fmt.Sprintf(`<div id="finished-processes" hx-get="%s/workspaces/%s/hx-finished-processes?offset=0" hx-trigger="load" hx-swap="innerHTML" hx-swap-oob="true"></div>`,
+			s.getBasePath(r), workspaceID)
+		buf.WriteString(oob)
+	}
+
 	return buf.Bytes(), nil
 }
 
