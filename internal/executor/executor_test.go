@@ -122,8 +122,8 @@ func TestExecute(t *testing.T) {
 		t.Errorf("Expected command 'echo 'test'', got '%s'", proc.Command)
 	}
 
-	if proc.Status != "pending" {
-		t.Errorf("Expected status 'pending', got '%s'", proc.Status)
+	if proc.Completed {
+		t.Error("Expected process to not be completed")
 	}
 
 	if proc.Hash == "" {

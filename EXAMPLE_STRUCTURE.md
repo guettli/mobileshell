@@ -21,7 +21,7 @@ After running a few commands in different workspaces, the state directory will l
     │       │   ├── cmd                  # Plain text: "npm run build"
     │       │   ├── starttime            # RFC3339Nano: "2025-12-30T14:24:00Z"
     │       │   ├── endtime              # RFC3339Nano: "2025-12-30T14:24:30Z"
-    │       │   ├── status               # Plain text: "completed"
+    │       │   ├── completed            # Plain text: "true"
     │       │   ├── pid                  # Plain text: "12345"
     │       │   ├── exit-status          # Plain text: "0"
     │       │   ├── stdout               # Raw output: "Build complete..."
@@ -30,7 +30,7 @@ After running a few commands in different workspaces, the state directory will l
     │           ├── cmd                  # "npm test"
     │           ├── starttime            # "2025-12-30T14:25:00Z"
     │           ├── endtime              # "2025-12-30T14:25:05Z"
-    │           ├── status               # "completed"
+    │           ├── completed            # "true"
     │           ├── pid                  # "12346"
     │           ├── exit-status          # "1"
     │           ├── stdout               # Test output
@@ -43,7 +43,7 @@ After running a few commands in different workspaces, the state directory will l
             └── c3d4e5f6g7h8i9j0/
                 ├── cmd                  # "go test ./..."
                 ├── starttime            # "2025-12-30T15:30:15Z"
-                ├── status               # "running"
+                ├── completed            # "false"
                 ├── pid                  # "12347"
                 ├── stdout               # Test output (growing)
                 └── stderr               # Error output
@@ -68,7 +68,7 @@ All metadata is stored as **individual plain text files**. No JSON.
 - **`cmd`**: Plain text file with the command to execute
 - **`starttime`**: Plain text file with RFC3339Nano timestamp when process started
 - **`endtime`**: (optional) Plain text file with RFC3339Nano timestamp when process ended
-- **`status`**: Plain text file: "pending", "running", or "completed"
+- **`completed`**: Plain text file: "true" or "false"
 - **`pid`**: Plain text file with process ID (written when process starts)
 - **`exit-status`**: Plain text file with exit code (written when process completes, empty if still running)
 - **`stdout`**: Raw standard output stream (can be large, read incrementally)
@@ -87,17 +87,15 @@ All metadata is stored as **individual plain text files**. No JSON.
 
 ## Process States
 
-A process goes through these states (stored in `status` file):
+A process has a boolean completion state (stored in `completed` file):
 
-1. **`pending`**: Process metadata created, waiting for nohup to start
-2. **`running`**: Process started, PID written, still executing
-3. **`completed`**: Process finished, exit code written
+1. **Running** (`completed` = "false"): Process started, PID written, still executing
+2. **Completed** (`completed` = "true"): Process finished, exit code written
 
 The state can be determined by:
 
-- No `pid` file → pending
-- `pid` file exists, no `exit-status` → running
-- `exit-status` file has content → completed
+- `completed` file contains "false" → running
+- `completed` file contains "true" → completed
 
 ## Example Shell Commands
 
@@ -114,14 +112,14 @@ cat .mobileshell/workspaces/2025-12-30_14:23:45.123/directory
 # List processes in a workspace
 ls -1 .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/
 
-# Check process status
-cat .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/a1b2c3d4e5f6g7h8/status
+# Check process completion status
+cat .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/a1b2c3d4e5f6g7h8/completed
 
 # View process output
 tail -f .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/a1b2c3d4e5f6g7h8/stdout
 
 # Find all running processes
-find .mobileshell/workspaces -name status -exec grep -l "running" {} \;
+find .mobileshell/workspaces -name completed -exec grep -l "false" {} \;
 
 # Find all completed processes with non-zero exit code
 find .mobileshell/workspaces -name exit-status -exec grep -v "^0$" {} \;

@@ -36,7 +36,6 @@ type Server struct {
 func New(stateDir string) (*Server, error) {
 	funcMap := template.FuncMap{
 		"formatDuration": formatDuration,
-		"deref":          derefInt,
 	}
 	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
@@ -49,14 +48,6 @@ func New(stateDir string) (*Server, error) {
 	}
 
 	return s, nil
-}
-
-// derefInt safely dereferences an *int, returning 0 if nil
-func derefInt(p *int) int {
-	if p == nil {
-		return 0
-	}
-	return *p
 }
 
 // formatDuration formats a duration in seconds to a human-readable string
@@ -562,7 +553,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 			if p.ID == id {
 				found = true
 				// Check if process is actually still running
-				if p.Status != "completed" && p.PID > 0 {
+				if !p.Completed && p.PID > 0 {
 					process, err := os.FindProcess(p.PID)
 					if err == nil {
 						err = process.Signal(syscall.Signal(0))
@@ -570,12 +561,12 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 							// Process doesn't exist anymore, mark as completed
 							slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
 							_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
-							p.Status = "completed"
+							p.Completed = true
 						}
 					}
 				}
 
-				if p.Status == "completed" {
+				if p.Completed {
 					// Render finished process HTML (view only, like initial page load)
 					html, err := s.renderFinishedProcessSnippet(p, workspaceID, r)
 					if err != nil {
@@ -606,7 +597,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 	// Check for new running processes not in the received list
 	var runningProcesses []*executor.Process
 	for _, p := range allProcesses {
-		if p.Status != "completed" && !receivedIDs[p.ID] {
+		if !p.Completed && !receivedIDs[p.ID] {
 			// Check if actually running
 			if p.PID > 0 {
 				process, err := os.FindProcess(p.PID)
@@ -706,7 +697,7 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	// Filter for finished processes only
 	var finishedProcesses []*executor.Process
 	for _, p := range allProcesses {
-		if p.Status == "completed" {
+		if p.Completed {
 			finishedProcesses = append(finishedProcesses, p)
 		}
 	}

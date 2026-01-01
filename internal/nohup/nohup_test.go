@@ -89,12 +89,12 @@ func TestNohupRun(t *testing.T) {
 		t.Fatalf("Failed to get process: %v", err)
 	}
 
-	if proc.Status != "completed" {
-		t.Errorf("Expected status 'completed', got '%s'", proc.Status)
+	if !proc.Completed {
+		t.Error("Expected process to be completed")
 	}
 
-	if proc.ExitCode == nil || *proc.ExitCode != 0 {
-		t.Errorf("Expected exit code 0, got %v", proc.ExitCode)
+	if proc.ExitCode != 0 {
+		t.Errorf("Expected exit code 0, got %d", proc.ExitCode)
 	}
 
 	if proc.PID == 0 {
@@ -197,12 +197,12 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 		t.Fatalf("Failed to get process: %v", err)
 	}
 
-	if proc.Status != "completed" {
-		t.Errorf("Expected status 'completed', got '%s'", proc.Status)
+	if !proc.Completed {
+		t.Error("Expected process to be completed")
 	}
 
-	if proc.ExitCode == nil || *proc.ExitCode != 42 {
-		t.Errorf("Expected exit code 42, got %v", proc.ExitCode)
+	if proc.ExitCode != 42 {
+		t.Errorf("Expected exit code 42, got %d", proc.ExitCode)
 	}
 }
 

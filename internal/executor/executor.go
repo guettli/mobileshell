@@ -17,10 +17,10 @@ type Process struct {
 	StartTime   time.Time `json:"start_time"`
 	OutputFile  string    `json:"output_file"`
 	PID         int       `json:"pid"`
-	Status      string    `json:"status"` // "running", "completed", or "pending"
+	Completed   bool      `json:"completed"`           // true if process has finished
 	WorkspaceTS string    `json:"workspace_timestamp"`
 	Hash        string    `json:"hash"`
-	ExitCode    *int      `json:"exit_code,omitempty"`
+	ExitCode    int       `json:"exit_code"`           // 0 if not exited yet or exited successfully
 	Signal      string    `json:"signal,omitempty"`
 	EndTime     time.Time `json:"end_time,omitempty"`
 }
@@ -80,7 +80,7 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 		Command:     command,
 		StartTime:   time.Now().UTC(),
 		OutputFile:  filepath.Join(processDir, "output.log"),
-		Status:      "pending",
+		Completed:   false,
 		WorkspaceTS: workspaceTS,
 		Hash:        hash,
 	}
@@ -116,7 +116,7 @@ func ListProcesses(stateDir string) []*Process {
 				EndTime:     wp.EndTime,
 				OutputFile:  filepath.Join(processDir, "output.log"),
 				PID:         wp.PID,
-				Status:      wp.Status,
+				Completed:   wp.Completed,
 				WorkspaceTS: workspaceTS,
 				Hash:        wp.Hash,
 				ExitCode:    wp.ExitCode,
@@ -155,7 +155,7 @@ func ListWorkspaceProcesses(ws *workspace.Workspace) ([]*Process, error) {
 			EndTime:     wp.EndTime,
 			OutputFile:  filepath.Join(processDir, "output.log"),
 			PID:         wp.PID,
-			Status:      wp.Status,
+			Completed:   wp.Completed,
 			WorkspaceTS: workspaceTS,
 			Hash:        wp.Hash,
 			ExitCode:    wp.ExitCode,
@@ -192,7 +192,7 @@ func GetProcess(stateDir, id string) (*Process, bool) {
 			EndTime:     wp.EndTime,
 			OutputFile:  filepath.Join(processDir, "output.log"),
 			PID:         wp.PID,
-			Status:      wp.Status,
+			Completed:   wp.Completed,
 			WorkspaceTS: workspaceTS,
 			Hash:        wp.Hash,
 			ExitCode:    wp.ExitCode,

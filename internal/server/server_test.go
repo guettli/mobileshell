@@ -25,62 +25,58 @@ func TestTemplateRendering(t *testing.T) {
 	}
 
 	// Test case 1: Process with zero exit code
-	exitCodeZero := 0
 	proc1 := &executor.Process{
 		ID:        "test1",
 		Command:   "echo hello",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
-		Status:    "completed",
+		Completed: true,
 		PID:       12345,
-		ExitCode:  &exitCodeZero,
+		ExitCode:  0,
 	}
 
 	// Test case 2: Process with non-zero exit code
-	exitCodeOne := 1
 	proc2 := &executor.Process{
 		ID:        "test2",
 		Command:   "false",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
-		Status:    "completed",
+		Completed: true,
 		PID:       12346,
-		ExitCode:  &exitCodeOne,
+		ExitCode:  1,
 	}
 
-	// Test case 3: Process with nil exit code (still running)
+	// Test case 3: Process still running
 	proc3 := &executor.Process{
 		ID:        "test3",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
-		Status:    "running",
+		Completed: false,
 		PID:       12347,
-		ExitCode:  nil,
+		ExitCode:  0,
 	}
 
 	// Test case 4: Process terminated by signal
-	exitCodeSignal := 137 // 128 + 9 (SIGKILL)
 	proc4 := &executor.Process{
 		ID:        "test4",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
-		Status:    "completed",
+		Completed: true,
 		PID:       12348,
-		ExitCode:  &exitCodeSignal,
+		ExitCode:  137, // 128 + 9 (SIGKILL)
 		Signal:    "killed",
 	}
 
 	// Test case 5: Process terminated by SIGTERM
-	exitCodeSigterm := 143 // 128 + 15 (SIGTERM)
 	proc5 := &executor.Process{
 		ID:        "test5",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
-		Status:    "completed",
+		Completed: true,
 		PID:       12349,
-		ExitCode:  &exitCodeSigterm,
+		ExitCode:  143, // 128 + 15 (SIGTERM)
 		Signal:    "terminated",
 	}
 
@@ -142,44 +138,6 @@ func TestTemplateRendering(t *testing.T) {
 			// Check that output was generated
 			if !tc.wantError && buf.Len() == 0 {
 				t.Error("Expected output but got empty buffer")
-			}
-		})
-	}
-}
-
-func TestDerefInt(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    *int
-		expected int
-	}{
-		{
-			name:     "nil pointer",
-			input:    nil,
-			expected: 0,
-		},
-		{
-			name:     "zero value",
-			input:    func() *int { v := 0; return &v }(),
-			expected: 0,
-		},
-		{
-			name:     "positive value",
-			input:    func() *int { v := 42; return &v }(),
-			expected: 42,
-		},
-		{
-			name:     "negative value",
-			input:    func() *int { v := -1; return &v }(),
-			expected: -1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := derefInt(tt.input)
-			if result != tt.expected {
-				t.Errorf("Expected %d, got %d", tt.expected, result)
 			}
 		})
 	}

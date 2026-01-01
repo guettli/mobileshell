@@ -29,9 +29,9 @@ type Process struct {
 	PID       int       `json:"pid"`
 	StartTime time.Time `json:"start_time"`
 	EndTime   time.Time `json:"end_time,omitempty"`
-	ExitCode  *int      `json:"exit_code,omitempty"` // nil if not exited yet
+	ExitCode  int       `json:"exit_code"`           // 0 if not exited yet or exited successfully
 	Signal    string    `json:"signal,omitempty"`    // signal name if terminated by signal
-	Status    string    `json:"status"`              // "running" or "completed"
+	Completed bool      `json:"completed"`           // true if process has finished
 }
 
 // InitWorkspaces creates the workspaces directory
@@ -157,7 +157,7 @@ func CreateProcess(ws *Workspace, command string) (string, error) {
 		Hash:      hash,
 		Command:   command,
 		StartTime: time.Now().UTC(),
-		Status:    "pending",
+		Completed: false,
 	}
 
 	// Save process metadata as individual files
@@ -234,9 +234,9 @@ func UpdateProcessExit(ws *Workspace, hash string, exitCode int, signal string) 
 		return fmt.Errorf("failed to write endtime file: %w", err)
 	}
 
-	// Update status file
-	if err := os.WriteFile(filepath.Join(processDir, "status"), []byte("completed"), 0600); err != nil {
-		return fmt.Errorf("failed to write status file: %w", err)
+	// Update completed file
+	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("true"), 0600); err != nil {
+		return fmt.Errorf("failed to write completed file: %w", err)
 	}
 
 	return nil
@@ -364,9 +364,13 @@ func saveProcessFiles(processDir string, proc *Process) error {
 		return fmt.Errorf("failed to write starttime file: %w", err)
 	}
 
-	// Write status file
-	if err := os.WriteFile(filepath.Join(processDir, "status"), []byte(proc.Status), 0600); err != nil {
-		return fmt.Errorf("failed to write status file: %w", err)
+	// Write completed file
+	completedStr := "false"
+	if proc.Completed {
+		completedStr = "true"
+	}
+	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte(completedStr), 0600); err != nil {
+		return fmt.Errorf("failed to write completed file: %w", err)
 	}
 
 	return nil
@@ -392,12 +396,12 @@ func loadProcessFiles(processDir string, proc *Process) error {
 	}
 	proc.StartTime = startTime
 
-	// Read status file
-	statusData, err := os.ReadFile(filepath.Join(processDir, "status"))
+	// Read completed file
+	completedData, err := os.ReadFile(filepath.Join(processDir, "completed"))
 	if err != nil {
-		return fmt.Errorf("failed to read status file: %w", err)
+		return fmt.Errorf("failed to read completed file: %w", err)
 	}
-	proc.Status = strings.TrimSpace(string(statusData))
+	proc.Completed = strings.TrimSpace(string(completedData)) == "true"
 
 	// Read PID file (optional)
 	pidData, err := os.ReadFile(filepath.Join(processDir, "pid"))
@@ -422,7 +426,7 @@ func loadProcessFiles(processDir string, proc *Process) error {
 	if err == nil && len(exitStatusData) > 0 {
 		exitCode, err := strconv.Atoi(strings.TrimSpace(string(exitStatusData)))
 		if err == nil {
-			proc.ExitCode = &exitCode
+			proc.ExitCode = exitCode
 		}
 	}
 

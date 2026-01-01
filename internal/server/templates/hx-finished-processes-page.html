@@ -1,17 +1,17 @@
 {{define "finished-process-badge"}}
-{{if and .ExitCode (ne (deref .ExitCode) 0)}}
-<span class="badge bg-danger">
-    {{.Status}} (exit {{deref .ExitCode}}){{if .Signal}} - {{.Signal}}{{end}}
-</span>
-{{else if .Signal}}
+{{if .Signal}}
 <span class="badge bg-warning">
-    {{.Status}} - {{.Signal}}
+    Completed - terminated by signal {{.Signal}}
+</span>
+{{end}}
+{{if ne .ExitCode 0}}
+<span class="badge bg-danger">
+    Completed (exit {{.ExitCode}})
 </span>
 {{else}}
 <span class="badge bg-success">
-    {{.Status}}
+    Completed
 </span>
-{{end}}
 {{end}}
 
 {{range .FinishedProcesses}}

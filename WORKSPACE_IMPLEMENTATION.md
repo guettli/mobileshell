@@ -25,7 +25,7 @@ statDir/
                 ├── cmd
                 ├── starttime
                 ├── endtime (if exited)
-                ├── status
+                ├── completed
                 ├── pid (if started)
                 ├── exit-status (if exited)
                 ├── stdout
@@ -63,7 +63,7 @@ All metadata is stored as **individual files** (no JSON files).
 - **`cmd`**: Plain text file with the command to execute
 - **`starttime`**: RFC3339Nano timestamp when process started
 - **`endtime`**: (optional) RFC3339Nano timestamp when process ended
-- **`status`**: Plain text: "pending", "running", or "completed"
+- **`completed`**: Plain text: "true" or "false"
 - **`pid`**: Plain text file with process ID (written when process starts)
 - **`exit-status`**: Plain text file with exit code (written when process completes, empty if still running)
 - **`stdout`**: Raw standard output stream
@@ -193,7 +193,7 @@ Major UI and workflow changes:
    - Writes PID to file
    - Waits for completion
    - Writes exit status to file
-   - Updates process status file
+   - Updates process completed file to "true"
 
 ## Benefits
 
@@ -233,7 +233,7 @@ Major UI and workflow changes:
     │           ├── cmd                 # "npm run build"
     │           ├── starttime           # "2025-12-30T14:24:00Z"
     │           ├── endtime             # "2025-12-30T14:24:30Z"
-    │           ├── status              # "completed"
+    │           ├── completed           # "true"
     │           ├── pid                 # "12345"
     │           ├── exit-status         # "0"
     │           ├── stdout              # Build output
@@ -247,7 +247,7 @@ Major UI and workflow changes:
             └── b2c3d4e5f6g7h8i9/
                 ├── cmd                 # "go test ./..."
                 ├── starttime           # "2025-12-30T15:30:15Z"
-                ├── status              # "running"
+                ├── completed           # "false"
                 ├── pid                 # "12346"
                 ├── stdout              # Test output (growing)
                 └── stderr              # Error output

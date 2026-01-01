@@ -119,9 +119,9 @@ func TestProcessCreation(t *testing.T) {
 		t.Errorf("Starttime file does not exist: %s", starttimeFile)
 	}
 
-	statusFile := filepath.Join(processDir, "status")
-	if _, err := os.Stat(statusFile); os.IsNotExist(err) {
-		t.Errorf("Status file does not exist: %s", statusFile)
+	completedFile := filepath.Join(processDir, "completed")
+	if _, err := os.Stat(completedFile); os.IsNotExist(err) {
+		t.Errorf("Completed file does not exist: %s", completedFile)
 	}
 
 	// Get the process
@@ -134,8 +134,8 @@ func TestProcessCreation(t *testing.T) {
 		t.Errorf("Expected command 'echo hello', got '%s'", proc.Command)
 	}
 
-	if proc.Status != "pending" {
-		t.Errorf("Expected status 'pending', got '%s'", proc.Status)
+	if proc.Completed {
+		t.Error("Expected process to not be completed")
 	}
 }
 
@@ -171,8 +171,8 @@ func TestProcessUpdate(t *testing.T) {
 		t.Errorf("Expected PID 12345, got %d", proc.PID)
 	}
 
-	if proc.Status != "running" {
-		t.Errorf("Expected status 'running', got '%s'", proc.Status)
+	if proc.Completed {
+		t.Error("Expected process to not be completed yet")
 	}
 
 	// Update exit
@@ -186,12 +186,12 @@ func TestProcessUpdate(t *testing.T) {
 		t.Fatalf("Failed to get process: %v", err)
 	}
 
-	if proc.ExitCode == nil || *proc.ExitCode != 0 {
-		t.Errorf("Expected exit code 0, got %v", proc.ExitCode)
+	if proc.ExitCode != 0 {
+		t.Errorf("Expected exit code 0, got %d", proc.ExitCode)
 	}
 
-	if proc.Status != "completed" {
-		t.Errorf("Expected status 'completed', got '%s'", proc.Status)
+	if !proc.Completed {
+		t.Error("Expected process to be completed")
 	}
 
 	if proc.EndTime.IsZero() {
