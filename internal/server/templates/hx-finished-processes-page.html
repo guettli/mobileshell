@@ -1,7 +1,7 @@
 {{define "finished-process-badge"}}
 {{if .Signal}}
 <span class="badge bg-warning">
-    Completed - terminated by signal {{.Signal}}
+    Completed - terminated by signal "{{.Signal}}"
 </span>
 {{end}}
 {{if ne .ExitCode 0}}
