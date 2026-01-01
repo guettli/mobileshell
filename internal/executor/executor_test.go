@@ -1,0 +1,436 @@
+package executor
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestInitExecutor(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	// Verify workspaces directory was created
+	workspacesDir := filepath.Join(tmpDir, "workspaces")
+	info, err := os.Stat(workspacesDir)
+	if err != nil {
+		t.Fatalf("Workspaces directory not created: %v", err)
+	}
+
+	if !info.IsDir() {
+		t.Fatal("Workspaces path is not a directory")
+	}
+}
+
+func TestCreateWorkspace(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	workDir := t.TempDir()
+
+	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	if ws == nil {
+		t.Fatal("Workspace should not be nil")
+	}
+
+	if ws.Name != "test-workspace" {
+		t.Errorf("Expected name 'test-workspace', got '%s'", ws.Name)
+	}
+
+	if ws.Directory != workDir {
+		t.Errorf("Expected directory '%s', got '%s'", workDir, ws.Directory)
+	}
+}
+
+func TestGetWorkspaceByID(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	workDir := t.TempDir()
+
+	// Create a workspace
+	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	// Get the workspace ID from the path
+	wsID := filepath.Base(ws.Path)
+
+	// Retrieve workspace by ID
+	retrievedWS, err := GetWorkspaceByID(tmpDir, wsID)
+	if err != nil {
+		t.Fatalf("GetWorkspaceByID failed: %v", err)
+	}
+
+	if retrievedWS.Name != ws.Name {
+		t.Errorf("Expected name '%s', got '%s'", ws.Name, retrievedWS.Name)
+	}
+
+	// Test with non-existent ID
+	_, err = GetWorkspaceByID(tmpDir, "non-existent-id")
+	if err == nil {
+		t.Error("GetWorkspaceByID should fail for non-existent ID")
+	}
+}
+
+func TestExecute(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	workDir := t.TempDir()
+
+	// Create a workspace
+	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	// Execute a simple command
+	proc, err := Execute(tmpDir, ws, "echo 'test'")
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if proc == nil {
+		t.Fatal("Process should not be nil")
+	}
+
+	if proc.Command != "echo 'test'" {
+		t.Errorf("Expected command 'echo 'test'', got '%s'", proc.Command)
+	}
+
+	if proc.Status != "pending" {
+		t.Errorf("Expected status 'pending', got '%s'", proc.Status)
+	}
+
+	if proc.Hash == "" {
+		t.Error("Process hash should not be empty")
+	}
+
+	// Test with nil workspace
+	_, err = Execute(tmpDir, nil, "echo 'test'")
+	if err == nil {
+		t.Error("Execute should fail with nil workspace")
+	}
+}
+
+func TestListProcesses(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	// Initially, there should be no processes
+	procs := ListProcesses(tmpDir)
+	if len(procs) != 0 {
+		t.Errorf("Expected 0 processes, got %d", len(procs))
+	}
+
+	workDir := t.TempDir()
+
+	// Create a workspace
+	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	// Execute some commands
+	_, err = Execute(tmpDir, ws, "echo 'test1'")
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Give the system a moment to create the process
+	time.Sleep(10 * time.Millisecond)
+
+	// List processes
+	procs = ListProcesses(tmpDir)
+	if len(procs) < 1 {
+		t.Errorf("Expected at least 1 process, got %d", len(procs))
+	}
+}
+
+func TestListWorkspaceProcesses(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	workDir := t.TempDir()
+
+	// Create a workspace
+	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	// Initially, workspace should have no processes
+	procs, err := ListWorkspaceProcesses(ws)
+	if err != nil {
+		t.Fatalf("ListWorkspaceProcesses failed: %v", err)
+	}
+	if len(procs) != 0 {
+		t.Errorf("Expected 0 processes, got %d", len(procs))
+	}
+
+	// Execute a command
+	proc, err := Execute(tmpDir, ws, "echo 'test'")
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Give the system a moment to create the process
+	time.Sleep(10 * time.Millisecond)
+
+	// List workspace processes
+	procs, err = ListWorkspaceProcesses(ws)
+	if err != nil {
+		t.Fatalf("ListWorkspaceProcesses failed: %v", err)
+	}
+	if len(procs) < 1 {
+		t.Errorf("Expected at least 1 process, got %d", len(procs))
+	}
+
+	// Verify process details
+	found := false
+	for _, p := range procs {
+		if p.Hash == proc.Hash {
+			found = true
+			if p.Command != proc.Command {
+				t.Errorf("Expected command '%s', got '%s'", proc.Command, p.Command)
+			}
+		}
+	}
+	if !found {
+		t.Error("Created process not found in workspace process list")
+	}
+
+	// Test with nil workspace
+	_, err = ListWorkspaceProcesses(nil)
+	if err == nil {
+		t.Error("ListWorkspaceProcesses should fail with nil workspace")
+	}
+}
+
+func TestGetProcess(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	workDir := t.TempDir()
+
+	// Create a workspace
+	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	// Execute a command
+	proc, err := Execute(tmpDir, ws, "echo 'test'")
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Give the system a moment to create the process
+	time.Sleep(10 * time.Millisecond)
+
+	// Get the process by ID
+	retrievedProc, found := GetProcess(tmpDir, proc.Hash)
+	if !found {
+		t.Fatal("Process should be found")
+	}
+
+	if retrievedProc.Hash != proc.Hash {
+		t.Errorf("Expected hash '%s', got '%s'", proc.Hash, retrievedProc.Hash)
+	}
+
+	if retrievedProc.Command != proc.Command {
+		t.Errorf("Expected command '%s', got '%s'", proc.Command, retrievedProc.Command)
+	}
+
+	// Test with non-existent process ID
+	_, found = GetProcess(tmpDir, "non-existent-hash")
+	if found {
+		t.Error("GetProcess should not find non-existent process")
+	}
+}
+
+func TestListWorkspaces(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := InitExecutor(tmpDir)
+	if err != nil {
+		t.Fatalf("InitExecutor failed: %v", err)
+	}
+
+	// Initially, there should be no workspaces
+	workspaces, err := ListWorkspaces(tmpDir)
+	if err != nil {
+		t.Fatalf("ListWorkspaces failed: %v", err)
+	}
+	if len(workspaces) != 0 {
+		t.Errorf("Expected 0 workspaces, got %d", len(workspaces))
+	}
+
+	workDir := t.TempDir()
+
+	// Create some workspaces
+	ws1, err := CreateWorkspace(tmpDir, "workspace1", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	ws2, err := CreateWorkspace(tmpDir, "workspace2", workDir, "")
+	if err != nil {
+		t.Fatalf("CreateWorkspace failed: %v", err)
+	}
+
+	// List workspaces
+	workspaces, err = ListWorkspaces(tmpDir)
+	if err != nil {
+		t.Fatalf("ListWorkspaces failed: %v", err)
+	}
+
+	if len(workspaces) != 2 {
+		t.Errorf("Expected 2 workspaces, got %d", len(workspaces))
+	}
+
+	// Verify workspace names
+	names := make(map[string]bool)
+	for _, ws := range workspaces {
+		names[ws.Name] = true
+	}
+
+	if !names[ws1.Name] {
+		t.Errorf("Workspace '%s' not found", ws1.Name)
+	}
+	if !names[ws2.Name] {
+		t.Errorf("Workspace '%s' not found", ws2.Name)
+	}
+}
+
+func TestReadOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a test output file
+	testContent := "test output content\nline 2\n"
+	testFile := filepath.Join(tmpDir, "test-output.txt")
+	err := os.WriteFile(testFile, []byte(testContent), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Read the output
+	content, err := ReadOutput(testFile)
+	if err != nil {
+		t.Fatalf("ReadOutput failed: %v", err)
+	}
+
+	if content != testContent {
+		t.Errorf("Expected content '%s', got '%s'", testContent, content)
+	}
+
+	// Test with non-existent file
+	_, err = ReadOutput(filepath.Join(tmpDir, "non-existent.txt"))
+	if err == nil {
+		t.Error("ReadOutput should fail for non-existent file")
+	}
+}
+
+func TestReadCombinedOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a test combined output file with proper format
+	testContent := `stdout 2025-12-31T12:00:00.000Z: line 1
+stderr 2025-12-31T12:00:01.000Z: error message
+stdout 2025-12-31T12:00:02.000Z: line 2
+stdin 2025-12-31T12:00:03.000Z: input text
+signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM
+`
+	testFile := filepath.Join(tmpDir, "combined-output.txt")
+	err := os.WriteFile(testFile, []byte(testContent), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Read the combined output
+	stdout, stderr, stdin, err := ReadCombinedOutput(testFile)
+	if err != nil {
+		t.Fatalf("ReadCombinedOutput failed: %v", err)
+	}
+
+	// Verify stdout
+	if !strings.Contains(stdout, "line 1") {
+		t.Errorf("stdout should contain 'line 1', got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "line 2") {
+		t.Errorf("stdout should contain 'line 2', got: %s", stdout)
+	}
+
+	// Verify stderr
+	if !strings.Contains(stderr, "error message") {
+		t.Errorf("stderr should contain 'error message', got: %s", stderr)
+	}
+
+	// Verify stdin
+	if !strings.Contains(stdin, "input text") {
+		t.Errorf("stdin should contain 'input text', got: %s", stdin)
+	}
+	if !strings.Contains(stdin, "Signal sent: 15 SIGTERM") {
+		t.Errorf("stdin should contain signal info, got: %s", stdin)
+	}
+
+	// Test with non-existent file
+	_, _, _, err = ReadCombinedOutput(filepath.Join(tmpDir, "non-existent.txt"))
+	if err == nil {
+		t.Error("ReadCombinedOutput should fail for non-existent file")
+	}
+
+	// Test with malformed content
+	malformedContent := "not properly formatted line\n"
+	malformedFile := filepath.Join(tmpDir, "malformed.txt")
+	err = os.WriteFile(malformedFile, []byte(malformedContent), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create malformed test file: %v", err)
+	}
+
+	stdout, stderr, stdin, err = ReadCombinedOutput(malformedFile)
+	if err != nil {
+		t.Fatalf("ReadCombinedOutput should handle malformed content: %v", err)
+	}
+
+	// Should return empty strings for malformed content
+	if stdout != "" || stderr != "" || stdin != "" {
+		t.Error("Malformed content should result in empty outputs")
+	}
+}

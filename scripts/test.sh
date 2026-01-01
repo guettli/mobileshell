@@ -9,6 +9,15 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     exec nix develop --command "$0" "$@"
 fi
 
+# Check for deleted files in git index
+# git ls-files -d shows files with an unstaged deletion
+deleted_files=$(git ls-files -d)
+if [[ -n "$deleted_files" ]]; then
+    echo "Error: Found deleted files in git index. Please commit or restore them first:"
+    echo "$deleted_files"
+    exit 1
+fi
+
 git ls-files '*.sh' | xargs shellcheck
 
 git ls-files '*.md' | xargs markdownlint
@@ -58,3 +67,7 @@ if [[ -n $unused_templates ]]; then
 fi
 
 golangci-lint run ./...
+
+go test ./...
+
+./scripts/jsdom-test.sh

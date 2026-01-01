@@ -2,9 +2,14 @@ package server
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
 )
 
@@ -138,5 +143,426 @@ func TestTemplateRendering(t *testing.T) {
 				t.Error("Expected output but got empty buffer")
 			}
 		})
+	}
+}
+
+func TestDerefInt(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *int
+		expected int
+	}{
+		{
+			name:     "nil pointer",
+			input:    nil,
+			expected: 0,
+		},
+		{
+			name:     "zero value",
+			input:    func() *int { v := 0; return &v }(),
+			expected: 0,
+		},
+		{
+			name:     "positive value",
+			input:    func() *int { v := 42; return &v }(),
+			expected: 42,
+		},
+		{
+			name:     "negative value",
+			input:    func() *int { v := -1; return &v }(),
+			expected: -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := derefInt(tt.input)
+			if result != tt.expected {
+				t.Errorf("Expected %d, got %d", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	now := time.Now().UTC()
+	tests := []struct {
+		name     string
+		start    time.Time
+		end      time.Time
+		expected string
+	}{
+		{
+			name:     "zero end time",
+			start:    now,
+			end:      time.Time{},
+			expected: "",
+		},
+		{
+			name:     "less than 1 second",
+			start:    now,
+			end:      now.Add(500 * time.Millisecond),
+			expected: "",
+		},
+		{
+			name:     "exactly 1 second",
+			start:    now,
+			end:      now.Add(1 * time.Second),
+			expected: "1s",
+		},
+		{
+			name:     "under 1 minute",
+			start:    now,
+			end:      now.Add(45 * time.Second),
+			expected: "45s",
+		},
+		{
+			name:     "exactly 1 minute",
+			start:    now,
+			end:      now.Add(60 * time.Second),
+			expected: "1m",
+		},
+		{
+			name:     "minutes and seconds",
+			start:    now,
+			end:      now.Add(125 * time.Second),
+			expected: "2m 5s",
+		},
+		{
+			name:     "exactly 1 hour",
+			start:    now,
+			end:      now.Add(3600 * time.Second),
+			expected: "1h",
+		},
+		{
+			name:     "hours and minutes",
+			start:    now,
+			end:      now.Add(3665 * time.Second),
+			expected: "1h 1m",
+		},
+		{
+			name:     "large duration",
+			start:    now,
+			end:      now.Add(7384 * time.Second),
+			expected: "2h 3m",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDuration(tt.start, tt.end)
+			if result != tt.expected {
+				t.Errorf("Expected '%s', got '%s'", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetBasePath(t *testing.T) {
+	stateDir := t.TempDir()
+
+	srv, err := New(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		header   string
+		expected string
+	}{
+		{
+			name:     "no header",
+			header:   "",
+			expected: "",
+		},
+		{
+			name:     "with header",
+			header:   "/api/v1",
+			expected: "/api/v1",
+		},
+		{
+			name:     "with trailing slash",
+			header:   "/api/v1/",
+			expected: "/api/v1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/", nil)
+			if tt.header != "" {
+				req.Header.Set("X-Forwarded-Prefix", tt.header)
+			}
+
+			result := srv.getBasePath(req)
+			if result != tt.expected {
+				t.Errorf("Expected '%s', got '%s'", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetSessionToken(t *testing.T) {
+	stateDir := t.TempDir()
+
+	srv, err := New(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	tests := []struct {
+		name          string
+		cookieValue   string
+		expectedToken string
+	}{
+		{
+			name:          "token in cookie",
+			cookieValue:   "test-token-123",
+			expectedToken: "test-token-123",
+		},
+		{
+			name:          "no cookie",
+			cookieValue:   "",
+			expectedToken: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/", nil)
+
+			if tt.cookieValue != "" {
+				req.AddCookie(&http.Cookie{
+					Name:  "session",
+					Value: tt.cookieValue,
+				})
+			}
+
+			token := srv.getSessionToken(req)
+			if token != tt.expectedToken {
+				t.Errorf("Expected token '%s', got '%s'", tt.expectedToken, token)
+			}
+		})
+	}
+}
+
+func TestGetStateDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		stateDir string
+		create   bool
+		hasError bool
+	}{
+		{
+			name:     "default state dir",
+			stateDir: "",
+			create:   true,
+			hasError: false,
+		},
+		{
+			name:     "custom state dir",
+			stateDir: "/tmp/custom-state-dir-test",
+			create:   true,
+			hasError: false,
+		},
+		{
+			name:     "non-existent dir without create",
+			stateDir: "/tmp/non-existent-test-dir",
+			create:   false,
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Clean up if using custom dir
+			if tt.stateDir != "" && tt.create {
+				defer func() {
+					_ = os.RemoveAll(tt.stateDir)
+				}()
+			}
+
+			result, err := GetStateDir(tt.stateDir, tt.create)
+			if tt.hasError && err == nil {
+				t.Error("Expected error but got none")
+			}
+			if !tt.hasError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			if !tt.hasError {
+				if result == "" {
+					t.Error("State dir should not be empty")
+				}
+			}
+		})
+	}
+}
+
+func TestAuthMiddleware(t *testing.T) {
+	stateDir := t.TempDir()
+
+	// Initialize auth
+	err := auth.InitAuth(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to init auth: %v", err)
+	}
+
+	srv, err := New(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Add a test password and create session
+	password := "a-very-long-password-that-meets-minimum-length-requirements"
+	err = auth.AddPassword(stateDir, password)
+	if err != nil {
+		t.Fatalf("Failed to add password: %v", err)
+	}
+
+	validToken, success := auth.Authenticate(t.Context(), stateDir, password)
+	if !success {
+		t.Fatal("Failed to authenticate")
+	}
+
+	// Create a test handler
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("success"))
+	})
+
+	tests := []struct {
+		name           string
+		token          string
+		expectedStatus int
+	}{
+		{
+			name:           "valid token",
+			token:          validToken,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "invalid token",
+			token:          "invalid-token",
+			expectedStatus: http.StatusSeeOther, // 303 redirect to login
+		},
+		{
+			name:           "no token",
+			token:          "",
+			expectedStatus: http.StatusSeeOther, // 303 redirect to login
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/test", nil)
+			if tt.token != "" {
+				req.AddCookie(&http.Cookie{
+					Name:  "session",
+					Value: tt.token,
+				})
+			}
+
+			rec := httptest.NewRecorder()
+			handler := srv.authMiddleware(testHandler)
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, rec.Code)
+			}
+
+			if tt.expectedStatus == http.StatusOK {
+				body := rec.Body.String()
+				if body != "success" {
+					t.Errorf("Expected body 'success', got '%s'", body)
+				}
+			}
+		})
+	}
+}
+
+func TestHandleLogin(t *testing.T) {
+	stateDir := t.TempDir()
+
+	// Initialize auth
+	err := auth.InitAuth(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to init auth: %v", err)
+	}
+
+	srv, err := New(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Add a test password
+	password := "a-very-long-password-that-meets-minimum-length-requirements"
+	err = auth.AddPassword(stateDir, password)
+	if err != nil {
+		t.Fatalf("Failed to add password: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		method         string
+		password       string
+		expectedStatus int
+	}{
+		{
+			name:           "GET request shows login page",
+			method:         "GET",
+			password:       "",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "POST with valid password",
+			method:         "POST",
+			password:       password,
+			expectedStatus: http.StatusSeeOther, // 303 redirect after login
+		},
+		{
+			name:           "POST with invalid password",
+			method:         "POST",
+			password:       "invalid-password-that-is-long-enough",
+			expectedStatus: http.StatusOK, // Shows login page with error
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req *http.Request
+			if tt.method == "POST" {
+				body := strings.NewReader("password=" + tt.password)
+				req = httptest.NewRequest("POST", "/login", body)
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			} else {
+				req = httptest.NewRequest("GET", "/login", nil)
+			}
+
+			// Use the wrapHandler to test via HTTP
+			handler := srv.wrapHandler(srv.handleLogin)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tt.expectedStatus, rec.Code)
+			}
+		})
+	}
+}
+
+func TestSetupRoutes(t *testing.T) {
+	stateDir := t.TempDir()
+
+	srv, err := New(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// SetupRoutes should not panic and return a valid handler
+	handler := srv.SetupRoutes()
+	if handler == nil {
+		t.Error("Handler should not be nil after SetupRoutes")
 	}
 }

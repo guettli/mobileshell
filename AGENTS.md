@@ -1,6 +1,6 @@
 # Agents
 
-after changes run `./scripts/lint.sh`.
+after changes run `./scripts/test.sh`.
 
 use UTC when writing dates.
 
