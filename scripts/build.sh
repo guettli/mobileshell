@@ -15,6 +15,7 @@ pnpm install
 mkdir -p internal/server/static
 cp node_modules/bootstrap/dist/css/bootstrap.min.css internal/server/static/
 cp node_modules/htmx.org/dist/htmx.min.js internal/server/static/
+cp node_modules/idiomorph/dist/idiomorph-ext.min.js internal/server/static/
 
 # Build the Go binary
 go build -o mobileshell ./cmd/mobileshell

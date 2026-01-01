@@ -723,15 +723,15 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
-		"Process":      proc,
-		"Stdout":       previewStdout,
-		"Stderr":       previewStderr,
-		"Stdin":        previewStdin,
-		"Type":         "combined",
-		"NeedsExpand":  needsExpand,
-		"Expanded":     expand,
-		"BasePath":     s.getBasePath(r),
-		"WorkspaceID":  filepath.Base(filepath.Dir(filepath.Dir(proc.OutputFile))),
+		"Process":     proc,
+		"Stdout":      previewStdout,
+		"Stderr":      previewStderr,
+		"Stdin":       previewStdin,
+		"Type":        "combined",
+		"NeedsExpand": needsExpand,
+		"Expanded":    expand,
+		"BasePath":    s.getBasePath(r),
+		"WorkspaceID": filepath.Base(filepath.Dir(filepath.Dir(proc.OutputFile))),
 	})
 	if err != nil {
 		return nil, err
@@ -845,7 +845,7 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 	logLine := fmt.Sprintf("signal-sent %s: %d %s\n", timestamp, signalNum, signalName)
 
 	// Append to output.log
-	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0600)
+	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err == nil {
 		_, _ = f.WriteString(logLine)
 		_ = f.Close()

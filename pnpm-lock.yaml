@@ -14,6 +14,9 @@ importers:
       htmx.org:
         specifier: ^2.0.8
         version: 2.0.8
+      idiomorph:
+        specifier: ^0.7.4
+        version: 0.7.4
 
 packages:
 
@@ -28,6 +31,9 @@ packages:
   htmx.org@2.0.8:
     resolution: {integrity: sha512-fm297iru0iWsNJlBrjvtN7V9zjaxd+69Oqjh4F/Vq9Wwi2kFisLcrLCiv5oBX0KLfOX/zG8AUo9ROMU5XUB44Q==}
 
+  idiomorph@0.7.4:
+    resolution: {integrity: sha512-uCdSpLo3uMfqOmrwXTpR1k/sq4sSmKC7l4o/LdJOEU+MMMq+wkevRqOQYn3lP7vfz9Mv+USBEqPvi0XhdL9ENw==}
+
 snapshots:
 
   '@popperjs/core@2.11.8': {}
@@ -37,3 +43,5 @@ snapshots:
       '@popperjs/core': 2.11.8
 
   htmx.org@2.0.8: {}
+
+  idiomorph@0.7.4: {}

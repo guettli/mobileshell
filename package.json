@@ -12,6 +12,7 @@
   "packageManager": "pnpm@10.26.1",
   "dependencies": {
     "bootstrap": "^5.3.8",
-    "htmx.org": "^2.0.8"
+    "htmx.org": "^2.0.8",
+    "idiomorph": "^0.7.4"
   }
 }
