@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -564,5 +565,73 @@ func TestSetupRoutes(t *testing.T) {
 	handler := srv.SetupRoutes()
 	if handler == nil {
 		t.Error("Handler should not be nil after SetupRoutes")
+	}
+}
+
+func TestErrorPageRendering(t *testing.T) {
+	stateDir := t.TempDir()
+
+	srv, err := New(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		statusCode int
+		message    string
+		wantTitle  string
+	}{
+		{
+			name:       "404 Not Found",
+			statusCode: http.StatusNotFound,
+			message:    "Workspace not found",
+			wantTitle:  "Not Found",
+		},
+		{
+			name:       "400 Bad Request",
+			statusCode: http.StatusBadRequest,
+			message:    "Invalid request",
+			wantTitle:  "Bad Request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a request to a non-existent workspace
+			req := httptest.NewRequest("GET", "/workspaces/nonexistent/hx-running-processes", nil)
+			w := httptest.NewRecorder()
+
+			// Create a handler that returns the httpError
+			handler := srv.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+				return nil, newHTTPError(tt.statusCode, tt.message)
+			})
+
+			handler(w, req)
+
+			// Check status code
+			if w.Code != tt.statusCode {
+				t.Errorf("Expected status code %d, got %d", tt.statusCode, w.Code)
+			}
+
+			// Check that the response contains the error template elements
+			body := w.Body.String()
+
+			if !strings.Contains(body, tt.wantTitle) {
+				t.Errorf("Response should contain title %q", tt.wantTitle)
+			}
+
+			if !strings.Contains(body, tt.message) {
+				t.Errorf("Response should contain message %q", tt.message)
+			}
+
+			if !strings.Contains(body, "Go to Workspaces") {
+				t.Error("Response should contain link to workspaces")
+			}
+
+			if !strings.Contains(body, "/workspaces") {
+				t.Error("Response should contain link to /workspaces")
+			}
+		})
 	}
 }

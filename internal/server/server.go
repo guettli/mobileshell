@@ -130,7 +130,28 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 					"path", r.URL.Path,
 					"status", he.statusCode,
 					"error", he.message)
-				http.Error(w, he.message, he.statusCode)
+
+				// Render error page using template
+				var buf bytes.Buffer
+				title := http.StatusText(he.statusCode)
+				if title == "" {
+					title = "Error"
+				}
+
+				err := s.tmpl.ExecuteTemplate(&buf, "error.html", map[string]interface{}{
+					"StatusCode": he.statusCode,
+					"Title":      title,
+					"Message":    he.message,
+					"BasePath":   s.getBasePath(r),
+				})
+				if err != nil {
+					// Fallback to plain text if template fails
+					http.Error(w, he.message, he.statusCode)
+					return
+				}
+
+				w.WriteHeader(he.statusCode)
+				_, _ = w.Write(buf.Bytes())
 				return
 			}
 			// Log internal server errors
@@ -426,7 +447,7 @@ func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]by
 	// Get the workspace by ID
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("workspace not found: %w", err)
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
 	}
 
 	// Render workspace page
@@ -476,7 +497,7 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("workspace not found: %w", err)
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
 	}
 
 	proc, err := executor.Execute(s.stateDir, ws, command)
@@ -507,7 +528,7 @@ func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) 
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("workspace not found: %w", err)
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
 	}
 
 	allProcesses, err := executor.ListWorkspaceProcesses(ws)
@@ -567,7 +588,7 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("workspace not found: %w", err)
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
 	}
 
 	allProcesses, err := executor.ListWorkspaceProcesses(ws)
