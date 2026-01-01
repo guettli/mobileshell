@@ -302,3 +302,103 @@ func TestNohupRunWithStderrOutput(t *testing.T) {
 		t.Errorf("Expected output to contain 'stderr' and 'stderr message', got '%s'", output)
 	}
 }
+
+func TestNohupRunWithStdin(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Initialize workspace storage
+	if err := workspace.InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
+	}
+
+	// Create workspace
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+
+	// Create a cat process
+	hash, err := workspace.CreateProcess(ws, "cat")
+	if err != nil {
+		t.Fatalf("Failed to create process: %v", err)
+	}
+
+	workspaceTS := filepath.Base(ws.Path)
+	processDir := workspace.GetProcessDir(ws, hash)
+	pipePath := filepath.Join(processDir, "stdin.pipe")
+
+	// Start nohup in background
+	done := make(chan error)
+	go func() {
+		done <- Run(tmpDir, workspaceTS, hash, []string{})
+	}()
+
+	// Wait for process to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Send first input
+	func() {
+		file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		if err != nil {
+			t.Logf("Failed to open pipe for writing: %v", err)
+			return
+		}
+		defer func() { _ = file.Close() }()
+		_, _ = file.WriteString("foo1\n")
+	}()
+
+	// Wait a bit for output
+	time.Sleep(200 * time.Millisecond)
+
+	// Send second input
+	func() {
+		file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		if err != nil {
+			t.Logf("Failed to open pipe for writing: %v", err)
+			return
+		}
+		defer func() { _ = file.Close() }()
+		_, _ = file.WriteString("foo2\n")
+	}()
+
+	// Wait a bit more
+	time.Sleep(200 * time.Millisecond)
+
+	// Kill the cat process
+	proc, err := workspace.GetProcess(ws, hash)
+	if err != nil {
+		t.Fatalf("Failed to get process: %v", err)
+	}
+	if proc.PID > 0 {
+		p, err := os.FindProcess(proc.PID)
+		if err == nil {
+			_ = p.Kill()
+		}
+	}
+
+	// Wait for nohup to finish
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Logf("Nohup finished with error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Nohup did not finish in time")
+	}
+
+	// Verify output.log contains both inputs
+	outputFile := filepath.Join(processDir, "output.log")
+	outputData, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("Failed to read output.log: %v", err)
+	}
+
+	output := string(outputData)
+	t.Logf("Output: %s", output)
+	if !contains(output, "foo1") {
+		t.Errorf("Expected output to contain 'foo1', got '%s'", output)
+	}
+	if !contains(output, "foo2") {
+		t.Errorf("Expected output to contain 'foo2', got '%s'", output)
+	}
+}

@@ -849,18 +849,34 @@ func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte
 	processDir := workspace.GetProcessDir(ws, processID)
 	pipePath := filepath.Join(processDir, "stdin.pipe")
 
-	// Write to named pipe (non-blocking)
+	// Write to named pipe in a goroutine with timeout
+	// The readStdinPipe goroutine in the nohup process keeps the pipe open for reading
 	go func() {
-		file, err := os.OpenFile(pipePath, os.O_WRONLY|syscall.O_NONBLOCK, 0)
-		if err != nil {
-			slog.Error("Failed to open stdin pipe", "error", err, "path", pipePath)
-			return
-		}
-		defer func() { _ = file.Close() }()
+		// Use a timeout channel to avoid blocking forever
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
 
-		_, err = file.WriteString(stdinData + "\n")
-		if err != nil {
-			slog.Error("Failed to write to stdin pipe", "error", err)
+			// Try to open in blocking mode with a reasonable timeout via the goroutine
+			file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+			if err != nil {
+				slog.Error("Failed to open stdin pipe", "error", err, "path", pipePath)
+				return
+			}
+			defer func() { _ = file.Close() }()
+
+			_, err = file.WriteString(stdinData + "\n")
+			if err != nil {
+				slog.Error("Failed to write to stdin pipe", "error", err)
+			}
+		}()
+
+		// Wait for write to complete or timeout after 5 seconds
+		select {
+		case <-done:
+			// Write completed
+		case <-time.After(5 * time.Second):
+			slog.Error("Timeout writing to stdin pipe", "path", pipePath)
 		}
 	}()
 

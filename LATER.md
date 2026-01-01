@@ -1,5 +1,6 @@
 # Later
 
+- i think that refresh is not needed:             hx-trigger="load, every 2s" hx-swap="innerHTML">
 - fix flaky test.
 - When the server is no longer running, and you execute a command, then there should be an error
   message, that the server could not be reached.
