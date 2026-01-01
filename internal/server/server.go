@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -273,8 +274,8 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/hx-create", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceCreate)))
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
-	mux.HandleFunc("/workspaces/{id}/hx-running-processes", s.authMiddleware(s.wrapHandler(s.hxHandleRunningProcesses)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
+	mux.HandleFunc("/workspaces/{id}/json-process-updates", s.authMiddleware(s.wrapHandler(s.jsonHandleProcessUpdates)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSendSignal)))
@@ -505,24 +506,27 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 		return nil, err
 	}
 
-	// Render the new process as HTML using the running processes template
+	// Return minimal hidden div that triggers immediate JSON polling via hx-on::after-request
+	// The polling will fetch and display the full process details from the JSON endpoint
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "hx-running-processes.html", map[string]interface{}{
-		"RunningProcesses": []*executor.Process{proc},
-		"BasePath":         s.getBasePath(r),
-		"WorkspaceID":      workspaceID,
-	})
-	if err != nil {
-		return nil, err
-	}
+	basePath := s.getBasePath(r)
+	fmt.Fprintf(&buf, `<div data-process-id="%s" style="display:none" data-output-url="%s/workspaces/%s/processes/%s/hx-output">%s</div>`,
+		proc.ID, basePath, workspaceID, proc.ID, command)
 	return buf.Bytes(), nil
 }
 
-func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
+func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) ([]byte, error) {
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
 		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+	}
+
+	// Parse query parameters to get current process IDs
+	processIDsParam := r.URL.Query().Get("process_ids")
+	var processIDs []string
+	if processIDsParam != "" {
+		processIDs = strings.Split(processIDsParam, ",")
 	}
 
 	// Get the workspace
@@ -536,53 +540,142 @@ func (s *Server) hxHandleRunningProcesses(ctx context.Context, r *http.Request) 
 		return nil, err
 	}
 
-	// Filter for running processes only and track if there are recent completions
+	// Build map of received process IDs for quick lookup
+	receivedIDs := make(map[string]bool)
+	for _, id := range processIDs {
+		receivedIDs[id] = true
+	}
+
+	// Response structure
+	type ProcessUpdate struct {
+		ID     string `json:"id"`
+		Status string `json:"status"` // "running", "finished", "new", "unknown"
+		HTML   string `json:"html"`
+	}
+
+	var updates []ProcessUpdate
+
+	// Check each received ID to see if it's still running or finished
+	for _, id := range processIDs {
+		found := false
+		for _, p := range allProcesses {
+			if p.ID == id {
+				found = true
+				// Check if process is actually still running
+				if p.Status != "completed" && p.PID > 0 {
+					process, err := os.FindProcess(p.PID)
+					if err == nil {
+						err = process.Signal(syscall.Signal(0))
+						if err != nil {
+							// Process doesn't exist anymore, mark as completed
+							slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
+							_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
+							p.Status = "completed"
+						}
+					}
+				}
+
+				if p.Status == "completed" {
+					// Render finished process HTML (view only, like initial page load)
+					html, err := s.renderFinishedProcessSnippet(p, workspaceID, r)
+					if err != nil {
+						slog.Error("Failed to render finished process", "error", err, "id", p.ID)
+						continue
+					}
+					updates = append(updates, ProcessUpdate{
+						ID:     id,
+						Status: "finished",
+						HTML:   html,
+					})
+				}
+				// Don't send updates for processes that are still running - no changes to report
+				break
+			}
+		}
+		if !found {
+			// ID is unknown (process may have been deleted)
+			slog.Warn("Unknown process ID in update request", "id", id)
+			updates = append(updates, ProcessUpdate{
+				ID:     id,
+				Status: "unknown",
+				HTML:   "",
+			})
+		}
+	}
+
+	// Check for new running processes not in the received list
 	var runningProcesses []*executor.Process
-	hasRecentCompletions := false
-	now := time.Now().UTC()
 	for _, p := range allProcesses {
-		if p.Status != "completed" {
-			// Check if the process is actually still running
+		if p.Status != "completed" && !receivedIDs[p.ID] {
+			// Check if actually running
 			if p.PID > 0 {
-				// Try to find the process
 				process, err := os.FindProcess(p.PID)
 				if err == nil {
-					// On Unix, FindProcess always succeeds, so we need to send signal 0 to check
 					err = process.Signal(syscall.Signal(0))
 					if err != nil {
-						// Process doesn't exist anymore, mark as completed with unknown exit code
-						slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
-						_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
-						hasRecentCompletions = true
+						// Dead process, skip
 						continue
 					}
 				}
 			}
 			runningProcesses = append(runningProcesses, p)
-		} else if !p.EndTime.IsZero() && now.Sub(p.EndTime) < 5*time.Second {
-			// Process completed recently (within last 5 seconds)
-			hasRecentCompletions = true
 		}
 	}
 
-	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "hx-running-processes.html", map[string]interface{}{
-		"RunningProcesses": runningProcesses,
-		"BasePath":         s.getBasePath(r),
-		"WorkspaceID":      workspaceID,
+	// Sort new running processes by start time (oldest first, to maintain creation order)
+	sort.Slice(runningProcesses, func(i, j int) bool {
+		return runningProcesses[i].StartTime.Before(runningProcesses[j].StartTime)
+	})
+
+	// Add new running processes to updates
+	for _, p := range runningProcesses {
+		html, err := s.renderRunningProcessSnippet(p, workspaceID, r)
+		if err != nil {
+			slog.Error("Failed to render new running process", "error", err, "id", p.ID)
+			continue
+		}
+		updates = append(updates, ProcessUpdate{
+			ID:     p.ID,
+			Status: "new",
+			HTML:   html,
+		})
+	}
+
+	// Return JSON response
+	responseData, err := json.Marshal(map[string]interface{}{
+		"updates": updates,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal response: %w", err)
 	}
 
-	// If processes were recently completed, append an OOB swap to refresh finished processes
-	if hasRecentCompletions {
-		oob := fmt.Sprintf(`<div id="finished-processes" hx-get="%s/workspaces/%s/hx-finished-processes?offset=0" hx-trigger="load" hx-swap="innerHTML" hx-swap-oob="true"></div>`,
-			s.getBasePath(r), workspaceID)
-		buf.WriteString(oob)
-	}
+	return responseData, nil
+}
 
-	return buf.Bytes(), nil
+func (s *Server) renderRunningProcessSnippet(p *executor.Process, workspaceID string, r *http.Request) (string, error) {
+	var buf bytes.Buffer
+	err := s.tmpl.ExecuteTemplate(&buf, "hx-running-process-single.html", map[string]interface{}{
+		"Process":     p,
+		"BasePath":    s.getBasePath(r),
+		"WorkspaceID": workspaceID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func (s *Server) renderFinishedProcessSnippet(p *executor.Process, workspaceID string, r *http.Request) (string, error) {
+	var buf bytes.Buffer
+	err := s.tmpl.ExecuteTemplate(&buf, "hx-finished-process-single.html", map[string]interface{}{
+		"Process":     p,
+		"BasePath":    s.getBasePath(r),
+		"WorkspaceID": workspaceID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request) ([]byte, error) {

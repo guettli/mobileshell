@@ -11,3 +11,6 @@
 - autoswitch between dark and light mode.
 - "MobileShell" at the top of the page should be a link to /, remove "Change Workspace" link at the
   top.
+- os.FindProcess() and process.Signal(syscall.Signal(0)) gets called too often (I think)
+- idiomorph. Needed?
+- find duplicated code or html in templates. With a tool?

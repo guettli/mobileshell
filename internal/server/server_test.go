@@ -599,7 +599,7 @@ func TestErrorPageRendering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a request to a non-existent workspace
-			req := httptest.NewRequest("GET", "/workspaces/nonexistent/hx-running-processes", nil)
+			req := httptest.NewRequest("GET", "/workspaces/nonexistent/hx-finished-processes", nil)
 			w := httptest.NewRecorder()
 
 			// Create a handler that returns the httpError

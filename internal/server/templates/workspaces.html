@@ -81,7 +81,8 @@
             <div class="card-body">
                 <h5 class="card-title">Execute Command</h5>
                 <form hx-post="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute"
-                    hx-target="#running-processes" hx-swap="beforeend" hx-on::after-request="this.reset()">
+                    hx-target="#running-processes" hx-swap="beforeend"
+                    hx-on::after-request="this.reset(); if (window.pollProcessUpdates) window.pollProcessUpdates();">
                     <div class="mb-3">
                         <input type="text" class="form-control" name="command" placeholder="Enter command..." required
                             autofocus>
@@ -95,10 +96,8 @@
         <div class="card mb-3">
             <div class="card-body">
                 <h5 class="card-title">Running Processes</h5>
-                <div id="running-processes"
-                    hx-get="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-running-processes"
-                    hx-trigger="load, every 3s" hx-swap="morph:innerHTML">
-                    Loading...
+                <div id="running-processes">
+                    <p class="text-muted">Loading...</p>
                 </div>
             </div>
         </div>
@@ -190,6 +189,124 @@
                 console.log('Processes updated');
             }
         });
+
+        {{if .CurrentWorkspace}}
+        // Process polling using plain JavaScript
+        (function() {
+            const workspaceID = '{{.CurrentWorkspace.ID}}';
+            const basePath = '{{.BasePath}}';
+            const runningProcessesContainer = document.getElementById('running-processes');
+            const finishedProcessesContainer = document.getElementById('finished-processes');
+            let pollInterval;
+
+            function getCurrentProcessIDs() {
+                const processCards = runningProcessesContainer.querySelectorAll('.process-card[id^="process-"]');
+                return Array.from(processCards).map(card => card.id.replace('process-', ''));
+            }
+
+            async function pollProcessUpdates() {
+                try {
+                    const processIDs = getCurrentProcessIDs();
+                    const queryParams = processIDs.length > 0 ? `?process_ids=${processIDs.join(',')}` : '';
+
+                    const response = await fetch(`${basePath}/workspaces/${workspaceID}/json-process-updates${queryParams}`);
+
+                    if (!response.ok) {
+                        console.error('Failed to fetch process updates:', response.status);
+                        return;
+                    }
+
+                    const data = await response.json();
+
+                    if (data.updates && data.updates.length > 0) {
+                        let hasFinishedProcesses = false;
+
+                        data.updates.forEach(update => {
+                            if (update.status === 'finished') {
+                                // Process finished - remove from running list
+                                const existingElement = document.getElementById(`process-${update.id}`);
+                                if (existingElement) {
+                                    existingElement.remove();
+                                    hasFinishedProcesses = true;
+                                }
+                            } else if (update.status === 'new') {
+                                // New running process - append to running processes
+                                const tempDiv = document.createElement('div');
+                                tempDiv.innerHTML = update.html;
+                                const newElement = tempDiv.firstElementChild;
+
+                                // Insert in order by creation date
+                                const existingCards = Array.from(runningProcessesContainer.querySelectorAll('.process-card'));
+                                if (existingCards.length === 0) {
+                                    // Remove "No processes running" message if present
+                                    runningProcessesContainer.innerHTML = '';
+                                    runningProcessesContainer.appendChild(newElement);
+                                } else {
+                                    // Append at the end (sorted by creation date on server)
+                                    runningProcessesContainer.appendChild(newElement);
+                                }
+
+                                // Initialize HTMX for the new element
+                                if (window.htmx) {
+                                    htmx.process(newElement);
+                                }
+                            } else if (update.status === 'unknown') {
+                                // Process no longer exists - remove it
+                                const existingElement = document.getElementById(`process-${update.id}`);
+                                if (existingElement) {
+                                    existingElement.remove();
+                                }
+                            }
+                        });
+
+                        // If any processes finished, refresh the finished processes list
+                        if (hasFinishedProcesses && finishedProcessesContainer) {
+                            const refreshTrigger = document.createElement('div');
+                            refreshTrigger.setAttribute('hx-get', `${basePath}/workspaces/${workspaceID}/hx-finished-processes?offset=0`);
+                            refreshTrigger.setAttribute('hx-trigger', 'load');
+                            refreshTrigger.setAttribute('hx-target', '#finished-processes');
+                            refreshTrigger.setAttribute('hx-swap', 'innerHTML');
+                            document.body.appendChild(refreshTrigger);
+                            if (window.htmx) {
+                                htmx.process(refreshTrigger);
+                            }
+                            setTimeout(() => refreshTrigger.remove(), 100);
+                        }
+
+                        // Check if running processes is now empty
+                        if (runningProcessesContainer.querySelectorAll('.process-card').length === 0) {
+                            runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error polling process updates:', error);
+                }
+            }
+
+            // Expose pollProcessUpdates to window for external triggering
+            window.pollProcessUpdates = pollProcessUpdates;
+
+            // Initial poll on page load
+            pollProcessUpdates();
+
+            // Start polling every 3 seconds
+            pollInterval = setInterval(pollProcessUpdates, 3000);
+
+            // Also poll when page becomes visible
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden) {
+                    pollProcessUpdates();
+                }
+            });
+
+            // Clean up on page unload
+            window.addEventListener('beforeunload', function() {
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                }
+            });
+        })();
+        {{end}}
     </script>
 </body>
 

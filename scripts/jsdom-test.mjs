@@ -42,8 +42,8 @@ async function runTests() {
   let sessionCookie = null;
 
   try {
-    // Step 1: Login
-    console.log('Step 1: Logging in...');
+    // Login
+    console.log('Logging in...');
     console.log(`Password length: ${PASSWORD.length}`);
     const loginResponse = await request('POST', '/login', {
       body: `password=${encodeURIComponent(PASSWORD)}`,
@@ -63,8 +63,8 @@ async function runTests() {
     sessionCookie = setCookie.split(';')[0];
     console.log('✓ Login successful');
 
-    // Step 2: Get workspaces page
-    console.log('\nStep 2: Fetching workspaces page...');
+    // Get workspaces page
+    console.log('\nFetching workspaces page...');
     const workspacesResponse = await request('GET', '/workspaces', {
       headers: { Cookie: sessionCookie },
     });
@@ -73,8 +73,8 @@ async function runTests() {
     assert.ok(workspacesResponse.text.includes('hx-post'), 'Page should contain HTMX attributes');
     console.log('✓ Workspaces page loaded');
 
-    // Step 3: Verify HTMX attributes in HTML
-    console.log('\nStep 3: Verifying HTMX attributes...');
+    // Verify HTMX attributes in HTML
+    console.log('\nVerifying HTMX attributes...');
     const doc = parseHTML(workspacesResponse.text);
 
     // Check for HTMX form submission
@@ -114,8 +114,8 @@ async function runTests() {
     const workspaceId = workspaceMatch[1];
     console.log(`✓ Workspace created: ${workspaceName} (ID: ${workspaceId})`);
 
-    // Step 4: Navigate to workspace and get the page
-    console.log('\nStep 4: Loading workspace page...');
+    // Navigate to workspace and get the page
+    console.log('\nLoading workspace page...');
     const workspacePageResponse = await request('GET', `/workspaces/${workspaceId}`, {
       headers: { Cookie: sessionCookie },
     });
@@ -134,8 +134,8 @@ async function runTests() {
 
     console.log('✓ Workspace page loaded');
 
-    // Step 5: Execute a command via HTMX
-    console.log('\nStep 5: Executing command via HTMX...');
+    // Execute a command via HTMX
+    console.log('\nExecuting command via HTMX...');
     const executeResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
       headers: {
         Cookie: sessionCookie,
@@ -153,8 +153,8 @@ async function runTests() {
     const processId = processMatch[1];
     console.log(`✓ Command executed (Process ID: ${processId})`);
 
-    // Step 6: Wait for command to complete and verify output
-    console.log('\nStep 6: Waiting for command output...');
+    // Wait for command to complete and verify output
+    console.log('\nWaiting for command output...');
     let outputFound = false;
     for (let i = 0; i < 10; i++) {
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -179,21 +179,8 @@ async function runTests() {
 
     assert.ok(outputFound, 'Should find command output within timeout');
 
-    // Step 7: Verify HTMX polling endpoint
-    console.log('\nStep 7: Testing HTMX polling endpoint...');
-    const runningProcessesResponse = await request('GET', `/workspaces/${workspaceId}/hx-running-processes`, {
-      headers: {
-        Cookie: sessionCookie,
-        'HX-Request': 'true',
-      },
-    });
-
-    assert.equal(runningProcessesResponse.status, 200, 'Should get running processes');
-    // The process might be finished by now, but the endpoint should work
-    console.log('✓ Polling endpoint works');
-
-    // Step 8: Test finished processes endpoint (pagination)
-    console.log('\nStep 8: Testing finished processes (pagination)...');
+    // Test finished processes endpoint (pagination)
+    console.log('\nTesting finished processes (pagination)...');
     const finishedProcessesResponse = await request('GET', `/workspaces/${workspaceId}/hx-finished-processes?offset=0&limit=10`, {
       headers: {
         Cookie: sessionCookie,
@@ -206,8 +193,8 @@ async function runTests() {
       'Should show finished process or empty state');
     console.log('✓ Pagination endpoint works');
 
-    // Step 9: Test process transition from running to finished
-    console.log('\nStep 9: Testing process transition from running to finished...');
+    // Test process transition from running to finished
+    console.log('\nTesting process transition from running to finished...');
 
     // Execute a short-lived command
     const shortCommandResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
@@ -224,19 +211,23 @@ async function runTests() {
     const sleepProcessId = sleepProcessMatch[1];
     console.log(`  Command started (Process ID: ${sleepProcessId})`);
 
-    // Poll running processes to see the process while it's running
+    // Poll JSON endpoint to see the process while it's running
     let foundInRunning = false;
     for (let i = 0; i < 5; i++) {
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      const runningCheck = await request('GET', `/workspaces/${workspaceId}/hx-running-processes`, {
+      const runningCheck = await request('GET', `/workspaces/${workspaceId}/json-process-updates`, {
         headers: {
           Cookie: sessionCookie,
-          'HX-Request': 'true',
         },
       });
 
-      if (runningCheck.text.includes(sleepProcessId) || runningCheck.text.includes('sleep')) {
+      const runningData = JSON.parse(runningCheck.text);
+      const hasNewProcess = runningData.updates && runningData.updates.some(u =>
+        u.status === 'new' && (u.id === sleepProcessId || u.html.includes('sleep'))
+      );
+
+      if (hasNewProcess) {
         foundInRunning = true;
         console.log('  ✓ Process found in running processes');
         break;
@@ -246,35 +237,31 @@ async function runTests() {
     // Wait for the process to complete
     await new Promise(resolve => setTimeout(resolve, 200));
 
-    // Now poll running processes and check for OOB swap trigger
-    let foundOobSwap = false;
+    // Now poll JSON endpoint to check if process reports as finished
+    let foundFinished = false;
     let processMovedToFinished = false;
 
     for (let i = 0; i < 10; i++) {
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const runningAfterComplete = await request('GET', `/workspaces/${workspaceId}/hx-running-processes`, {
+      const updateCheck = await request('GET', `/workspaces/${workspaceId}/json-process-updates?process_ids=${sleepProcessId}`, {
         headers: {
           Cookie: sessionCookie,
-          'HX-Request': 'true',
         },
       });
 
-      // Check if the response contains OOB swap for finished processes
-      if (runningAfterComplete.text.includes('hx-swap-oob') &&
-          runningAfterComplete.text.includes('finished-processes')) {
-        foundOobSwap = true;
-        console.log('  ✓ OOB swap detected in running processes response');
-      }
+      const updateData = JSON.parse(updateCheck.text);
 
-      // Check if process is no longer in running
-      const stillRunning = runningAfterComplete.text.includes(sleepProcessId) ||
-                          runningAfterComplete.text.includes('sleep 0.1');
+      // Check if JSON endpoint reports the process as finished
+      const finishedUpdate = updateData.updates && updateData.updates.find(u =>
+        u.id === sleepProcessId && u.status === 'finished'
+      );
 
-      if (!stillRunning) {
-        console.log('  ✓ Process removed from running processes');
+      if (finishedUpdate) {
+        foundFinished = true;
+        console.log('  ✓ JSON endpoint reports process as finished');
 
-        // Check if it appears in finished processes
+        // Check if it appears in finished processes list
         const finishedCheck = await request('GET', `/workspaces/${workspaceId}/hx-finished-processes?offset=0`, {
           headers: {
             Cookie: sessionCookie,
@@ -292,7 +279,7 @@ async function runTests() {
 
     assert.ok(processMovedToFinished, 'Process should transition from running to finished');
     if (foundInRunning) {
-      assert.ok(foundOobSwap, 'Should trigger OOB swap to refresh finished processes when process completes');
+      assert.ok(foundFinished, 'JSON endpoint should report process as finished');
     }
     console.log('✓ Process transition works correctly');
 

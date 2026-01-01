@@ -5,19 +5,7 @@
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <h6 class="card-subtitle mb-2">
-                        {{if and .ExitCode (ne (deref .ExitCode) 0)}}
-                        <span class="badge bg-danger">
-                            {{.Status}} (exit {{deref .ExitCode}}){{if .Signal}} - {{.Signal}}{{end}}
-                        </span>
-                        {{else if .Signal}}
-                        <span class="badge bg-warning">
-                            {{.Status}} - {{.Signal}}
-                        </span>
-                        {{else}}
-                        <span class="badge bg-success">
-                            {{.Status}}
-                        </span>
-                        {{end}}
+                        {{template "finished-process-badge" .}}
                     </h6>
                     <p class="card-text">
                         <strong>Command:</strong> <code>{{.Command}}</code><br>
