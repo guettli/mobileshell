@@ -188,39 +188,49 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 }
 
 // readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
-// This runs in the background and exits when the pipe is closed or process ends
+// This runs in the background and exits when the process ends or stdin write fails
+// It continuously reopens the pipe to handle multiple writers (each HTTP request opens/closes)
 func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- OutputLine, done chan<- struct{}) {
 	defer func() {
 		close(done)
 		_ = stdinWriter.Close()
 	}()
 
-	// Open the named pipe for reading in blocking mode
-	// This will block until a writer opens it
-	file, err := os.OpenFile(pipePath, os.O_RDONLY, 0)
-	if err != nil {
-		slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
-		return
-	}
-	defer func() { _ = file.Close() }()
-
-	// Read lines from the pipe continuously
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Write to process stdin
-		_, err := stdinWriter.Write([]byte(line + "\n"))
+	// Keep reading from the pipe until the process exits
+	for {
+		// Open the named pipe for reading in blocking mode
+		// This will block until a writer opens it
+		file, err := os.OpenFile(pipePath, os.O_RDONLY, 0)
 		if err != nil {
-			// Process stdin closed, stop reading
+			slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
 			return
 		}
 
-		// Also log to output.log
-		outputChan <- OutputLine{
-			Stream:    "stdin",
-			Timestamp: time.Now().UTC(),
-			Line:      line,
+		// Read lines from the pipe until this writer closes it
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			// Write to process stdin
+			_, err := stdinWriter.Write([]byte(line + "\n"))
+			if err != nil {
+				// Process stdin closed, stop reading
+				_ = file.Close()
+				return
+			}
+
+			// Also log to output.log
+			outputChan <- OutputLine{
+				Stream:    "stdin",
+				Timestamp: time.Now().UTC(),
+				Line:      line,
+			}
 		}
+
+		// Close this instance of the pipe
+		_ = file.Close()
+
+		// The scanner exited because the writer closed the pipe (EOF)
+		// Loop back to reopen the pipe and wait for the next writer
 	}
 }

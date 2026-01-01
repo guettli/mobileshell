@@ -197,7 +197,10 @@
             const basePath = '{{.BasePath}}';
             const runningProcessesContainer = document.getElementById('running-processes');
             const finishedProcessesContainer = document.getElementById('finished-processes');
-            let pollInterval;
+            let fastPollCount = 0;
+            const FAST_POLL_INTERVAL = 500; // 0.5 seconds
+            const NORMAL_POLL_INTERVAL = 3000; // 3 seconds
+            const FAST_POLL_ITERATIONS = 20;
 
             function getCurrentProcessIDs() {
                 const processCards = runningProcessesContainer.querySelectorAll('.process-card[id^="process-"]');
@@ -206,6 +209,11 @@
 
             async function pollProcessUpdates() {
                 try {
+                    // Check if we should decrement fast poll counter
+                    if (fastPollCount > 0) {
+                        fastPollCount--;
+                    }
+
                     const processIDs = getCurrentProcessIDs();
                     const queryParams = processIDs.length > 0 ? `?process_ids=${processIDs.join(',')}` : '';
 
@@ -281,28 +289,28 @@
                 } catch (error) {
                     console.error('Error polling process updates:', error);
                 }
+
+                // Schedule next poll based on whether we're in fast poll mode
+                const delay = fastPollCount > 0 ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
+                setTimeout(pollProcessUpdates, delay);
             }
 
-            // Expose pollProcessUpdates to window for external triggering
+            function startFastPolling() {
+                fastPollCount = FAST_POLL_ITERATIONS;
+                console.log('Started fast polling (0.5s for 20 iterations)');
+            }
+
+            // Expose functions to window for external triggering
             window.pollProcessUpdates = pollProcessUpdates;
+            window.startFastPolling = startFastPolling;
 
             // Initial poll on page load
             pollProcessUpdates();
-
-            // Start polling every 3 seconds
-            pollInterval = setInterval(pollProcessUpdates, 3000);
 
             // Also poll when page becomes visible
             document.addEventListener('visibilitychange', function() {
                 if (!document.hidden) {
                     pollProcessUpdates();
-                }
-            });
-
-            // Clean up on page unload
-            window.addEventListener('beforeunload', function() {
-                if (pollInterval) {
-                    clearInterval(pollInterval);
                 }
             });
         })();

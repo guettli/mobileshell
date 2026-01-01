@@ -1,5 +1,8 @@
 # Later
 
+- fix flaky test.
+- When the server is no longer running, and you execute a command, then there should be an error
+  message, that the server could not be reached.
 - Pre-command: multiline. Defaults to #!/usr/bin/env bash
 - configure workspace. New page. There you can change pre-command and working-directory and name,
   but not ID
