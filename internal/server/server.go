@@ -301,6 +301,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	// Workspace routes
 	mux.HandleFunc("/workspaces/hx-create", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceCreate)))
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
+	mux.HandleFunc("/workspaces/{id}/edit", s.authMiddleware(s.wrapHandler(s.handleWorkspaceEdit)))
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/json-process-updates", s.authMiddleware(s.wrapHandler(s.jsonHandleProcessUpdates)))
@@ -497,6 +498,90 @@ func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]by
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Extract workspace ID from path parameter
+	workspaceID := r.PathValue("id")
+	if workspaceID == "" {
+		return nil, newHTTPError(http.StatusNotFound, "Not found")
+	}
+
+	// Get the workspace by ID
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	basePath := s.getBasePath(r)
+
+	// Handle GET request - show edit form
+	if r.Method == http.MethodGet {
+		var buf bytes.Buffer
+		err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
+			"BasePath": basePath,
+			"Workspace": map[string]any{
+				"ID":         ws.ID,
+				"Name":       ws.Name,
+				"Directory":  ws.Directory,
+				"PreCommand": ws.PreCommand,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+
+	// Handle POST request - update workspace
+	if r.Method == http.MethodPost {
+		name := r.FormValue("name")
+		directory := r.FormValue("directory")
+		preCommand := r.FormValue("pre_command")
+
+		if name == "" || directory == "" {
+			var buf bytes.Buffer
+			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
+				"BasePath": basePath,
+				"Workspace": map[string]any{
+					"ID":         ws.ID,
+					"Name":       ws.Name,
+					"Directory":  ws.Directory,
+					"PreCommand": ws.PreCommand,
+				},
+				"Error": "Workspace name and directory are required",
+			})
+			if err != nil {
+				return nil, err
+			}
+			return buf.Bytes(), nil
+		}
+
+		// Update the workspace
+		_, err := workspace.UpdateWorkspace(s.stateDir, workspaceID, name, directory, preCommand)
+		if err != nil {
+			var buf bytes.Buffer
+			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
+				"BasePath": basePath,
+				"Workspace": map[string]any{
+					"ID":         ws.ID,
+					"Name":       name,
+					"Directory":  directory,
+					"PreCommand": preCommand,
+				},
+				"Error": fmt.Sprintf("Failed to update workspace: %v", err),
+			})
+			if err != nil {
+				return nil, err
+			}
+			return buf.Bytes(), nil
+		}
+
+		// Redirect to workspace page
+		return nil, &redirectError{url: fmt.Sprintf("%s/workspaces/%s", basePath, workspaceID), statusCode: http.StatusSeeOther}
+	}
+
+	return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
 }
 
 func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]byte, error) {

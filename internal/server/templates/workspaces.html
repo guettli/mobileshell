@@ -56,7 +56,7 @@
 <body hx-ext="morph">
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
-            <span class="navbar-brand mb-0 h1">MobileShell</span>
+            <a href="{{.BasePath}}/" class="navbar-brand mb-0 h1">MobileShell</a>
             <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
         </div>
     </nav>
@@ -73,7 +73,7 @@
                 <span class="badge bg-primary workspace-badge ms-2">Pre-command: {{.CurrentWorkspace.PreCommand}}</span>
                 {{end}}
             </div>
-            <a href="{{.BasePath}}/" class="btn btn-sm btn-outline-secondary">Change Workspace</a>
+            <a href="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/edit" class="btn btn-sm btn-outline-primary">Edit</a>
         </div>
 
         <!-- Execute Command Section -->

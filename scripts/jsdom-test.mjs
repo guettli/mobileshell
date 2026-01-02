@@ -527,6 +527,120 @@ async function runTests() {
     console.log('  ✓ cat process terminated');
     console.log('✓ Multiple stdin inputs work correctly');
 
+    // Test editing workspace
+    console.log('\nTesting workspace editing...');
+
+    // Load the workspace page and find the Edit button
+    const workspaceBeforeEditResponse = await request('GET', `/workspaces/${workspaceId}`, {
+      headers: { Cookie: sessionCookie },
+    });
+
+    assert.equal(workspaceBeforeEditResponse.status, 200, 'Should load workspace page');
+    const workspaceBeforeEditDoc = parseHTML(workspaceBeforeEditResponse.text);
+    const editButton = workspaceBeforeEditDoc.querySelector(`a[href*="/workspaces/${workspaceId}/edit"]`);
+    assert.ok(editButton, 'Should have Edit button');
+    console.log('  ✓ Found Edit button in workspace page');
+
+    // Navigate to edit page
+    const editPageResponse = await request('GET', `/workspaces/${workspaceId}/edit`, {
+      headers: { Cookie: sessionCookie },
+    });
+
+    assert.equal(editPageResponse.status, 200, 'Should load edit workspace page');
+    assert.ok(editPageResponse.text.includes('Edit Workspace'), 'Page should have "Edit Workspace" title');
+    assert.ok(editPageResponse.text.includes(workspaceName), 'Page should show current workspace name');
+    console.log('  ✓ Edit workspace page loaded');
+
+    // Parse the edit page to verify form fields
+    const editPageDoc = parseHTML(editPageResponse.text);
+    const nameInput = editPageDoc.querySelector('input[name="name"]');
+    const directoryInput = editPageDoc.querySelector('input[name="directory"]');
+    const preCommandInput = editPageDoc.querySelector('input[name="pre_command"]');
+    const saveButton = editPageDoc.querySelector('button[type="submit"]');
+    const cancelButton = editPageDoc.querySelector(`a[href*="/workspaces/${workspaceId}"]`);
+
+    assert.ok(nameInput, 'Should have name input field');
+    assert.ok(directoryInput, 'Should have directory input field');
+    assert.ok(preCommandInput, 'Should have pre-command input field');
+    assert.ok(saveButton, 'Should have save button');
+    assert.ok(cancelButton, 'Should have cancel button');
+    assert.equal(nameInput.value, workspaceName, 'Name field should have current name');
+    assert.equal(directoryInput.value, '/tmp', 'Directory field should have current directory');
+    console.log('  ✓ Edit form has all required fields with current values');
+
+    // Update the workspace
+    const updatedName = `${workspaceName}-updated`;
+    const updatedPreCommand = 'source .env';
+    const updateResponse = await request('POST', `/workspaces/${workspaceId}/edit`, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+      body: `name=${encodeURIComponent(updatedName)}&directory=/tmp&pre_command=${encodeURIComponent(updatedPreCommand)}`,
+    });
+
+    // Should redirect back to workspace page
+    assert.ok([302, 303].includes(updateResponse.status), `Should redirect after update (got ${updateResponse.status})`);
+    assert.ok(updateResponse.headers.location.includes(`/workspaces/${workspaceId}`), 'Should redirect to workspace page');
+    console.log('  ✓ Workspace updated successfully');
+
+    // Verify the changes by loading the workspace page again
+    const workspaceAfterEditResponse = await request('GET', `/workspaces/${workspaceId}`, {
+      headers: { Cookie: sessionCookie },
+    });
+
+    assert.equal(workspaceAfterEditResponse.status, 200, 'Should load workspace page after edit');
+    assert.ok(workspaceAfterEditResponse.text.includes(updatedName), 'Page should show updated workspace name');
+    // Check if pre-command appears
+    assert.ok(workspaceAfterEditResponse.text.includes(updatedPreCommand), 'Page should show updated pre-command');
+    console.log('  ✓ Changes verified on workspace page');
+
+    // Test validation: try to update with empty name
+    const invalidUpdateResponse = await request('POST', `/workspaces/${workspaceId}/edit`, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+      body: `name=&directory=/tmp&pre_command=`,
+    });
+
+    assert.equal(invalidUpdateResponse.status, 200, 'Should return form with error (not redirect)');
+    assert.ok(invalidUpdateResponse.text.includes('required'), 'Should show validation error message');
+    console.log('  ✓ Validation works (empty name rejected)');
+
+    // Test validation: try to update with non-existent directory
+    const invalidDirUpdateResponse = await request('POST', `/workspaces/${workspaceId}/edit`, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+      body: `name=${encodeURIComponent(updatedName)}&directory=/nonexistent/directory/path/12345&pre_command=`,
+    });
+
+    assert.equal(invalidDirUpdateResponse.status, 200, 'Should return form with error (not redirect)');
+    assert.ok(invalidDirUpdateResponse.text.includes('does not exist') || invalidDirUpdateResponse.text.includes('Failed to update'),
+      'Should show directory validation error');
+    console.log('  ✓ Validation works (non-existent directory rejected)');
+
+    // Test removing pre-command (set it to empty)
+    const removePreCommandResponse = await request('POST', `/workspaces/${workspaceId}/edit`, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+      body: `name=${encodeURIComponent(updatedName)}&directory=/tmp&pre_command=`,
+    });
+
+    assert.ok([302, 303].includes(removePreCommandResponse.status), 'Should redirect after removing pre-command');
+    console.log('  ✓ Pre-command can be removed');
+
+    // Verify pre-command was removed
+    const workspaceNoPreCmdResponse = await request('GET', `/workspaces/${workspaceId}`, {
+      headers: { Cookie: sessionCookie },
+    });
+
+    assert.equal(workspaceNoPreCmdResponse.status, 200, 'Should load workspace page');
+    assert.ok(!workspaceNoPreCmdResponse.text.includes('Pre-command:'), 'Page should not show pre-command badge when empty');
+    console.log('  ✓ Pre-command removed successfully');
+
+    console.log('✓ Workspace editing works correctly');
+
     console.log('\n✅ All tests passed!');
     process.exit(0);
 

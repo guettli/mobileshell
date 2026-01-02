@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Workspace - MobileShell</title>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
+</head>
+
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a href="{{.BasePath}}/" class="navbar-brand mb-0 h1">MobileShell</a>
+            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Edit Workspace</h5>
+                        {{if .Error}}
+                        <div class="alert alert-danger" role="alert">
+                            {{.Error}}
+                        </div>
+                        {{end}}
+                        {{if .Success}}
+                        <div class="alert alert-success" role="alert">
+                            Workspace updated successfully!
+                        </div>
+                        {{end}}
+                        <form method="POST" action="{{.BasePath}}/workspaces/{{.Workspace.ID}}/edit">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Workspace Name</label>
+                                <input type="text" class="form-control" id="name" name="name"
+                                    value="{{.Workspace.Name}}" required autofocus>
+                            </div>
+                            <div class="mb-3">
+                                <label for="directory" class="form-label">Working Directory</label>
+                                <input type="text" class="form-control" id="directory" name="directory"
+                                    value="{{.Workspace.Directory}}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="pre_command" class="form-label">Pre-command (optional)</label>
+                                <input type="text" class="form-control" id="pre_command" name="pre_command"
+                                    value="{{.Workspace.PreCommand}}" placeholder="e.g., source .env">
+                                <div class="form-text">This command runs before every command in this workspace</div>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                    <a href="{{.BasePath}}/workspaces/{{.Workspace.ID}}" class="btn btn-secondary">Cancel</a>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

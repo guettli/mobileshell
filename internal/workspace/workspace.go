@@ -116,6 +116,35 @@ func GetWorkspaceByID(stateDir, id string) (*Workspace, error) {
 	return GetWorkspace(stateDir, id)
 }
 
+// UpdateWorkspace updates an existing workspace's name, directory, and pre-command
+func UpdateWorkspace(stateDir, id, name, directory, preCommand string) (*Workspace, error) {
+	// Get the existing workspace
+	ws, err := GetWorkspaceByID(stateDir, id)
+	if err != nil {
+		return nil, fmt.Errorf("workspace not found: %w", err)
+	}
+
+	// Validate that the directory exists
+	if _, err := os.Stat(directory); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("directory does not exist: %s", directory)
+		}
+		return nil, fmt.Errorf("failed to stat directory: %w", err)
+	}
+
+	// Update workspace fields
+	ws.Name = name
+	ws.Directory = directory
+	ws.PreCommand = preCommand
+
+	// Save updated workspace metadata
+	if err := saveWorkspaceFiles(ws); err != nil {
+		return nil, err
+	}
+
+	return ws, nil
+}
+
 // ListWorkspaces returns all workspaces
 func ListWorkspaces(stateDir string) ([]*Workspace, error) {
 	workspacesDir := filepath.Join(stateDir, "workspaces")
@@ -302,11 +331,15 @@ func saveWorkspaceFiles(ws *Workspace) error {
 		return fmt.Errorf("failed to write directory file: %w", err)
 	}
 
-	// Write pre-command file (if not empty)
+	// Write pre-command file (if not empty), or remove it if empty
+	preCommandPath := filepath.Join(ws.Path, "pre-command")
 	if ws.PreCommand != "" {
-		if err := os.WriteFile(filepath.Join(ws.Path, "pre-command"), []byte(ws.PreCommand), 0600); err != nil {
+		if err := os.WriteFile(preCommandPath, []byte(ws.PreCommand), 0600); err != nil {
 			return fmt.Errorf("failed to write pre-command file: %w", err)
 		}
+	} else {
+		// Remove pre-command file if it exists (ignore error if file doesn't exist)
+		_ = os.Remove(preCommandPath)
 	}
 
 	// Write created-at file
