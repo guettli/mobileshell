@@ -539,9 +539,10 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 
 	// Response structure
 	type ProcessUpdate struct {
-		ID     string `json:"id"`
-		Status string `json:"status"` // "running", "finished", "new", "unknown"
-		HTML   string `json:"html"`
+		ID         string `json:"id"`
+		Status     string `json:"status"` // "running", "finished", "new", "unknown"
+		HTML       string `json:"html"`
+		OutputHTML string `json:"output_html,omitempty"` // For running processes - HTML content for output div
 	}
 
 	var updates []ProcessUpdate
@@ -578,8 +579,19 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 						Status: "finished",
 						HTML:   html,
 					})
+				} else {
+					// Process is still running - send output update
+					outputHTML, err := s.renderProcessOutputHTML(p, workspaceID, r)
+					if err != nil {
+						slog.Error("Failed to render process output", "error", err, "id", p.ID)
+						continue
+					}
+					updates = append(updates, ProcessUpdate{
+						ID:         id,
+						Status:     "running",
+						OutputHTML: outputHTML,
+					})
 				}
-				// Don't send updates for processes that are still running - no changes to report
 				break
 			}
 		}
@@ -754,11 +766,26 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	expand := r.URL.Query().Get("expand") == "true"
+	workspaceID := filepath.Base(filepath.Dir(filepath.Dir(proc.OutputFile)))
 
-	var buf bytes.Buffer
+	html, err := s.renderProcessOutput(proc, workspaceID, expand, r)
+	if err != nil {
+		return nil, err
+	}
 
+	return []byte(html), nil
+}
+
+type processOutputData struct {
+	stdout      string
+	stderr      string
+	stdin       string
+	needsExpand bool
+}
+
+func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOutputData, error) {
 	// Read combined output from single file
-	stdout, stderr, stdin, err := executor.ReadCombinedOutput(proc.OutputFile)
+	stdout, stderr, stdin, err := executor.ReadCombinedOutput(outputFile)
 	if err != nil {
 		stdout = ""
 		stderr = ""
@@ -784,44 +811,44 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 	// Decide whether to show automatically
 	autoShow := totalSize < 1000 && totalLines <= 5
 
-	// Prepare preview (first 5 lines combined, up to 1000 bytes)
-	var previewStdout, previewStderr, previewStdin string
-	needsExpand := false
+	// Prepare preview
+	needsExpand := !autoShow && !expand
 
-	if !autoShow && !expand {
-		// Show preview (simplified - just show everything for now)
-		previewStdout = stdout
-		previewStderr = stderr
-		previewStdin = stdin
-		needsExpand = true
-	} else if expand {
-		// Show full output
-		previewStdout = stdout
-		previewStderr = stderr
-		previewStdin = stdin
-	} else {
-		// Auto-show (small enough)
-		previewStdout = stdout
-		previewStderr = stderr
-		previewStdin = stdin
+	return processOutputData{
+		stdout:      stdout,
+		stderr:      stderr,
+		stdin:       stdin,
+		needsExpand: needsExpand,
+	}, nil
+}
+
+func (s *Server) renderProcessOutput(proc *executor.Process, workspaceID string, expand bool, r *http.Request) (string, error) {
+	outputData, err := s.prepareProcessOutput(proc.OutputFile, expand)
+	if err != nil {
+		return "", err
 	}
 
+	var buf bytes.Buffer
 	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
 		"Process":     proc,
-		"Stdout":      previewStdout,
-		"Stderr":      previewStderr,
-		"Stdin":       previewStdin,
+		"Stdout":      outputData.stdout,
+		"Stderr":      outputData.stderr,
+		"Stdin":       outputData.stdin,
 		"Type":        "combined",
-		"NeedsExpand": needsExpand,
+		"NeedsExpand": outputData.needsExpand,
 		"Expanded":    expand,
 		"BasePath":    s.getBasePath(r),
-		"WorkspaceID": filepath.Base(filepath.Dir(filepath.Dir(proc.OutputFile))),
+		"WorkspaceID": workspaceID,
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
-	return buf.Bytes(), nil
+	return buf.String(), nil
+}
+
+func (s *Server) renderProcessOutputHTML(p *executor.Process, workspaceID string, r *http.Request) (string, error) {
+	return s.renderProcessOutput(p, workspaceID, false, r)
 }
 
 func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte, error) {

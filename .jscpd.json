@@ -1,0 +1,17 @@
+{
+  "threshold": 3,
+  "reporters": ["console"],
+  "ignore": [
+    "**/.git/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.nix-**/**",
+    "**/result/**",
+    "**/*_test.go"
+  ],
+  "format": ["go", "html", "javascript", "markup"],
+  "minLines": 5,
+  "minTokens": 50,
+  "exitCode": 0
+}

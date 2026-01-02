@@ -13,9 +13,7 @@
                 </p>
             </div>
         </div>
-        <div id="output-{{.Process.ID}}" class="mt-2"
-            hx-get="{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}/hx-output?type=combined"
-            hx-trigger="load, every 2s" hx-swap="innerHTML">
+        <div id="output-{{.Process.ID}}" class="mt-2">
         </div>
         <div class="mt-2">
             <form hx-post="{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}/hx-send-stdin"

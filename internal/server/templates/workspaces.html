@@ -237,6 +237,16 @@
                                     existingElement.remove();
                                     hasFinishedProcesses = true;
                                 }
+                            } else if (update.status === 'running' && update.output_html) {
+                                // Update output for running process
+                                const outputDiv = document.getElementById(`output-${update.id}`);
+                                if (outputDiv) {
+                                    outputDiv.innerHTML = update.output_html;
+                                    // Re-process HTMX attributes in case there's an expand button
+                                    if (window.htmx) {
+                                        htmx.process(outputDiv);
+                                    }
+                                }
                             } else if (update.status === 'new') {
                                 // New running process - append to running processes
                                 const tempDiv = document.createElement('div');

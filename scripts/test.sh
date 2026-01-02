@@ -66,6 +66,19 @@ if [[ -n $unused_templates ]]; then
     exit 1
 fi
 
+echo "Checking for code duplication..."
+pnpm exec jscpd . --reporters json,console --output .jscpd
+duplicated_percent=$(grep -o '"percentage":[0-9.]*' .jscpd/jscpd-report.json | head -1 | cut -d':' -f2)
+threshold=3
+if [[ -n "$duplicated_percent" ]] && awk "BEGIN {exit !($duplicated_percent > $threshold)}"; then
+    echo "Error: Code duplication ($duplicated_percent%) exceeds threshold ($threshold%)."
+    echo "Please refactor duplicated code into reusable functions."
+    rm -rf .jscpd
+    exit 1
+fi
+echo "✓ Code duplication check passed ($duplicated_percent% <= $threshold%)"
+rm -rf .jscpd
+
 golangci-lint run ./...
 
 go test ./...

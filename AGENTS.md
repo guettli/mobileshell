@@ -1,5 +1,9 @@
 # Agents
 
+Before writing code, search for similar patterns/logic in the codebase and extract them into
+reusable functions. Never duplicate code - if you see existing logic that does what you need,
+refactor it into a shared helper first.
+
 after changes run `./scripts/test.sh`.
 
 use UTC when writing dates.
