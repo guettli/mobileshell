@@ -50,5 +50,28 @@ echo ""
 echo "Service status:"
 systemctl status mobileshell --no-pager || true
 
+# Check if hashed-passwords directory is empty
+STATE_DIR="/var/lib/mobileshell-$USERNAME"
+HASHED_PASSWORDS_DIR="$STATE_DIR/hashed-passwords"
+
+echo ""
+if [ -d "$HASHED_PASSWORDS_DIR" ] && [ -z "$(ls -A "$HASHED_PASSWORDS_DIR" 2>/dev/null)" ]; then
+    echo "⚠️  WARNING: No passwords configured!"
+    echo ""
+    echo "To add a password, run as user $USERNAME:"
+    echo "  $HOME_DIR/mobileshell add-password"
+    echo ""
+    echo "Or run as root:"
+    echo "  sudo -u $USERNAME $HOME_DIR/mobileshell add-password"
+elif [ ! -d "$HASHED_PASSWORDS_DIR" ]; then
+    echo "⚠️  WARNING: hashed-passwords directory not yet created!"
+    echo ""
+    echo "To add a password, run as user $USERNAME:"
+    echo "  $HOME_DIR/mobileshell add-password"
+    echo ""
+    echo "Or run as root:"
+    echo "  sudo -u $USERNAME $HOME_DIR/mobileshell add-password"
+fi
+
 echo ""
 echo "Installation completed successfully!"

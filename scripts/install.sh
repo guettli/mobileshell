@@ -24,6 +24,7 @@ sed "s/{{USER}}/$USERNAME/g" systemd/mobileshell.service >"$TMP_SERVICE_FILE"
 
 # Create temporary directory for rsync
 TMP_DIR=$(mktemp -d)
+# shellcheck disable=SC2064
 trap "rm -rf $TMP_DIR $TMP_SERVICE_FILE" EXIT
 
 # Copy files to temporary directory
@@ -38,6 +39,7 @@ rsync -av --progress "$TMP_DIR/" "root@$HOSTNAME:/tmp/mobileshell-install/"
 
 # Execute installation script on remote server
 echo "Installing and starting systemd service..."
+# shellcheck disable=SC2029
 ssh "root@$HOSTNAME" "/tmp/mobileshell-install/install-exec-on-remote.sh $USERNAME"
 
 # Clean up remote temporary directory
@@ -46,6 +48,6 @@ ssh "root@$HOSTNAME" "rm -rf /tmp/mobileshell-install"
 echo ""
 echo "=== Installation Complete ==="
 echo "MobileShell is now running on $HOSTNAME"
-echo "Access it at: http://localhost:22123/"
+echo "The service is listening on localhost:22123"
 echo ""
 echo "Make sure to configure TLS termination (e.g., nginx) for production use."

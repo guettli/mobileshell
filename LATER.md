@@ -1,6 +1,8 @@
 # Later
 
-- show how long each sub-test took (seconds)
+- add-password should not be run as root user. Refuse
+- add-password: if stateDir does not exist. then do not create it
+- if statedir empty, and .mobileshell does not exist, try /var/lib/mobileshell-$USER.
 - <http://localhost:22123/workspaces/fooob/processes/d07a0674d285a31d> link to Workspaces
   (top MobileShell) does not work. Unify that, so that all pages use the same code.
 - fix flaky test.
