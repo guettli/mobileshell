@@ -19,11 +19,12 @@ It is up to you to configure TLS termination. Example snippet for nginx:
 ```nginx
 
         location /mobileshell/ {
+            proxy_pass http://127.0.0.1:22123/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Host $http_host;
-            proxy_redirect off;
-            proxy_pass http://127.0.0.1:22123/;
+            proxy_set_header X-Forwarded-Prefix /mobileshell;
         }
 ```
 
