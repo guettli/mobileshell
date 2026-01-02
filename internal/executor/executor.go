@@ -88,6 +88,26 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 	return proc, nil
 }
 
+// convertWorkspaceProcess converts a workspace.Process to an executor.Process
+func convertWorkspaceProcess(ws *workspace.Workspace, wp *workspace.Process) *Process {
+	workspaceTS := filepath.Base(ws.Path)
+	processDir := workspace.GetProcessDir(ws, wp.Hash)
+
+	return &Process{
+		ID:          wp.Hash,
+		Command:     wp.Command,
+		StartTime:   wp.StartTime,
+		EndTime:     wp.EndTime,
+		OutputFile:  filepath.Join(processDir, "output.log"),
+		PID:         wp.PID,
+		Completed:   wp.Completed,
+		WorkspaceTS: workspaceTS,
+		Hash:        wp.Hash,
+		ExitCode:    wp.ExitCode,
+		Signal:      wp.Signal,
+	}
+}
+
 // ListWorkspaceProcesses returns processes from a specific workspace
 func ListWorkspaceProcesses(ws *workspace.Workspace) ([]*Process, error) {
 	if ws == nil {
@@ -101,25 +121,8 @@ func ListWorkspaceProcesses(ws *workspace.Workspace) ([]*Process, error) {
 		return nil, err
 	}
 
-	workspaceTS := filepath.Base(ws.Path)
-
 	for _, wp := range workspaceProcs {
-		processDir := workspace.GetProcessDir(ws, wp.Hash)
-
-		proc := &Process{
-			ID:          wp.Hash,
-			Command:     wp.Command,
-			StartTime:   wp.StartTime,
-			EndTime:     wp.EndTime,
-			OutputFile:  filepath.Join(processDir, "output.log"),
-			PID:         wp.PID,
-			Completed:   wp.Completed,
-			WorkspaceTS: workspaceTS,
-			Hash:        wp.Hash,
-			ExitCode:    wp.ExitCode,
-			Signal:      wp.Signal,
-		}
-
+		proc := convertWorkspaceProcess(ws, wp)
 		processes = append(processes, proc)
 	}
 
@@ -140,23 +143,7 @@ func GetProcess(stateDir, id string) (*Process, bool) {
 			continue
 		}
 
-		workspaceTS := filepath.Base(ws.Path)
-		processDir := workspace.GetProcessDir(ws, wp.Hash)
-
-		proc := &Process{
-			ID:          wp.Hash,
-			Command:     wp.Command,
-			StartTime:   wp.StartTime,
-			EndTime:     wp.EndTime,
-			OutputFile:  filepath.Join(processDir, "output.log"),
-			PID:         wp.PID,
-			Completed:   wp.Completed,
-			WorkspaceTS: workspaceTS,
-			Hash:        wp.Hash,
-			ExitCode:    wp.ExitCode,
-			Signal:      wp.Signal,
-		}
-
+		proc := convertWorkspaceProcess(ws, wp)
 		return proc, true
 	}
 
