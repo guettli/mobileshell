@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -225,6 +226,15 @@ func UpdateProcessExit(ws *Workspace, hash string, exitCode int, signal string) 
 	if signal != "" {
 		if err := os.WriteFile(filepath.Join(processDir, "signal"), []byte(signal), 0600); err != nil {
 			return fmt.Errorf("failed to write signal file: %w", err)
+		}
+	}
+
+	// Detect and write content type
+	outputFile := filepath.Join(processDir, "output.log")
+	if data, err := readRawStdoutBytes(outputFile); err == nil && len(data) > 0 {
+		contentType := detectContentType(data)
+		if err := os.WriteFile(filepath.Join(processDir, "content-type"), []byte(contentType), 0600); err != nil {
+			return fmt.Errorf("failed to write content-type file: %w", err)
 		}
 	}
 
@@ -477,4 +487,42 @@ func generateWorkspaceID(name string) (string, error) {
 	}
 
 	return id, nil
+}
+
+// readRawStdoutBytes extracts raw stdout bytes from the combined output log file
+func readRawStdoutBytes(filename string) ([]byte, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var stdoutBytes []byte
+	lines := strings.Split(string(data), "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		// Only extract stdout lines (not stderr or stdin)
+		if strings.HasPrefix(line, "stdout ") {
+			// Extract content after ": "
+			if idx := strings.Index(line[7:], ": "); idx != -1 {
+				content := line[7+idx+2:]
+				stdoutBytes = append(stdoutBytes, []byte(content)...)
+				stdoutBytes = append(stdoutBytes, '\n')
+			}
+		}
+	}
+
+	return stdoutBytes, nil
+}
+
+// detectContentType detects the MIME type of stdout data
+func detectContentType(data []byte) string {
+	// http.DetectContentType uses at most the first 512 bytes
+	if len(data) > 512 {
+		data = data[:512]
+	}
+	return http.DetectContentType(data)
 }

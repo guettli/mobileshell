@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -115,6 +116,13 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 				_, _ = w.Write(cte.data)
 				return
 			}
+			if de, ok := err.(*downloadError); ok {
+				w.Header().Set("Content-Type", de.contentType)
+				w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", de.filename))
+				w.Header().Set("Content-Length", strconv.Itoa(len(de.data)))
+				_, _ = w.Write(de.data)
+				return
+			}
 			// Check if it's an httpError with status code
 			if he, ok := err.(*httpError); ok {
 				slog.Error("HTTP handler error",
@@ -208,6 +216,17 @@ func (e *contentTypeError) Error() string {
 	return fmt.Sprintf("response with content-type: %s", e.contentType)
 }
 
+// downloadError represents a file download response
+type downloadError struct {
+	contentType string
+	filename    string
+	data        []byte
+}
+
+func (e *downloadError) Error() string {
+	return fmt.Sprintf("download: %s", e.filename)
+}
+
 // hxRedirectError represents an htmx redirect using HX-Redirect header
 type hxRedirectError struct {
 	url string
@@ -271,6 +290,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSendSignal)))
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}/download", s.authMiddleware(s.wrapHandler(s.handleDownloadOutput)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -776,6 +796,14 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		return nil, newHTTPError(http.StatusNotFound, "Process not found")
 	}
 
+	// Check for binary-data marker
+	processDir := filepath.Dir(proc.OutputFile)
+	binaryMarkerFile := filepath.Join(processDir, "binary-data")
+	isBinary := false
+	if _, err := os.Stat(binaryMarkerFile); err == nil {
+		isBinary = true
+	}
+
 	// Read full output
 	stdout, stderr, stdin, err := executor.ReadCombinedOutput(proc.OutputFile)
 	if err != nil {
@@ -790,6 +818,7 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		"Stdout":      stdout,
 		"Stderr":      stderr,
 		"Stdin":       stdin,
+		"IsBinary":    isBinary,
 		"BasePath":    s.getBasePath(r),
 		"WorkspaceID": workspaceID,
 	})
@@ -825,9 +854,18 @@ type processOutputData struct {
 	stderr      string
 	stdin       string
 	needsExpand bool
+	isBinary    bool
 }
 
 func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOutputData, error) {
+	// Check for binary-data marker file
+	processDir := filepath.Dir(outputFile)
+	binaryMarkerFile := filepath.Join(processDir, "binary-data")
+	isBinary := false
+	if _, err := os.Stat(binaryMarkerFile); err == nil {
+		isBinary = true
+	}
+
 	// Read combined output from single file
 	stdout, stderr, stdin, err := executor.ReadCombinedOutput(outputFile)
 	if err != nil {
@@ -863,6 +901,7 @@ func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOu
 		stderr:      stderr,
 		stdin:       stdin,
 		needsExpand: needsExpand,
+		isBinary:    isBinary,
 	}, nil
 }
 
@@ -881,6 +920,7 @@ func (s *Server) renderProcessOutput(proc *executor.Process, workspaceID string,
 		"Type":        "combined",
 		"NeedsExpand": outputData.needsExpand,
 		"Expanded":    expand,
+		"IsBinary":    outputData.isBinary,
 		"BasePath":    s.getBasePath(r),
 		"WorkspaceID": workspaceID,
 	})
@@ -1026,6 +1066,53 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 
 	// Return empty response
 	return []byte{}, nil
+}
+
+func (s *Server) handleDownloadOutput(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Get process ID from path parameter
+	processID := r.PathValue("processID")
+	if processID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Process ID is required")
+	}
+
+	// Get workspace ID from path parameter
+	workspaceID := r.PathValue("id")
+	if workspaceID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+	}
+
+	// Get the workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Get process directory
+	processDir := workspace.GetProcessDir(ws, processID)
+	outputFile := filepath.Join(processDir, "output.log")
+
+	// Read raw stdout bytes
+	stdoutBytes, err := executor.ReadRawStdout(outputFile)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, "Failed to read output")
+	}
+
+	// Read content type from file, or detect it
+	contentTypeFile := filepath.Join(processDir, "content-type")
+	var contentType string
+	if data, err := os.ReadFile(contentTypeFile); err == nil {
+		contentType = string(data)
+	} else {
+		// Fallback: detect content type
+		contentType = executor.DetectContentType(stdoutBytes)
+	}
+
+	// Return download error which will be handled by wrapHandler
+	return nil, &downloadError{
+		contentType: contentType,
+		filename:    processID + ".output",
+		data:        stdoutBytes,
+	}
 }
 
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {

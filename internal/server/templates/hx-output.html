@@ -1,25 +1,33 @@
 {{define "output-display"}}
-{{if or .Stdout .Stderr .Stdin}}
-    {{if .Stdout}}
-    <div class="output-section">
-        <h6>Stdout:</h6>
-        <div class="output-container">{{.Stdout}}</div>
+{{if .IsBinary}}
+    <div class="alert alert-info">
+        <strong>Binary data detected</strong><br>
+        This process output contains binary data and cannot be displayed as text.
+        Use the <strong>Download Output</strong> button above to save the raw output.
     </div>
-    {{end}}
-    {{if .Stderr}}
-    <div class="output-section">
-        <h6>Stderr:</h6>
-        <div class="output-container stderr">{{.Stderr}}</div>
-    </div>
-    {{end}}
-    {{if .Stdin}}
-    <div class="output-section">
-        <h6>Stdin:</h6>
-        <div class="output-container stdin">{{.Stdin}}</div>
-    </div>
-    {{end}}
 {{else}}
-    <em class="text-muted">No output yet</em>
+    {{if or .Stdout .Stderr .Stdin}}
+        {{if .Stdout}}
+        <div class="output-section">
+            <h6>Stdout:</h6>
+            <div class="output-container">{{.Stdout}}</div>
+        </div>
+        {{end}}
+        {{if .Stderr}}
+        <div class="output-section">
+            <h6>Stderr:</h6>
+            <div class="output-container stderr">{{.Stderr}}</div>
+        </div>
+        {{end}}
+        {{if .Stdin}}
+        <div class="output-section">
+            <h6>Stdin:</h6>
+            <div class="output-container stdin">{{.Stdin}}</div>
+        </div>
+        {{end}}
+    {{else}}
+        <em class="text-muted">No output yet</em>
+    {{end}}
 {{end}}
 {{end}}
 
