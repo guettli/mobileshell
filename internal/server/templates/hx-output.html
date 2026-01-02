@@ -1,35 +1,39 @@
+{{define "output-display"}}
+{{if or .Stdout .Stderr .Stdin}}
+    {{if .Stdout}}
+    <div class="output-section">
+        <h6>Stdout:</h6>
+        <div class="output-container">{{.Stdout}}</div>
+    </div>
+    {{end}}
+    {{if .Stderr}}
+    <div class="output-section">
+        <h6>Stderr:</h6>
+        <div class="output-container stderr">{{.Stderr}}</div>
+    </div>
+    {{end}}
+    {{if .Stdin}}
+    <div class="output-section">
+        <h6>Stdin:</h6>
+        <div class="output-container stdin">{{.Stdin}}</div>
+    </div>
+    {{end}}
+{{else}}
+    <em class="text-muted">No output yet</em>
+{{end}}
+{{end}}
+
 {{if eq .Type "combined"}}
-    {{if or .Stdout .Stderr .Stdin}}
-        {{if .Stdout}}
-        <div class="output-section">
-            <h6>Stdout:</h6>
-            <div class="output-container">{{.Stdout}}</div>
-        </div>
-        {{end}}
-        {{if .Stderr}}
-        <div class="output-section">
-            <h6>Stderr:</h6>
-            <div class="output-container stderr">{{.Stderr}}</div>
-        </div>
-        {{end}}
-        {{if .Stdin}}
-        <div class="output-section">
-            <h6>Stdin:</h6>
-            <div class="output-container stdin">{{.Stdin}}</div>
-        </div>
-        {{end}}
-        {{if .NeedsExpand}}
-        <div class="mt-2">
-            <button class="btn btn-sm btn-outline-secondary"
-                    hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{$.Process.ID}}/hx-output?type=combined&expand=true"
-                    hx-target="#output-{{$.Process.ID}}"
-                    hx-swap="innerHTML">
-                Show full output...
-            </button>
-        </div>
-        {{end}}
-    {{else}}
-        <em class="text-muted">No output yet</em>
+    {{template "output-display" .}}
+    {{if .NeedsExpand}}
+    <div class="mt-2">
+        <button class="btn btn-sm btn-outline-secondary"
+                hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{$.Process.ID}}/hx-output?type=combined&expand=true"
+                hx-target="#output-{{$.Process.ID}}"
+                hx-swap="innerHTML">
+            Show full output...
+        </button>
+    </div>
     {{end}}
 {{else}}
     <div class="output-container{{if eq .Type "stderr"}} stderr{{end}}">

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MobileShell - Process {{.Process.ID}}</title>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .output-container {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: none;
+            overflow-y: auto;
+        }
+
+        .output-container.stderr {
+            background: #ffe6e6;
+        }
+
+        .output-container.stdin {
+            background: #e6f3ff;
+            font-style: italic;
+            font-size: 1.1em;
+        }
+
+        .output-section {
+            margin-top: 1rem;
+        }
+
+        .output-section h6 {
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">MobileShell</span>
+            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="mb-3">
+            <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}" class="btn btn-sm btn-outline-secondary">&larr; Back to Workspace</a>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Process Details</h5>
+
+                <div class="mb-3">
+                    <h6 class="card-subtitle mb-2">
+                        {{if .Process.Completed}}
+                            {{template "finished-process-badge" .Process}}
+                        {{else}}
+                            <span class="badge bg-primary">
+                                Running
+                            </span>
+                        {{end}}
+                    </h6>
+                </div>
+
+                <p class="card-text">
+                    <strong>Command:</strong> <code>{{.Process.Command}}</code><br>
+                    <strong>Process ID:</strong> {{.Process.ID}}<br>
+                    <strong>PID:</strong> {{.Process.PID}}<br>
+                    <strong>Started:</strong> {{.Process.StartTime.Format "2006-01-02 15:04:05 UTC"}}
+                    {{if .Process.Completed}}
+                        {{$duration := formatDuration .Process.StartTime .Process.EndTime}}
+                        {{if $duration}}
+                            <br><strong>Duration:</strong> {{$duration}}
+                        {{end}}
+                        <br><strong>Ended:</strong> {{.Process.EndTime.Format "2006-01-02 15:04:05 UTC"}}
+                    {{end}}
+                </p>
+
+                <h5 class="mt-4">Full Output</h5>
+
+                {{template "output-display" .}}
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

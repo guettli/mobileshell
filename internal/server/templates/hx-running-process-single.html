@@ -3,9 +3,11 @@
         <div class="d-flex justify-content-between align-items-start">
             <div>
                 <h6 class="card-subtitle mb-2">
-                    <span class="badge bg-primary">
-                        Running
-                    </span>
+                    <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}" class="text-decoration-none">
+                        <span class="badge bg-primary">
+                            Running
+                        </span>
+                    </a>
                 </h6>
                 <p class="card-text">
                     <strong>Command:</strong> <code>{{.Process.Command}}</code><br>

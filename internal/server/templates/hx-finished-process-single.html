@@ -3,7 +3,9 @@
         <div class="d-flex justify-content-between align-items-start">
             <div>
                 <h6 class="card-subtitle mb-2">
-                    {{template "finished-process-badge" .Process}}
+                    <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}" class="text-decoration-none">
+                        {{template "finished-process-badge" .Process}}
+                    </a>
                 </h6>
                 <p class="card-text">
                     <strong>Command:</strong> <code>{{.Process.Command}}</code><br>

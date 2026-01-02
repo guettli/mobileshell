@@ -283,6 +283,137 @@ async function runTests() {
     }
     console.log('✓ Process transition works correctly');
 
+    // Test per-process page links from running processes
+    console.log('\nTesting per-process page link from running process...');
+
+    // Execute a long-running command to test with
+    const longCommandResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+      body: 'command=sleep 10',
+    });
+
+    assert.equal(longCommandResponse.status, 200, 'Should execute long command');
+    const longProcessMatch = longCommandResponse.text.match(/processes\/([^\/]+)\/hx-output/);
+    assert.ok(longProcessMatch, 'Should have process output link');
+    const longProcessId = longProcessMatch[1];
+    console.log(`  Long running process started (Process ID: ${longProcessId})`);
+
+    // Wait a bit for the process to be available
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Get the running processes HTML snippet to find the link
+    const runningCheckResponse = await request('GET', `/workspaces/${workspaceId}/json-process-updates`, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+    });
+
+    const runningData = JSON.parse(runningCheckResponse.text);
+    const runningUpdate = runningData.updates && runningData.updates.find(u =>
+      u.id === longProcessId && (u.status === 'new' || u.status === 'running')
+    );
+
+    assert.ok(runningUpdate, 'Should find the running process in updates');
+    assert.ok(runningUpdate.html, 'Running process should have HTML');
+
+    // Parse the HTML to find the badge link
+    const runningDoc = parseHTML(runningUpdate.html);
+    const runningBadgeLink = runningDoc.querySelector('a[href*="/processes/"] .badge.bg-primary');
+    assert.ok(runningBadgeLink, 'Running process badge should be inside a link');
+
+    const runningLink = runningBadgeLink.closest('a');
+    assert.ok(runningLink, 'Should have link element');
+    assert.ok(runningLink.href.includes(`/processes/${longProcessId}`), 'Link should point to process page');
+
+    console.log(`  ✓ Found running process badge link: ${runningLink.href}`);
+
+    // Follow the link to the per-process page
+    const processPageUrl = new URL(runningLink.href).pathname;
+    const processPageResponse = await request('GET', processPageUrl, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+    });
+
+    assert.equal(processPageResponse.status, 200, 'Should load per-process page');
+    assert.ok(processPageResponse.text.includes('Process Details'), 'Page should have "Process Details" heading');
+    assert.ok(processPageResponse.text.includes('sleep 10'), 'Page should show the command');
+    assert.ok(processPageResponse.text.includes(longProcessId), 'Page should show the process ID');
+    assert.ok(processPageResponse.text.includes('Full Output'), 'Page should have "Full Output" section');
+    assert.ok(processPageResponse.text.includes('Back to Workspace'), 'Page should have back link');
+
+    const processPageDoc = parseHTML(processPageResponse.text);
+    const backLink = processPageDoc.querySelector(`a[href*="/workspaces/${workspaceId}"]`);
+    assert.ok(backLink, 'Should have back link to workspace');
+
+    console.log('  ✓ Per-process page loaded successfully for running process');
+
+    // Terminate the long process
+    await request('POST', `/workspaces/${workspaceId}/processes/${longProcessId}/hx-send-signal`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+      body: 'signal=15',
+    });
+
+    // Wait for it to finish
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Test per-process page link from finished processes
+    console.log('\nTesting per-process page link from finished process...');
+
+    const finishedListResponse = await request('GET', `/workspaces/${workspaceId}/hx-finished-processes?offset=0`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+    });
+
+    assert.equal(finishedListResponse.status, 200, 'Should get finished processes list');
+
+    // Parse the HTML to find badge links in finished processes
+    const finishedDoc = parseHTML(finishedListResponse.text);
+    const finishedBadgeLinks = finishedDoc.querySelectorAll('a[href*="/processes/"] .badge');
+    assert.ok(finishedBadgeLinks.length > 0, 'Should have at least one finished process badge link');
+
+    // Find our specific process
+    let foundProcessLink = null;
+    for (const badge of finishedBadgeLinks) {
+      const link = badge.closest('a');
+      if (link && link.href.includes(longProcessId)) {
+        foundProcessLink = link;
+        break;
+      }
+    }
+
+    // If not found, just use the first finished process link
+    if (!foundProcessLink && finishedBadgeLinks.length > 0) {
+      foundProcessLink = finishedBadgeLinks[0].closest('a');
+    }
+
+    assert.ok(foundProcessLink, 'Should find a finished process badge link');
+    console.log(`  ✓ Found finished process badge link: ${foundProcessLink.href}`);
+
+    // Follow the link to the per-process page for finished process
+    const finishedProcessPageUrl = new URL(foundProcessLink.href).pathname;
+    const finishedProcessPageResponse = await request('GET', finishedProcessPageUrl, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+    });
+
+    assert.equal(finishedProcessPageResponse.status, 200, 'Should load per-process page for finished process');
+    assert.ok(finishedProcessPageResponse.text.includes('Process Details'), 'Page should have "Process Details" heading');
+    assert.ok(finishedProcessPageResponse.text.includes('Completed'), 'Page should show completed status');
+    assert.ok(finishedProcessPageResponse.text.includes('Full Output'), 'Page should have "Full Output" section');
+
+    console.log('  ✓ Per-process page loaded successfully for finished process');
+    console.log('✓ Per-process page links work correctly');
+
     // Test multiple stdin inputs to a long-running cat process
 
     console.log('\nTesting multiple stdin inputs to cat process...');

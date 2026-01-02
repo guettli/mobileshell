@@ -267,6 +267,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/json-process-updates", s.authMiddleware(s.wrapHandler(s.jsonHandleProcessUpdates)))
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}", s.authMiddleware(s.wrapHandler(s.handleProcessByID)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSendSignal)))
@@ -753,6 +754,49 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	if err != nil {
 		return nil, err
 	}
+	return buf.Bytes(), nil
+}
+
+func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte, error) {
+	// Get process ID from path parameter
+	processID := r.PathValue("processID")
+	if processID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Process ID is required")
+	}
+
+	// Get workspace ID from path parameter
+	workspaceID := r.PathValue("id")
+	if workspaceID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+	}
+
+	// Get the process
+	proc, ok := executor.GetProcess(s.stateDir, processID)
+	if !ok {
+		return nil, newHTTPError(http.StatusNotFound, "Process not found")
+	}
+
+	// Read full output
+	stdout, stderr, stdin, err := executor.ReadCombinedOutput(proc.OutputFile)
+	if err != nil {
+		stdout = ""
+		stderr = ""
+		stdin = ""
+	}
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "process.html", map[string]interface{}{
+		"Process":     proc,
+		"Stdout":      stdout,
+		"Stderr":      stderr,
+		"Stdin":       stdin,
+		"BasePath":    s.getBasePath(r),
+		"WorkspaceID": workspaceID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	return buf.Bytes(), nil
 }
 
