@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"log"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -81,6 +82,23 @@ func formatDuration(start, end time.Time) string {
 		return fmt.Sprintf("%dh %dm", hours, remainingMinutes)
 	}
 	return fmt.Sprintf("%dh", hours)
+}
+
+func getFileExtensionFromContentType(contentType string) string {
+	// Extract base type without parameters (e.g., "text/plain; charset=utf-8" -> "text/plain")
+	if idx := strings.Index(contentType, ";"); idx != -1 {
+		contentType = strings.TrimSpace(contentType[:idx])
+	}
+
+	// Use standard library to get extensions for this MIME type
+	exts, err := mime.ExtensionsByType(contentType)
+	if err == nil && len(exts) > 0 {
+		// Return the first extension (most common)
+		return exts[0]
+	}
+
+	// Default to .output for unknown types
+	return ".output"
 }
 
 // handlerFunc is the new signature for all handlers
@@ -790,6 +808,12 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
 	}
 
+	// Get the workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
 	// Get the process
 	proc, ok := executor.GetProcess(s.stateDir, processID)
 	if !ok {
@@ -814,13 +838,14 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 
 	var buf bytes.Buffer
 	err = s.tmpl.ExecuteTemplate(&buf, "process.html", map[string]interface{}{
-		"Process":     proc,
-		"Stdout":      stdout,
-		"Stderr":      stderr,
-		"Stdin":       stdin,
-		"IsBinary":    isBinary,
-		"BasePath":    s.getBasePath(r),
-		"WorkspaceID": workspaceID,
+		"Process":       proc,
+		"Stdout":        stdout,
+		"Stderr":        stderr,
+		"Stdin":         stdin,
+		"IsBinary":      isBinary,
+		"BasePath":      s.getBasePath(r),
+		"WorkspaceID":   workspaceID,
+		"WorkspaceName": ws.Name,
 	})
 	if err != nil {
 		return nil, err
@@ -1107,10 +1132,13 @@ func (s *Server) handleDownloadOutput(ctx context.Context, r *http.Request) ([]b
 		contentType = executor.DetectContentType(stdoutBytes)
 	}
 
+	// Determine file extension based on content type
+	fileExtension := getFileExtensionFromContentType(contentType)
+
 	// Return download error which will be handled by wrapHandler
 	return nil, &downloadError{
 		contentType: contentType,
-		filename:    processID + ".output",
+		filename:    processID + fileExtension,
 		data:        stdoutBytes,
 	}
 }
