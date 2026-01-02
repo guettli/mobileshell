@@ -82,10 +82,10 @@ if [ ! -d "node_modules" ]; then
   echo "✓ Dependencies installed"
 fi
 
-# Run the JSDOM tests
-echo "Running JSDOM tests..."
+# Run the JSDOM tests in parallel
+echo "Running JSDOM tests in parallel..."
 echo ""
-if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test.mjs; then
+if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test-parallel.mjs; then
   echo ""
   echo "Test failed. Server log (last 100 lines):"
   tail -100 "$SERVER_LOG"
