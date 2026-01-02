@@ -42,7 +42,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 
 	// Open combined output file
 	outputFile := filepath.Join(processDir, "output.log")
-	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND, 0600)
+	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open output.log file: %w", err)
 	}
@@ -61,7 +61,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 			stream := strings.ToLower(line.Stream)
 			formattedLine := fmt.Sprintf("%s %s: %s\n", stream, timestamp, line.Line)
 			_, _ = outFile.WriteString(formattedLine)
-			_ = outFile.Sync() // Flush after each line
+			// No need to sync since file was opened with O_SYNC
 		}
 	}()
 
@@ -99,6 +99,12 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		Setsid: true,
 	}
 
+	// Start goroutines to read stdout and stderr line-by-line BEFORE starting the process
+	// This ensures we don't miss any output from fast-running commands
+	readersDone := make(chan struct{}, 2)
+	go readLines(stdoutPipe, "STDOUT", outputChan, readersDone)
+	go readLines(stderrPipe, "STDERR", outputChan, readersDone)
+
 	// Start the process
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
@@ -122,21 +128,15 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	namedPipePath := filepath.Join(processDir, "stdin.pipe")
 	go readStdinPipe(namedPipePath, stdinPipe, outputChan, stdinDone)
 
-	// Start goroutines to read stdout and stderr line-by-line
-	readersDone := make(chan struct{}, 2)
-
-	go readLines(stdoutPipe, "STDOUT", outputChan, readersDone)
-	go readLines(stderrPipe, "STDERR", outputChan, readersDone)
-
-	// Wait for readers to finish
-	go func() {
-		<-readersDone
-		<-readersDone
-		close(outputChan)
-	}()
-
 	// Wait for the process to complete
 	err = cmd.Wait()
+
+	// Wait for readers to finish draining the pipes
+	<-readersDone
+	<-readersDone
+
+	// Close output channel so writer can finish
+	close(outputChan)
 
 	// Get exit code and signal
 	exitCode := 0
@@ -174,8 +174,6 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 
 // readLines reads lines from a reader and sends them to the output channel
 func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, done chan<- struct{}) {
-	defer func() { done <- struct{}{} }()
-
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -185,6 +183,8 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 			Line:      line,
 		}
 	}
+	// Signal done only after all lines have been sent
+	done <- struct{}{}
 }
 
 // readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
