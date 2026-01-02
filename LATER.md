@@ -1,5 +1,6 @@
 # Later
 
+- <http://localhost:22123/workspaces/fooob/processes/d07a0674d285a31d> link to Workspaces (top MobileShell) does not work. Unify that, so that all pages use the same code.
 - fix flaky test.
 - When the server is no longer running, and you execute a command, then there should be an error
   message, that the server could not be reached.
