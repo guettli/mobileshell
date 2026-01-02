@@ -183,7 +183,8 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 		// or: "stderr 2025-01-01T12:34:56.789Z: content"
 		// or: "stdin 2025-01-01T12:34:56.789Z: content"
 		// or: "signal-sent 2025-01-01T12:34:56.789Z: 15 SIGTERM"
-		if len(line) > 37 { // Minimum length for prefix
+		// Minimum length: "stdin " (6) + timestamp (28) + ": " (2) + at least 1 char content = 37
+		if len(line) >= 37 { // Minimum length for valid line
 			if strings.HasPrefix(line, "stdout ") {
 				// Extract content after ": "
 				if idx := strings.Index(line[7:], ": "); idx != -1 {
@@ -215,6 +216,7 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 	stdout = strings.Join(stdoutLines, "\n")
 	stderr = strings.Join(stderrLines, "\n")
 	stdin = strings.Join(stdinLines, "\n")
+
 	return stdout, stderr, stdin, nil
 }
 

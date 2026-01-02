@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { JSDOM } from 'jsdom';
 import { strict as assert } from 'assert';
+import { JSDOM } from 'jsdom';
 
 // Get server URL from environment
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:22123';
@@ -284,11 +284,7 @@ async function runTests() {
     console.log('✓ Process transition works correctly');
 
     // Test multiple stdin inputs to a long-running cat process
-    // NOTE: Skipping this test - the core stdin mechanism is proven to work via unit tests
-    // There appears to be a timing issue in the full integration test environment
-    // See: internal/nohup/nohup_test.go::TestNohupRunWithStdin for verification
-    console.log('\n⏭️  Skipping stdin integration test (proven via unit tests)');
-    /*
+
     console.log('\nTesting multiple stdin inputs to cat process...');
 
     // Start cat command
@@ -399,7 +395,6 @@ async function runTests() {
     assert.equal(signalResponse.status, 200, 'Should send signal to cat process');
     console.log('  ✓ cat process terminated');
     console.log('✓ Multiple stdin inputs work correctly');
-    */
 
     console.log('\n✅ All tests passed!');
     process.exit(0);

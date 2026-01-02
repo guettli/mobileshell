@@ -85,7 +85,12 @@ fi
 # Run the JSDOM tests
 echo "Running JSDOM tests..."
 echo ""
-SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test.mjs
+if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test.mjs; then
+  echo ""
+  echo "Test failed. Server log (last 100 lines):"
+  tail -100 "$SERVER_LOG"
+  exit 1
+fi
 
 # Cleanup
 echo ""

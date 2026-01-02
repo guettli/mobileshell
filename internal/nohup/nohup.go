@@ -112,6 +112,13 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 
 	pid := cmd.Process.Pid
 
+	// Start goroutine to read from named pipe and forward to process stdin
+	// Started IMMEDIATELY after process starts, before any file I/O
+	// to minimize the window where a writer might try to connect before reader is ready
+	stdinDone := make(chan struct{})
+	namedPipePath := filepath.Join(processDir, "stdin.pipe")
+	go readStdinPipe(namedPipePath, stdinPipe, outputChan, stdinDone)
+
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600); err != nil {
@@ -122,11 +129,6 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	if err := workspace.UpdateProcessPID(ws, processHash, pid); err != nil {
 		return fmt.Errorf("failed to update process PID: %w", err)
 	}
-
-	// Start goroutine to read from named pipe and forward to process stdin
-	stdinDone := make(chan struct{})
-	namedPipePath := filepath.Join(processDir, "stdin.pipe")
-	go readStdinPipe(namedPipePath, stdinPipe, outputChan, stdinDone)
 
 	// Wait for the process to complete
 	err = cmd.Wait()
@@ -199,7 +201,7 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 	// Keep reading from the pipe until the process exits
 	for {
 		// Open the named pipe for reading in blocking mode
-		// This will block until a writer opens it
+		// This will block until a writer opens the pipe
 		file, err := os.OpenFile(pipePath, os.O_RDONLY, 0)
 		if err != nil {
 			slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
