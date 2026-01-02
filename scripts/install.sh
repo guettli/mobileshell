@@ -20,7 +20,7 @@ echo "Building mobileshell binary..."
 # Render the systemd service file
 echo "Rendering systemd service file..."
 TMP_SERVICE_FILE="/tmp/mobileshell.service"
-sed "s/{{USER}}/$USERNAME/g" systemd/mobileshell.service > "$TMP_SERVICE_FILE"
+sed "s/{{USER}}/$USERNAME/g" systemd/mobileshell.service >"$TMP_SERVICE_FILE"
 
 # Create temporary directory for rsync
 TMP_DIR=$(mktemp -d)
@@ -46,6 +46,6 @@ ssh "root@$HOSTNAME" "rm -rf /tmp/mobileshell-install"
 echo ""
 echo "=== Installation Complete ==="
 echo "MobileShell is now running on $HOSTNAME"
-echo "Access it at: http://$HOSTNAME:22123/"
+echo "Access it at: http://localhost:22123/"
 echo ""
 echo "Make sure to configure TLS termination (e.g., nginx) for production use."
