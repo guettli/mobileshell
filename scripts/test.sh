@@ -26,13 +26,20 @@ run_test() {
     name=$(basename "$script" .sh)
     local output_file="$TEMP_DIR/$name.out"
     local exit_code_file="$TEMP_DIR/$name.exit"
+    local time_file="$TEMP_DIR/$name.time"
 
-    # Run the test script
+    # Run the test script with timing
+    local start_time
+    start_time=$(date +%s)
     if "$script" > "$output_file" 2>&1; then
         echo "0" > "$exit_code_file"
     else
         echo "$?" > "$exit_code_file"
     fi
+    local end_time
+    end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    echo "$duration" > "$time_file"
 }
 
 # Start all test scripts in parallel
@@ -42,24 +49,44 @@ for script in $TEST_SCRIPTS; do
     pids[$!]=$name
 done
 
-# Wait for all background jobs and collect results
+# Wait for all background jobs and collect results as they finish
 failed_tests=()
-for pid in "${!pids[@]}"; do
-    name="${pids[$pid]}"
-    wait "$pid" || true  # Don't exit on failure, collect all results
+remaining_pids=("${!pids[@]}")
 
-    exit_code_file="$TEMP_DIR/$name.exit"
-    output_file="$TEMP_DIR/$name.out"
+while [[ ${#remaining_pids[@]} -gt 0 ]]; do
+    for i in "${!remaining_pids[@]}"; do
+        pid="${remaining_pids[$i]}"
 
-    if [[ -f "$exit_code_file" ]]; then
-        exit_code=$(cat "$exit_code_file")
-        if [[ "$exit_code" == "0" ]]; then
-            echo "✓ $name"
-        else
-            echo "✗ $name (exit code: $exit_code)"
-            failed_tests+=("$name")
+        # Check if process has finished (non-blocking wait)
+        if ! kill -0 "$pid" 2>/dev/null; then
+            # Process finished, get its results
+            wait "$pid" || true
+            name="${pids[$pid]}"
+
+            exit_code_file="$TEMP_DIR/$name.exit"
+            output_file="$TEMP_DIR/$name.out"
+            time_file="$TEMP_DIR/$name.time"
+
+            if [[ -f "$exit_code_file" ]]; then
+                exit_code=$(cat "$exit_code_file")
+                duration=$(cat "$time_file" 2>/dev/null || echo "?")
+                if [[ "$exit_code" == "0" ]]; then
+                    echo "✓ $name (${duration}s)"
+                else
+                    echo "✗ $name (exit code: $exit_code, ${duration}s)"
+                    failed_tests+=("$name")
+                fi
+            fi
+
+            # Remove this PID from remaining list
+            unset 'remaining_pids[$i]'
+            remaining_pids=("${remaining_pids[@]}")  # Re-index array
+            break  # Restart the loop to re-index properly
         fi
-    fi
+    done
+
+    # Small sleep to avoid busy-waiting
+    sleep 0.1
 done
 
 # If any tests failed, show their output and exit with error
