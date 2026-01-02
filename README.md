@@ -9,7 +9,7 @@ Provide a shell like experience via web - Build to access your Linux system with
 
 ## Usage
 
-You install MobileShell via `go run ./cmd/install myserver.example.com myuser`. This will connect to
+You install MobileShell via `./scripts/install.sh myserver.example.com myuser`. This will connect to
 root@myserver via ssh and installs a systemd service as user "myuser" and the `mobileshell` binary.
 
 The systemd service runs the binary which opens a port at localhost:22123.
@@ -68,15 +68,19 @@ go build -o mobileshell ./cmd/mobileshell
 ### Remote Installation
 
 ```bash
-go run ./cmd/install myserver.example.com myuser
+./scripts/install.sh myserver.example.com myuser
 ```
 
 This will:
 
 1. Build the MobileShell binary
-2. Copy the binary and systemd service to the remote server
-3. Create a password with `mobileshell add-password`.
-4. Install and start the systemd service
+2. Render the systemd service file with the username
+3. Copy the binary, systemd service, and installation script to the remote server via rsync
+4. Create the user if it doesn't exist
+5. Install and start the systemd service
+6. Create a password with `mobileshell add-password`
+
+The installation is idempotent and can be run multiple times safely.
 
 ### Manual Installation
 
@@ -93,12 +97,16 @@ This will:
 ```text
 mobileshell/
 ├── cmd/
-│   ├── mobileshell/      # Main application
-│   └── install/          # Installation tool
+│   └── mobileshell/      # Main application
 ├── internal/
 │   ├── auth/            # Authentication and session management
 │   ├── executor/        # Command execution and process management
 │   └── server/          # HTTP server and handlers
 │       └── templates/   # HTML templates
+├── scripts/
+│   ├── install.sh                  # Main installation orchestration script
+│   └── install-exec-on-remote.sh   # Remote execution script
+├── systemd/
+│   └── mobileshell.service         # Systemd service template
 └── go.mod
 ```

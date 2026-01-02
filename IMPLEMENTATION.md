@@ -40,12 +40,15 @@ Bootstrap.
 - Configurable data directory (default: ~/.mobileshell)
 - Password authentication required
 
-#### `cmd/install` ([main.go](cmd/install/main.go))
+#### Installation Scripts
 
-- Automated remote installation via SSH
+- **scripts/install.sh**: Main orchestration script for remote installation
+- **scripts/install-exec-on-remote.sh**: Remote execution script that runs on the target server
+- Automated installation via SSH and rsync
 - Builds binary locally
-- Copies binary and systemd service
-- Installs and starts systemd service
+- Renders systemd service template
+- Creates user if needed
+- Idempotent installation process
 
 ### 3. Templates
 
@@ -57,7 +60,7 @@ All templates use Bootstrap 5 and htmx 1.9.10:
 
 ### 4. Systemd Integration
 
-- **mobileshell.service**: systemd unit file template
+- **systemd/mobileshell.service**: systemd unit file template with {{USER}} placeholder
 - Runs as specified user (not root)
 - Auto-restart on failure
 - Binds to localhost:22123
@@ -84,7 +87,7 @@ All templates use Bootstrap 5 and htmx 1.9.10:
 ### Remote Installation
 
 ```bash
-go run ./cmd/install myserver.example.com myuser
+./scripts/install.sh myserver.example.com myuser
 ```
 
 ## Security Considerations
@@ -100,10 +103,7 @@ go run ./cmd/install myserver.example.com myuser
 ```tree
 mobileshell/
 ├── cmd/
-│   ├── mobileshell/main.go        # Main server
-│   └── install/
-│       ├── main.go                # Installation tool
-│       └── mobileshell.service    # systemd template
+│   └── mobileshell/main.go        # Main server
 ├── internal/
 │   ├── auth/auth.go              # Authentication
 │   ├── executor/executor.go      # Command execution
@@ -113,6 +113,11 @@ mobileshell/
 │           ├── login.html
 │           ├── dashboard.html
 │           └── output.html
+├── scripts/
+│   ├── install.sh                # Installation orchestration
+│   └── install-exec-on-remote.sh # Remote execution script
+├── systemd/
+│   └── mobileshell.service       # systemd service template
 ├── go.mod
 ├── .gitignore
 ├── run-local.sh                  # Local test script
