@@ -88,48 +88,6 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 	return proc, nil
 }
 
-// ListProcesses returns all processes from all workspaces
-func ListProcesses(stateDir string) []*Process {
-	var allProcesses []*Process
-
-	// Get all workspaces
-	workspaces, err := workspace.ListWorkspaces(stateDir)
-	if err != nil {
-		return allProcesses
-	}
-
-	for _, ws := range workspaces {
-		workspaceProcs, err := workspace.ListProcesses(ws)
-		if err != nil {
-			continue
-		}
-
-		workspaceTS := filepath.Base(ws.Path)
-
-		for _, wp := range workspaceProcs {
-			processDir := workspace.GetProcessDir(ws, wp.Hash)
-
-			proc := &Process{
-				ID:          wp.Hash,
-				Command:     wp.Command,
-				StartTime:   wp.StartTime,
-				EndTime:     wp.EndTime,
-				OutputFile:  filepath.Join(processDir, "output.log"),
-				PID:         wp.PID,
-				Completed:   wp.Completed,
-				WorkspaceTS: workspaceTS,
-				Hash:        wp.Hash,
-				ExitCode:    wp.ExitCode,
-				Signal:      wp.Signal,
-			}
-
-			allProcesses = append(allProcesses, proc)
-		}
-	}
-
-	return allProcesses
-}
-
 // ListWorkspaceProcesses returns processes from a specific workspace
 func ListWorkspaceProcesses(ws *workspace.Workspace) ([]*Process, error) {
 	if ws == nil {
@@ -203,15 +161,6 @@ func GetProcess(stateDir, id string) (*Process, bool) {
 	}
 
 	return nil, false
-}
-
-// ReadOutput reads output from a file
-func ReadOutput(filename string) (string, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
 
 // ReadCombinedOutput reads and parses the combined output.log file

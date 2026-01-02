@@ -137,44 +137,6 @@ func TestExecute(t *testing.T) {
 	}
 }
 
-func TestListProcesses(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	err := InitExecutor(tmpDir)
-	if err != nil {
-		t.Fatalf("InitExecutor failed: %v", err)
-	}
-
-	// Initially, there should be no processes
-	procs := ListProcesses(tmpDir)
-	if len(procs) != 0 {
-		t.Errorf("Expected 0 processes, got %d", len(procs))
-	}
-
-	workDir := t.TempDir()
-
-	// Create a workspace
-	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
-	if err != nil {
-		t.Fatalf("CreateWorkspace failed: %v", err)
-	}
-
-	// Execute some commands
-	_, err = Execute(tmpDir, ws, "echo 'test1'")
-	if err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-
-	// Give the system a moment to create the process
-	time.Sleep(10 * time.Millisecond)
-
-	// List processes
-	procs = ListProcesses(tmpDir)
-	if len(procs) < 1 {
-		t.Errorf("Expected at least 1 process, got %d", len(procs))
-	}
-}
-
 func TestListWorkspaceProcesses(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -336,34 +298,6 @@ func TestListWorkspaces(t *testing.T) {
 	}
 	if !names[ws2.Name] {
 		t.Errorf("Workspace '%s' not found", ws2.Name)
-	}
-}
-
-func TestReadOutput(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a test output file
-	testContent := "test output content\nline 2\n"
-	testFile := filepath.Join(tmpDir, "test-output.txt")
-	err := os.WriteFile(testFile, []byte(testContent), 0o600)
-	if err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
-
-	// Read the output
-	content, err := ReadOutput(testFile)
-	if err != nil {
-		t.Fatalf("ReadOutput failed: %v", err)
-	}
-
-	if content != testContent {
-		t.Errorf("Expected content '%s', got '%s'", testContent, content)
-	}
-
-	// Test with non-existent file
-	_, err = ReadOutput(filepath.Join(tmpDir, "non-existent.txt"))
-	if err == nil {
-		t.Error("ReadOutput should fail for non-existent file")
 	}
 }
 

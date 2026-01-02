@@ -81,6 +81,16 @@ rm -rf .jscpd
 
 golangci-lint run ./...
 
+echo "Checking for unused code..."
+# deadcode may report false positives for error interface methods
+# Filter out contentTypeError.Error which is required for the error interface
+deadcode_output=$(deadcode ./... | grep -v 'contentTypeError.Error' || true)
+if [[ -n "$deadcode_output" ]]; then
+    echo "Found unused code:"
+    echo "$deadcode_output"
+    exit 1
+fi
+
 go test ./...
 
 ./scripts/jsdom-test.sh
