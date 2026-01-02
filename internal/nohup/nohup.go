@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -18,7 +17,7 @@ import (
 
 // OutputLine represents a single line of output from either stdout or stderr
 type OutputLine struct {
-	Stream    string    // "STDOUT" or "STDERR"
+	Stream    string    // "stdout", "stderr", or "stdin"
 	Timestamp time.Time // UTC timestamp
 	Line      string    // The actual line content
 }
@@ -58,8 +57,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		for line := range outputChan {
 			// Format: "stdout 2025-01-01T12:34:56.789Z: line"
 			timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
-			stream := strings.ToLower(line.Stream)
-			formattedLine := fmt.Sprintf("%s %s: %s\n", stream, timestamp, line.Line)
+			formattedLine := fmt.Sprintf("%s %s: %s\n", line.Stream, timestamp, line.Line)
 			_, _ = outFile.WriteString(formattedLine)
 			// No need to sync since file was opened with O_SYNC
 		}
@@ -102,8 +100,8 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Start goroutines to read stdout and stderr line-by-line BEFORE starting the process
 	// This ensures we don't miss any output from fast-running commands
 	readersDone := make(chan struct{}, 2)
-	go readLines(stdoutPipe, "STDOUT", outputChan, readersDone)
-	go readLines(stderrPipe, "STDERR", outputChan, readersDone)
+	go readLines(stdoutPipe, "stdout", outputChan, readersDone)
+	go readLines(stderrPipe, "stderr", outputChan, readersDone)
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
