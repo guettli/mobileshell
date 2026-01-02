@@ -9,88 +9,71 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     exec nix develop --command "$0" "$@"
 fi
 
-# Check for deleted files in git index
-# git ls-files -d shows files with an unstaged deletion
-deleted_files=$(git ls-files -d)
-if [[ -n "$deleted_files" ]]; then
-    echo "Error: Found deleted files in git index. Please commit or restore them first:"
-    echo "$deleted_files"
-    exit 1
-fi
+# Create temp directory for results
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
-git ls-files '*.sh' | xargs shellcheck
+# Find all test-*.sh scripts (excluding test.sh itself and test-for-ever.sh)
+TEST_SCRIPTS=$(find scripts -name 'test-*.sh' -not -name 'test.sh' -not -name 'test-for-ever.sh' | sort)
 
-git ls-files '*.md' | xargs markdownlint
+# Arrays to track jobs
+declare -A pids
 
-go_mutex=$(git ls-files '*.go' | { xargs rg -n 'Mutex' || true; })
-if [[ -n $go_mutex ]]; then
-    echo "Found 'Mutex' in Go source code. Please avoid mutexes. This is stateless http. There should be a way to avoid mutexes"
-    echo
-    echo "$go_mutex"
-    exit 1
-fi
+# Function to run a test and capture its output
+run_test() {
+    local script=$1
+    local name
+    name=$(basename "$script" .sh)
+    local output_file="$TEMP_DIR/$name.out"
+    local exit_code_file="$TEMP_DIR/$name.exit"
 
-# shellcheck disable=SC2046
-http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$' | grep -vP 'internal/server/static|scripts/jsdom-test') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s|Found string|example.com' || true; })
-if [[ -n $http_locations ]]; then
-    echo "Found string 'https://' in code. This should be avoided. All needed files should be embeded into the binary via go:embed"
-    echo
-    echo "$http_locations"
-    exit 1
-fi
+    # Run the test script
+    if "$script" > "$output_file" 2>&1; then
+        echo "0" > "$exit_code_file"
+    else
+        echo "$?" > "$exit_code_file"
+    fi
+}
 
-# shellcheck disable=SC2046
-absolute_links=$(rg -n '(href|src)="/' $(git ls-files | grep -vP 'internal/server/static') || true)
-if [[ -n $absolute_links ]]; then
-    echo "Found absolute links in code/html/templates. Use relative paths instead or {{.BasePath}} so the application works when served behind a reverse proxy at a sub-path like https://myserver.example.com/mobileshell"
-    echo
-    echo "$absolute_links"
-    exit 1
-fi
+# Start all test scripts in parallel
+for script in $TEST_SCRIPTS; do
+    name=$(basename "$script" .sh)
+    run_test "$script" &
+    pids[$!]=$name
+done
 
-# Check that all HTML templates are used in Go code
-echo "Checking that all HTML templates are used..."
-unused_templates=""
-for template_file in internal/server/templates/*.html; do
-    template_name=$(basename "$template_file")
-    # Search for the template name in Go files
-    if ! grep -r "\"$template_name\"" internal/server/*.go >/dev/null 2>&1; then
-        unused_templates="$unused_templates$template_file\n"
+# Wait for all background jobs and collect results
+failed_tests=()
+for pid in "${!pids[@]}"; do
+    name="${pids[$pid]}"
+    wait "$pid" || true  # Don't exit on failure, collect all results
+
+    exit_code_file="$TEMP_DIR/$name.exit"
+    output_file="$TEMP_DIR/$name.out"
+
+    if [[ -f "$exit_code_file" ]]; then
+        exit_code=$(cat "$exit_code_file")
+        if [[ "$exit_code" == "0" ]]; then
+            echo "✓ $name"
+        else
+            echo "✗ $name (exit code: $exit_code)"
+            failed_tests+=("$name")
+        fi
     fi
 done
 
-if [[ -n $unused_templates ]]; then
-    echo "Found unused HTML templates. All templates should be used in Go code or removed:"
-    echo
-    echo -e "$unused_templates"
+# If any tests failed, show their output and exit with error
+if [[ ${#failed_tests[@]} -gt 0 ]]; then
+    echo ""
+    echo "Failed tests output:"
+    echo "==================="
+    for name in "${failed_tests[@]}"; do
+        echo ""
+        echo "--- $name ---"
+        cat "$TEMP_DIR/$name.out"
+    done
     exit 1
 fi
 
-echo "Checking for code duplication..."
-pnpm exec jscpd . --reporters json,console --output .jscpd
-duplicated_percent=$(grep -o '"percentage":[0-9.]*' .jscpd/jscpd-report.json | head -1 | cut -d':' -f2)
-threshold=3
-if [[ -n "$duplicated_percent" ]] && awk "BEGIN {exit !($duplicated_percent > $threshold)}"; then
-    echo "Error: Code duplication ($duplicated_percent%) exceeds threshold ($threshold%)."
-    echo "Please refactor duplicated code into reusable functions."
-    rm -rf .jscpd
-    exit 1
-fi
-echo "✓ Code duplication check passed ($duplicated_percent% <= $threshold%)"
-rm -rf .jscpd
-
-golangci-lint run ./...
-
-echo "Checking for unused code..."
-# deadcode may report false positives for error interface methods
-# Filter out contentTypeError.Error which is required for the error interface
-deadcode_output=$(deadcode ./... | grep -v 'contentTypeError.Error' || true)
-if [[ -n "$deadcode_output" ]]; then
-    echo "Found unused code:"
-    echo "$deadcode_output"
-    exit 1
-fi
-
-go test ./...
-
-./scripts/jsdom-test.sh
+echo ""
+echo "All tests passed!"
