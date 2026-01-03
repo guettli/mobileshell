@@ -131,7 +131,7 @@ func TestIssue20_BufferedReading(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		file, _ := os.OpenFile(pipePath, os.O_RDONLY, 0)
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		readLines(file, "stdout", outputChan, done)
 	}()
 
@@ -148,7 +148,7 @@ func TestIssue20_BufferedReading(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to write to pipe: %v", err)
 	}
-	writer.Sync()
+	_ = writer.Sync()
 
 	// Check if the line is read (with the fix, it should be after timeout)
 	select {
@@ -164,7 +164,7 @@ func TestIssue20_BufferedReading(t *testing.T) {
 	}
 
 	// Close the writer
-	writer.Close()
+	_ = writer.Close()
 
 	// Wait for reader to finish
 	select {
