@@ -212,18 +212,80 @@ func isBinaryData(line string) bool {
 }
 
 // readLines reads lines from a reader and sends them to the output channel
+// This function flushes partial lines (without newlines) after a timeout to support
+// interactive programs that output prompts without trailing newlines (e.g., "Enter filename: ")
 func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, done chan<- struct{}) {
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := scanner.Text()
-		outputChan <- OutputLine{
-			Stream:    stream,
-			Timestamp: time.Now().UTC(),
-			Line:      line,
+	defer func() {
+		done <- struct{}{}
+	}()
+
+	br := bufio.NewReader(reader)
+	var buffer []byte
+	flushTimeout := 100 * time.Millisecond
+
+	for {
+		// Check if data is available with a small timeout
+		if br.Buffered() == 0 {
+			// No data buffered, try to peek with timeout
+			// Read one byte to check if data is available
+			b, err := br.ReadByte()
+			if err != nil {
+				// EOF or error - flush any remaining buffer
+				if len(buffer) > 0 {
+					outputChan <- OutputLine{
+						Stream:    stream,
+						Timestamp: time.Now().UTC(),
+						Line:      string(buffer),
+					}
+				}
+				break
+			}
+			buffer = append(buffer, b)
+		} else {
+			// Data is available, read it
+			b, err := br.ReadByte()
+			if err != nil {
+				// EOF or error - flush any remaining buffer
+				if len(buffer) > 0 {
+					outputChan <- OutputLine{
+						Stream:    stream,
+						Timestamp: time.Now().UTC(),
+						Line:      string(buffer),
+					}
+				}
+				break
+			}
+			buffer = append(buffer, b)
+		}
+
+		// Check if we should flush
+		shouldFlush := false
+		if len(buffer) > 0 && buffer[len(buffer)-1] == '\n' {
+			shouldFlush = true
+		} else if len(buffer) > 0 && br.Buffered() == 0 {
+			// No more data available immediately, wait a bit for more
+			time.Sleep(flushTimeout)
+			// If still no data, flush what we have
+			if br.Buffered() == 0 {
+				shouldFlush = true
+			}
+		}
+
+		if shouldFlush {
+			// Remove trailing newline if present
+			line := string(buffer)
+			if len(line) > 0 && line[len(line)-1] == '\n' {
+				line = line[:len(line)-1]
+			}
+
+			outputChan <- OutputLine{
+				Stream:    stream,
+				Timestamp: time.Now().UTC(),
+				Line:      line,
+			}
+			buffer = buffer[:0] // Reset buffer
 		}
 	}
-	// Signal done only after all lines have been sent
-	done <- struct{}{}
 }
 
 // readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
