@@ -1,7 +1,6 @@
 package nohup
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,8 +114,8 @@ exit 0
 	}
 }
 
-// TestIssue20_BufferedReading demonstrates the root cause of issue #20
-// by showing how bufio.Scanner waits for newlines
+// TestIssue20_BufferedReading demonstrates that the fix for issue #20 works
+// by showing how the new readLines implementation handles partial lines
 func TestIssue20_BufferedReading(t *testing.T) {
 	// Create a test pipe
 	tmpDir := t.TempDir()
@@ -127,16 +126,13 @@ func TestIssue20_BufferedReading(t *testing.T) {
 		t.Fatalf("Failed to create pipe: %v", err)
 	}
 
-	// Start a goroutine to read from the pipe using bufio.Scanner (like readLines does)
-	readResults := make(chan string, 10)
+	// Start a goroutine to read from the pipe using the new readLines implementation
+	outputChan := make(chan OutputLine, 10)
+	done := make(chan struct{})
 	go func() {
 		file, _ := os.OpenFile(pipePath, os.O_RDONLY, 0)
 		defer file.Close()
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			readResults <- scanner.Text()
-		}
-		close(readResults)
+		readLines(file, "stdout", outputChan, done)
 	}()
 
 	// Give the reader time to start
@@ -154,32 +150,28 @@ func TestIssue20_BufferedReading(t *testing.T) {
 	}
 	writer.Sync()
 
-	// Check if anything was read (it shouldn't be, demonstrating the issue)
+	// Check if the line is read (with the fix, it should be after timeout)
 	select {
-	case line := <-readResults:
-		t.Logf("Unexpectedly read line: %q", line)
-		t.Log("Issue #20 appears to be fixed!")
+	case line := <-outputChan:
+		t.Logf("Successfully read line without newline: %q", line.Line)
+		if line.Line != "Prompt without newline: " {
+			t.Errorf("Expected 'Prompt without newline: ', got %q", line.Line)
+		}
+		t.Log("Issue #20 is fixed! Partial lines are now flushed after timeout.")
 	case <-time.After(500 * time.Millisecond):
-		t.Logf("ISSUE #20 ROOT CAUSE: bufio.Scanner did NOT return the line without newline")
-		t.Errorf("bufio.Scanner waits for newline character.\n" +
-			"When data is written without a newline (like 'Prompt without newline: '),\n" +
-			"scanner.Scan() blocks and does not return until it sees a newline.\n" +
-			"This is the root cause of issue #20.")
+		t.Errorf("Failed to read line without newline within timeout.\n" +
+			"The fix should flush partial lines after ~100ms.")
 	}
 
-	// Now write a newline and close
-	writer.WriteString("\n")
+	// Close the writer
 	writer.Close()
 
-	// Now we should get the line
+	// Wait for reader to finish
 	select {
-	case line := <-readResults:
-		t.Logf("After newline, got line: %q", line)
-		if line != "Prompt without newline: " {
-			t.Errorf("Expected 'Prompt without newline: ', got %q", line)
-		}
+	case <-done:
+		t.Log("Reader finished cleanly")
 	case <-time.After(1 * time.Second):
-		t.Error("Did not receive line even after newline was written")
+		t.Error("Reader did not finish within timeout")
 	}
 }
 
