@@ -13,4 +13,3 @@
 .env
 .direnv
 node_modules/
-package-lock.json
