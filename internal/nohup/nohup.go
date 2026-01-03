@@ -224,11 +224,7 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 	flushTimeout := 100 * time.Millisecond
 
 	for {
-		// Read one byte at a time
-		// bufio.Reader will internally buffer data from the underlying reader
-		// which ensures efficient reading while avoiding race conditions
-		
-		// Read one byte
+		// Read one byte at a time (bufio.Reader handles internal buffering)
 		b, err := br.ReadByte()
 		if err != nil {
 			// EOF or error - flush any remaining buffer
