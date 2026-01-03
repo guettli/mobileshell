@@ -20,6 +20,7 @@
             golangci-lint
             nodejs
             nodePackages.pnpm
+            ripgrep
           ];
 
         };
