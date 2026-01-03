@@ -39,6 +39,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install pnpm dependencies
+        run: pnpm install
+        shell: bash
+
       - name: Run tests
         run: ./scripts/test.sh
         shell: bash
