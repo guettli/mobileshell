@@ -19,8 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
+	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 )
 
@@ -310,6 +312,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSendSignal)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/download", s.authMiddleware(s.wrapHandler(s.handleDownloadOutput)))
+	
+	// Interactive terminal routes
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}/terminal", s.authMiddleware(s.wrapHandler(s.handleTerminal)))
+	mux.HandleFunc("/workspaces/{id}/processes/{processID}/ws-terminal", s.authMiddleware(s.handleWebSocketTerminal))
+	mux.HandleFunc("/workspaces/{id}/terminal-execute", s.authMiddleware(s.wrapHandler(s.handleTerminalExecute)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -1368,4 +1375,156 @@ func Run(stateDir, port string) error {
 
 	addr := fmt.Sprintf("localhost:%s", port)
 	return srv.Start(addr)
+}
+
+// WebSocket upgrader
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  8192,
+	WriteBufferSize: 8192,
+	CheckOrigin: func(r *http.Request) bool {
+		// Check if the Origin header matches the Host header
+		// This prevents cross-site WebSocket hijacking attacks
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// Allow requests without Origin header (e.g., from native apps)
+			return true
+		}
+		
+		// Parse origin and compare with expected host
+		host := r.Host
+		expectedOrigins := []string{
+			"http://" + host,
+			"https://" + host,
+		}
+		
+		for _, expected := range expectedOrigins {
+			if origin == expected {
+				return true
+			}
+		}
+		
+		slog.Warn("Rejected WebSocket connection from unauthorized origin", "origin", origin, "host", host)
+		return false
+	},
+}
+
+// handleTerminal shows the interactive terminal page
+func (s *Server) handleTerminal(ctx context.Context, r *http.Request) ([]byte, error) {
+workspaceID := r.PathValue("id")
+processID := r.PathValue("processID")
+
+// Get workspace
+ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+if err != nil {
+return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+}
+
+// Get process
+proc, found := executor.GetProcess(s.stateDir, processID)
+if !found {
+return nil, newHTTPError(http.StatusNotFound, "Process not found")
+}
+
+basePath := s.getBasePath(r)
+
+data := struct {
+BasePath     string
+WorkspaceID  string
+WorkspaceName string
+Process      *executor.Process
+}{
+BasePath:     basePath,
+WorkspaceID:  workspaceID,
+WorkspaceName: ws.Name,
+Process:      proc,
+}
+
+var buf bytes.Buffer
+if err := s.tmpl.ExecuteTemplate(&buf, "terminal.html", data); err != nil {
+return nil, err
+}
+
+return buf.Bytes(), nil
+}
+
+// handleTerminalExecute executes a command in interactive terminal mode
+func (s *Server) handleTerminalExecute(ctx context.Context, r *http.Request) ([]byte, error) {
+workspaceID := r.PathValue("id")
+
+// Parse form data
+if err := r.ParseForm(); err != nil {
+return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+}
+
+command := r.FormValue("command")
+if command == "" {
+return nil, newHTTPError(http.StatusBadRequest, "Command is required")
+}
+
+// Get workspace
+ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+if err != nil {
+return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+}
+
+// Create the process
+proc, err := executor.Execute(s.stateDir, ws, command)
+if err != nil {
+return nil, fmt.Errorf("failed to execute command: %w", err)
+}
+
+// Redirect to terminal view
+basePath := s.getBasePath(r)
+redirectURL := fmt.Sprintf("%s/workspaces/%s/processes/%s/terminal", basePath, workspaceID, proc.ID)
+return nil, &redirectError{url: redirectURL, statusCode: http.StatusSeeOther}
+}
+
+// handleWebSocketTerminal handles WebSocket connections for interactive terminals
+func (s *Server) handleWebSocketTerminal(w http.ResponseWriter, r *http.Request) {
+// Authenticate
+token := s.getSessionToken(r)
+if token == "" {
+http.Error(w, "Unauthorized", http.StatusUnauthorized)
+return
+}
+
+valid, err := auth.ValidateSession(s.stateDir, token)
+if err != nil || !valid {
+http.Error(w, "Unauthorized", http.StatusUnauthorized)
+return
+}
+
+workspaceID := r.PathValue("id")
+processID := r.PathValue("processID")
+
+// Get the process to get the command
+proc, found := executor.GetProcess(s.stateDir, processID)
+if !found {
+http.Error(w, "Process not found", http.StatusNotFound)
+return
+}
+
+// Upgrade to WebSocket
+ws, err := upgrader.Upgrade(w, r, nil)
+if err != nil {
+slog.Error("Failed to upgrade to WebSocket", "error", err)
+return
+}
+
+// Create terminal session
+session, err := terminal.NewSession(ws, s.stateDir, workspaceID, proc.Command)
+if err != nil {
+slog.Error("Failed to create terminal session", "error", err)
+_ = ws.Close()
+return
+}
+
+// Start the session
+session.Start()
+
+// Wait for session to complete
+session.Wait()
+
+// Clean up
+_ = session.Close()
 }
