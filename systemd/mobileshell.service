@@ -1,12 +1,12 @@
 [Unit]
-Description=MobileShell - Web-based shell access
+Description=MobileShell {{USER}} - Web-based shell access
 After=network.target
 
 [Service]
 Type=simple
 User={{USER}}
 WorkingDirectory=/home/{{USER}}
-ExecStart=/home/{{USER}}/mobileshell run
+ExecStart=/opt/{{USER}}-mobileshell run
 StateDirectory=mobileshell-{{USER}}
 StateDirectoryMode=0700
 Restart=always
