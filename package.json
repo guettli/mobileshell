@@ -13,7 +13,8 @@
   "dependencies": {
     "bootstrap": "^5.3.8",
     "htmx.org": "^2.0.8",
-    "idiomorph": "^0.7.4"
+    "idiomorph": "^0.7.4",
+    "jsdom": "^27.4.0"
   },
   "devDependencies": {
     "jscpd": "^4.0.5"
