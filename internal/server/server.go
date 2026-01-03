@@ -1379,12 +1379,33 @@ func Run(stateDir, port string) error {
 
 // WebSocket upgrader
 var upgrader = websocket.Upgrader{
-ReadBufferSize:  8192,
-WriteBufferSize: 8192,
-CheckOrigin: func(r *http.Request) bool {
-// Allow all origins for now (TODO: make this configurable)
-return true
-},
+	ReadBufferSize:  8192,
+	WriteBufferSize: 8192,
+	CheckOrigin: func(r *http.Request) bool {
+		// Check if the Origin header matches the Host header
+		// This prevents cross-site WebSocket hijacking attacks
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			// Allow requests without Origin header (e.g., from native apps)
+			return true
+		}
+		
+		// Parse origin and compare with expected host
+		host := r.Host
+		expectedOrigins := []string{
+			"http://" + host,
+			"https://" + host,
+		}
+		
+		for _, expected := range expectedOrigins {
+			if origin == expected {
+				return true
+			}
+		}
+		
+		slog.Warn("Rejected WebSocket connection from unauthorized origin", "origin", origin, "host", host)
+		return false
+	},
 }
 
 // handleTerminal shows the interactive terminal page

@@ -18,13 +18,13 @@ import (
 
 // Session represents an interactive terminal session
 type Session struct {
-	ws        *websocket.Conn
-	ptmx      *os.File
-	cmd       *exec.Cmd
-	workspace *workspace.Workspace
-	processID string
-	mu        sync.Mutex
-	done      chan struct{}
+	ws         *websocket.Conn
+	ptmx       *os.File
+	cmd        *exec.Cmd
+	workspace  *workspace.Workspace
+	mu         sync.Mutex
+	done       chan struct{}
+	closeOnce  sync.Once
 }
 
 // Message represents a WebSocket message
@@ -108,7 +108,7 @@ func (s *Session) readFromPTY() {
 			if err != io.EOF {
 				slog.Error("Error reading from PTY", "error", err)
 			}
-			close(s.done)
+			s.closeOnce.Do(func() { close(s.done) })
 			return
 		}
 
@@ -117,7 +117,7 @@ func (s *Session) readFromPTY() {
 			if err := s.ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
 				slog.Error("Error writing to WebSocket", "error", err)
 				s.mu.Unlock()
-				close(s.done)
+				s.closeOnce.Do(func() { close(s.done) })
 				return
 			}
 			s.mu.Unlock()
@@ -133,7 +133,7 @@ func (s *Session) readFromWebSocket() {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				slog.Error("WebSocket read error", "error", err)
 			}
-			close(s.done)
+			s.closeOnce.Do(func() { close(s.done) })
 			return
 		}
 
@@ -142,7 +142,7 @@ func (s *Session) readFromWebSocket() {
 			// If it's not JSON, treat it as raw input
 			if _, err := s.ptmx.Write(data); err != nil {
 				slog.Error("Error writing to PTY", "error", err)
-				close(s.done)
+				s.closeOnce.Do(func() { close(s.done) })
 				return
 			}
 			continue
@@ -152,7 +152,7 @@ func (s *Session) readFromWebSocket() {
 		case "input":
 			if _, err := s.ptmx.Write([]byte(msg.Data)); err != nil {
 				slog.Error("Error writing input to PTY", "error", err)
-				close(s.done)
+				s.closeOnce.Do(func() { close(s.done) })
 				return
 			}
 
@@ -182,7 +182,7 @@ func (s *Session) waitForProcess() {
 	_ = s.ws.WriteMessage(websocket.TextMessage, []byte(exitMsg))
 	s.mu.Unlock()
 	
-	close(s.done)
+	s.closeOnce.Do(func() { close(s.done) })
 }
 
 // Close cleans up the session
@@ -200,14 +200,14 @@ func (s *Session) Close() error {
 		_ = s.cmd.Process.Signal(syscall.SIGTERM)
 		
 		// Wait a bit for graceful shutdown
-		done := make(chan struct{})
+		waitDone := make(chan struct{})
 		go func() {
 			_ = s.cmd.Wait()
-			close(done)
+			close(waitDone)
 		}()
 
 		select {
-		case <-done:
+		case <-waitDone:
 			// Process exited gracefully
 		case <-time.After(2 * time.Second):
 			// Force kill if it doesn't exit
