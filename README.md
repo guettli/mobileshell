@@ -31,7 +31,8 @@ It is up to you to configure TLS termination. Example snippet for nginx:
 This will give you a login prompt. You need to authenticate with a password. After successfull auth,
 you are able to execute commands.
 
-Commands are executed with `nohup` and redirecting stdout and stderr to files.
+Commands are executed with `nohup` using a pseudo-terminal (PTY), which provides full TTY support.
+This allows running interactive commands and programs that check for terminal capabilities.
 
 The web UI shows the running processes, and you are able to look at the results.
 
@@ -52,7 +53,8 @@ go build -o mobileshell ./cmd/mobileshell
 ## Features
 
 - **Authentication**: Secure password authentication with session management
-- **Command Execution**: Execute shell commands asynchronously
+- **Command Execution**: Execute shell commands asynchronously with full TTY support
+- **TTY Support**: Commands run with a pseudo-terminal (PTY), enabling interactive programs
 - **Process Management**: View running and completed processes
 - **Output Viewing**: View stdout and stderr for each process
 - **Auto-refresh**: Process list updates automatically every 3 seconds

@@ -11,10 +11,18 @@ Bootstrap.
 
 #### `internal/executor` ([executor.go](internal/executor/executor.go))
 
-- Manages command execution using shell subprocess
+- Manages command execution using shell subprocess with PTY support
 - Tracks running and completed processes
-- Stores stdout/stderr to separate files
+- Stores stdout/stderr to output files
 - Persists process state to JSON for persistence across restarts
+
+#### `internal/nohup` ([nohup.go](internal/nohup/nohup.go))
+
+- Executes commands with pseudo-terminal (PTY) support
+- Provides full TTY capabilities for interactive commands
+- Handles stdin forwarding via named pipes
+- Combines stdout/stderr through PTY (as real terminals do)
+- Detects and handles binary output
 
 #### `internal/auth` ([auth.go](internal/auth/auth.go))
 

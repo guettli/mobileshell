@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/creack/pty"
 	"mobileshell/internal/workspace"
 )
 
@@ -86,47 +87,31 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	cmd := exec.Command("sh", "-c", fullCommand)
 	cmd.Dir = ws.Directory
 
-	// Create stdin pipe for the command
-	stdinPipe, err := cmd.StdinPipe()
+	// Start the command with a PTY
+	// This provides a pseudo-terminal, making commands think they're running in a real terminal
+	// This is essential for commands that check isatty() or need terminal capabilities
+	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to create stdin pipe: %w", err)
+		return fmt.Errorf("failed to start command with pty: %w", err)
 	}
+	defer func() { _ = ptmx.Close() }()
 
-	// Create pipes for stdout and stderr
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
+	// Set PTY size to a reasonable default (80x24 is standard terminal size)
+	_ = pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80})
 
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	// Detach from parent process
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
-
-	// Start goroutines to read stdout and stderr line-by-line BEFORE starting the process
-	// This ensures we don't miss any output from fast-running commands
-	readersDone := make(chan struct{}, 2)
-	go readLines(stdoutPipe, "stdout", outputChan, readersDone)
-	go readLines(stderrPipe, "stderr", outputChan, readersDone)
-
-	// Start the process
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start command: %w", err)
-	}
+	// Start goroutine to read from PTY (combines stdout and stderr)
+	// PTY combines both streams, so we label everything as stdout
+	readersDone := make(chan struct{}, 1)
+	go readLines(ptmx, "stdout", outputChan, readersDone)
 
 	pid := cmd.Process.Pid
 
-	// Start goroutine to read from named pipe and forward to process stdin
+	// Start goroutine to read from named pipe and forward to PTY
 	// Started IMMEDIATELY after process starts, before any file I/O
 	// to minimize the window where a writer might try to connect before reader is ready
 	stdinDone := make(chan struct{})
 	namedPipePath := filepath.Join(processDir, "stdin.pipe")
-	go readStdinPipe(namedPipePath, stdinPipe, outputChan, stdinDone)
+	go readStdinPipe(namedPipePath, ptmx, outputChan, stdinDone)
 
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
@@ -142,8 +127,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Wait for the process to complete
 	err = cmd.Wait()
 
-	// Wait for readers to finish draining the pipes
-	<-readersDone
+	// Wait for reader to finish draining the PTY
 	<-readersDone
 
 	// Close output channel so writer can finish
