@@ -1056,9 +1056,6 @@ func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte
 	}
 
 	stdinData := r.FormValue("stdin")
-	if stdinData == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "No stdin data provided")
-	}
 
 	// Get workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
