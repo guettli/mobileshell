@@ -90,8 +90,14 @@ func TestTTYEcho(t *testing.T) {
 		done <- Run(tmpDir, workspaceTS, hash, []string{})
 	}()
 
-	// Wait for process to start
-	time.Sleep(500 * time.Millisecond)
+	// Wait for process to start by polling for PID file
+	for i := 0; i < 20; i++ {
+		proc, err := workspace.GetProcess(ws, hash)
+		if err == nil && proc.PID > 0 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Send input
 	func() {
@@ -104,8 +110,17 @@ func TestTTYEcho(t *testing.T) {
 		_, _ = file.WriteString("test input\n")
 	}()
 
-	// Wait for output
-	time.Sleep(200 * time.Millisecond)
+	// Wait for output with polling
+	outputFile := filepath.Join(processDir, "output.log")
+	var outputData []byte
+	for i := 0; i < 10; i++ {
+		data, err := os.ReadFile(outputFile)
+		if err == nil && len(data) > 0 {
+			outputData = data
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Kill the cat process
 	proc, err := workspace.GetProcess(ws, hash)
@@ -130,10 +145,8 @@ func TestTTYEcho(t *testing.T) {
 	}
 
 	// Verify output contains the echoed input
-	outputFile := filepath.Join(processDir, "output.log")
-	outputData, err := os.ReadFile(outputFile)
-	if err != nil {
-		t.Fatalf("Failed to read output.log: %v", err)
+	if outputData == nil {
+		outputData, _ = os.ReadFile(outputFile)
 	}
 
 	output := string(outputData)

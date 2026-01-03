@@ -97,7 +97,9 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	defer func() { _ = ptmx.Close() }()
 
 	// Set PTY size to a reasonable default (80x24 is standard terminal size)
-	_ = pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80})
+	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
+		slog.Warn("Failed to set PTY size, using default", "error", err)
+	}
 
 	// Start goroutine to read from PTY (combines stdout and stderr)
 	// PTY combines both streams, so we label everything as stdout
