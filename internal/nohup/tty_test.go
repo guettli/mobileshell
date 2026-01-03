@@ -100,15 +100,15 @@ func TestTTYEcho(t *testing.T) {
 	}
 
 	// Send input
-	func() {
-		file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
-		if err != nil {
-			t.Logf("Failed to open pipe for writing: %v", err)
-			return
-		}
+	file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+	if err != nil {
+		t.Logf("Failed to open pipe for writing: %v", err)
+	} else {
 		defer func() { _ = file.Close() }()
-		_, _ = file.WriteString("test input\n")
-	}()
+		if _, err := file.WriteString("test input\n"); err != nil {
+			t.Logf("Failed to write to pipe: %v", err)
+		}
+	}
 
 	// Wait for output with polling
 	outputFile := filepath.Join(processDir, "output.log")
