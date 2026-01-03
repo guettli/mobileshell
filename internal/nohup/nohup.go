@@ -224,39 +224,20 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 	flushTimeout := 100 * time.Millisecond
 
 	for {
-		// Check if data is available with a small timeout
-		if br.Buffered() == 0 {
-			// No data buffered, try to peek with timeout
-			// Read one byte to check if data is available
-			b, err := br.ReadByte()
-			if err != nil {
-				// EOF or error - flush any remaining buffer
-				if len(buffer) > 0 {
-					outputChan <- OutputLine{
-						Stream:    stream,
-						Timestamp: time.Now().UTC(),
-						Line:      string(buffer),
-					}
+		// Read one byte at a time (bufio.Reader handles internal buffering)
+		b, err := br.ReadByte()
+		if err != nil {
+			// EOF or error - flush any remaining buffer
+			if len(buffer) > 0 {
+				outputChan <- OutputLine{
+					Stream:    stream,
+					Timestamp: time.Now().UTC(),
+					Line:      string(buffer),
 				}
-				break
 			}
-			buffer = append(buffer, b)
-		} else {
-			// Data is available, read it
-			b, err := br.ReadByte()
-			if err != nil {
-				// EOF or error - flush any remaining buffer
-				if len(buffer) > 0 {
-					outputChan <- OutputLine{
-						Stream:    stream,
-						Timestamp: time.Now().UTC(),
-						Line:      string(buffer),
-					}
-				}
-				break
-			}
-			buffer = append(buffer, b)
+			break
 		}
+		buffer = append(buffer, b)
 
 		// Check if we should flush
 		shouldFlush := false
