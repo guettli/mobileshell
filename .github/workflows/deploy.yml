@@ -10,7 +10,6 @@ name: Deploy to Production
 # - MAIL_USERNAME: SMTP username for sending emails
 # - MAIL_PASSWORD: SMTP password or app password for sending emails
 # - MAIL_HOST: SMTP server address (e.g., smtp.gmail.com)
-# - MAIL_PORT: SMTP server port (e.g., 465 for SSL)
 
 'on':
   push:
@@ -31,13 +30,15 @@ jobs:
         id: tests
         uses: ./.github/actions/run-tests
 
-      - name: Send failure notification
+      # Send email notification if tests fail
+      # The failure() function returns true if any previous step failed
+      # We check steps.tests.outcome to ensure we only send email for test
+      # failures, not other types of failures
+      - name: Send test failure notification
         if: failure() && steps.tests.outcome == 'failure'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.MAIL_HOST }}
-          server_port: ${{ secrets.MAIL_PORT }}
-          secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: "❌ MobileShell Production Deploy Failed - Tests"
@@ -48,23 +49,26 @@ jobs:
             testing.
 
 
-            Repository: ${{ github.repository }}
+            - Repository: [${{ github.repository }}](${{ github.server_url
+              }}/${{ github.repository }})
 
-            Branch: ${{ github.ref }}
+            - Branch: ${{ github.ref }}
 
-            Commit: ${{ github.sha }}
+            - Commit: [${{ github.sha }}](${{ github.server_url }}/${{
+              github.repository }}/commit/${{ github.sha }})
 
-            Commit Message: ${{ github.event.head_commit.message }}
+            - Commit Message: ${{ github.event.head_commit.message }}
 
-            Author: ${{ github.actor }}
-
-
-            Failed Job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - Author: ${{ github.actor }}
 
 
-            Please review the logs and fix the issues before the next
-            deployment.
+            Failed Job: ${{ github.server_url }}/${{ github.repository
+              }}/actions/runs/${{ github.run_id }}
 
+
+            Review the logs and fix the issues before the next deployment.
+
+      # Only proceed to deployment if tests passed
       - name: Setup SSH
         if: success()
         run: |
@@ -99,8 +103,6 @@ jobs:
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.MAIL_HOST }}
-          server_port: ${{ secrets.MAIL_PORT }}
-          secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
           subject: "❌ MobileShell Production Deploy Failed - Deployment"
@@ -111,21 +113,24 @@ jobs:
             deployment.
 
 
-            Repository: ${{ github.repository }}
+            - Repository: [${{ github.repository }}](${{ github.server_url
+              }}/${{ github.repository }})
 
-            Branch: ${{ github.ref }}
+            - Branch: ${{ github.ref }}
 
-            Commit: ${{ github.sha }}
+            - Commit: [${{ github.sha }}](${{ github.server_url }}/${{
+              github.repository }}/commit/${{ github.sha }})
 
-            Commit Message: ${{ github.event.head_commit.message }}
+            - Commit Message: ${{ github.event.head_commit.message }}
 
-            Author: ${{ github.actor }}
-
-
-            Failed Job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - Author: ${{ github.actor }}
 
 
-            Please review the logs and investigate the deployment issue.
+            Failed Job: ${{ github.server_url }}/${{ github.repository
+              }}/actions/runs/${{ github.run_id }}
+
+
+            Review the logs and investigate the deployment issue.
 
       - name: Cleanup SSH
         if: always()
