@@ -119,6 +119,7 @@
 
     <script src="{{.BasePath}}/static/static/xterm.min.js"></script>
     <script src="{{.BasePath}}/static/static/xterm-addon-fit.min.js"></script>
+    <script src="{{.BasePath}}/static/static/xterm-addon-web-links.min.js"></script>
     <script>
         // Initialize xterm.js
         const term = new Terminal({
@@ -134,6 +135,10 @@
 
         const fitAddon = new FitAddon.FitAddon();
         term.loadAddon(fitAddon);
+
+        // Add web links addon for clickable URLs
+        const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+        term.loadAddon(webLinksAddon);
 
         // Open terminal in the container
         term.open(document.getElementById('terminal'));
