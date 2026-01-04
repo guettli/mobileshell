@@ -1,3 +1,8 @@
+// url-links.js - Custom JavaScript for MobileShell
+// Source: Handwritten for this project (added in PR #34)
+// Purpose: Makes URLs in output containers clickable by converting them to HTML links.
+// This integrates with HTMX to handle dynamically loaded content.
+
 // Make URLs in output containers clickable
 function makeUrlsClickable() {
     // URL regex pattern to match http, https, and common URL patterns
