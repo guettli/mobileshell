@@ -1,0 +1,54 @@
+{{if .Success}}
+    <!-- Success -->
+    <div class="alert alert-success" role="alert">
+        <h5 class="alert-heading">✓ Success!</h5>
+        <p>{{.Message}}</p>
+        {{if .ProposedDiff}}
+        <hr>
+        <h6>Changes Made:</h6>
+        <div class="diff-container">{{.ProposedDiff}}</div>
+        {{end}}
+        <hr>
+        <p class="mb-0">
+            <button class="btn btn-sm btn-primary" onclick="location.reload()">Edit Another File</button>
+            <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}" class="btn btn-sm btn-secondary">Back to Workspace</a>
+        </p>
+    </div>
+{{else if .ConflictDetected}}
+    <!-- Conflict Detected -->
+    <div class="alert alert-danger" role="alert">
+        <h5 class="alert-heading">⚠ Conflict Detected!</h5>
+        <p>{{.Message}}</p>
+        
+        <hr>
+        <h6>External Changes (what was changed on disk):</h6>
+        <div class="diff-container">{{.ExternalDiff}}</div>
+        
+        <hr>
+        <h6>Your Proposed Changes:</h6>
+        <div class="diff-container">{{.ProposedDiff}}</div>
+        
+        <hr>
+        <p class="mb-0">
+            <strong>What to do:</strong> Review the differences above. You can:
+        </p>
+        <ul>
+            <li>Click "Reload File" to see the current version and merge your changes manually</li>
+            <li>Or go back and try again later</li>
+        </ul>
+        <p>
+            <button class="btn btn-sm btn-warning" onclick="location.reload()">Reload File</button>
+            <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}" class="btn btn-sm btn-secondary">Back to Workspace</a>
+        </p>
+    </div>
+{{else}}
+    <!-- Generic Error -->
+    <div class="alert alert-danger" role="alert">
+        <h5 class="alert-heading">Error</h5>
+        <p>{{.Message}}</p>
+        <hr>
+        <p class="mb-0">
+            <button class="btn btn-sm btn-secondary" onclick="location.reload()">Try Again</button>
+        </p>
+    </div>
+{{end}}

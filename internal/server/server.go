@@ -24,6 +24,7 @@ import (
 	"github.com/gorilla/websocket"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
+	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 )
@@ -327,6 +328,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/terminal", s.authMiddleware(s.wrapHandler(s.handleTerminal)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/ws-terminal", s.authMiddleware(s.handleWebSocketTerminal))
 	mux.HandleFunc("/workspaces/{id}/terminal-execute", s.authMiddleware(s.wrapHandler(s.handleTerminalExecute)))
+
+	// File editor routes
+	mux.HandleFunc("/workspaces/{id}/files", s.authMiddleware(s.wrapHandler(s.handleFileEditor)))
+	mux.HandleFunc("/workspaces/{id}/files/read", s.authMiddleware(s.wrapHandler(s.handleFileRead)))
+	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -1538,3 +1544,210 @@ session.Wait()
 // Clean up
 _ = session.Close()
 }
+
+// handleFileEditor shows the file editor page
+func (s *Server) handleFileEditor(ctx context.Context, r *http.Request) ([]byte, error) {
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath      string
+		WorkspaceID   string
+		WorkspaceName string
+		Directory     string
+	}{
+		BasePath:      basePath,
+		WorkspaceID:   workspaceID,
+		WorkspaceName: ws.Name,
+		Directory:     ws.Directory,
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "file-editor.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// handleFileRead reads a file and returns its content with session info
+func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	relativePath := r.FormValue("file_path")
+	if relativePath == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+	}
+
+	// Resolve file path relative to workspace directory
+	filePath := filepath.Join(ws.Directory, relativePath)
+
+	// Security check: ensure the file is within the workspace directory
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Invalid file path")
+	}
+
+	absWorkspaceDir, err := filepath.Abs(ws.Directory)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, "Failed to resolve workspace directory")
+	}
+
+	if !strings.HasPrefix(absFilePath, absWorkspaceDir) {
+		return nil, newHTTPError(http.StatusForbidden, "Access denied: file is outside workspace directory")
+	}
+
+	// Read file
+	session, err := fileeditor.ReadFile(absFilePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath         string
+		WorkspaceID      string
+		FilePath         string
+		Content          string
+		OriginalChecksum string
+		SessionID        string
+		IsNewFile        bool
+	}{
+		BasePath:         basePath,
+		WorkspaceID:      workspaceID,
+		FilePath:         relativePath,
+		Content:          session.OriginalContent,
+		OriginalChecksum: session.OriginalChecksum,
+		SessionID:        session.SessionID,
+		IsNewFile:        session.OriginalContent == "",
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-content.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// handleFileSave saves a file with conflict detection
+func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	relativePath := r.FormValue("file_path")
+	newContent := r.FormValue("content")
+	originalChecksum := r.FormValue("original_checksum")
+
+	if relativePath == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+	}
+
+	// Resolve file path relative to workspace directory
+	filePath := filepath.Join(ws.Directory, relativePath)
+
+	// Security check: ensure the file is within the workspace directory
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Invalid file path")
+	}
+
+	absWorkspaceDir, err := filepath.Abs(ws.Directory)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, "Failed to resolve workspace directory")
+	}
+
+	if !strings.HasPrefix(absFilePath, absWorkspaceDir) {
+		return nil, newHTTPError(http.StatusForbidden, "Access denied: file is outside workspace directory")
+	}
+
+	// Read current file state
+	session, err := fileeditor.ReadFile(absFilePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+	}
+
+	// Verify checksum matches to ensure we're working with the same version
+	if session.OriginalChecksum != originalChecksum {
+		// File has been modified, create a new session to get current state
+		session, err = fileeditor.ReadFile(absFilePath)
+		if err != nil {
+			return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+		}
+	}
+
+	// Try to write the file
+	result, err := fileeditor.WriteFile(session, newContent)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to write file: %v", err))
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath         string
+		WorkspaceID      string
+		FilePath         string
+		Success          bool
+		Message          string
+		ConflictDetected bool
+		ExternalDiff     string
+		ProposedDiff     string
+		NewChecksum      string
+	}{
+		BasePath:         basePath,
+		WorkspaceID:      workspaceID,
+		FilePath:         relativePath,
+		Success:          result.Success,
+		Message:          result.Message,
+		ConflictDetected: result.ConflictDetected,
+		ExternalDiff:     result.ExternalDiff,
+		ProposedDiff:     result.ProposedDiff,
+		NewChecksum:      result.NewChecksum,
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+

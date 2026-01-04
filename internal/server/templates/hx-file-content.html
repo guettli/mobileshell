@@ -1,0 +1,33 @@
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Editing: {{.FilePath}}{{if .IsNewFile}} <span class="badge bg-success">New File</span>{{end}}</h5>
+    </div>
+    <div class="card-body">
+        <form id="file-editor-form" 
+              hx-post="{{.BasePath}}/workspaces/{{.WorkspaceID}}/files/save" 
+              hx-target="#save-result"
+              hx-swap="innerHTML">
+            <input type="hidden" name="file_path" value="{{.FilePath}}">
+            <input type="hidden" name="original_checksum" value="{{.OriginalChecksum}}" id="original_checksum">
+
+            <div class="file-editor-container mb-3">
+                <textarea class="form-control" 
+                          id="file-content" 
+                          name="content" 
+                          placeholder="Enter file content here...">{{.Content}}</textarea>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-save"></i> Save File
+                </button>
+                <button type="button" class="btn btn-secondary" onclick="location.reload()">
+                    <i class="bi bi-x-circle"></i> Cancel
+                </button>
+            </div>
+        </form>
+
+        <!-- Save Result Area -->
+        <div id="save-result" class="mt-3"></div>
+    </div>
+</div>
