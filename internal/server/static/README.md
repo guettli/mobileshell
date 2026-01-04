@@ -1,6 +1,7 @@
 # Static Files
 
-This directory contains static assets used by the MobileShell web interface. All files have a documented source to maintain clarity about their origin.
+This directory contains static assets used by the MobileShell web interface. All files
+have a documented source to maintain clarity about their origin.
 
 ## File Sources
 
@@ -60,4 +61,5 @@ To update the downloaded files:
 
 ## Embedding
 
-These static files are embedded into the Go binary using `go:embed` directives in the server code, so the application can be distributed as a single binary.
+These static files are embedded into the Go binary using `go:embed` directives in the
+server code, so the application can be distributed as a single binary.
