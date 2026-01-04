@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MobileShell - Interactive Terminal</title>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <link href="{{.BasePath}}/static/static/xterm.min.css" rel="stylesheet">
+    <style>
+        #terminal-container {
+            height: calc(100vh - 200px);
+            min-height: 400px;
+            background: #000;
+            padding: 10px;
+        }
+        #terminal {
+            height: 100%;
+        }
+        .connection-status {
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 0.9rem;
+        }
+        .connection-status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .connection-status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .connection-status.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">MobileShell - Interactive Terminal</span>
+            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <div class="row mb-2">
+            <div class="col">
+                <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}" class="btn btn-sm btn-outline-secondary">&larr; Back to Workspace</a>
+                <span class="connection-status ms-3 connecting" id="connection-status">Connecting...</span>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col">
+                <div class="card">
+                    <div class="card-body p-0">
+                        <div id="terminal-container">
+                            <div id="terminal"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-2">
+            <div class="col">
+                <div class="alert alert-info">
+                    <strong>Interactive Terminal Mode</strong><br>
+                    <small>
+                        Command: <code>{{.Process.Command}}</code><br>
+                        Process ID: {{.Process.ID}}<br>
+                        Started: {{.Process.StartTime.Format "2006-01-02 15:04:05 UTC"}}
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{.BasePath}}/static/static/xterm.min.js"></script>
+    <script src="{{.BasePath}}/static/static/xterm-addon-fit.min.js"></script>
+    <script>
+        // Initialize xterm.js
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            theme: {
+                background: '#000000',
+                foreground: '#ffffff'
+            },
+            scrollback: 10000
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+
+        // Open terminal in the container
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+
+        // Fit terminal on window resize
+        window.addEventListener('resize', () => {
+            fitAddon.fit();
+        });
+
+        // WebSocket connection
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = protocol + '//' + window.location.host + '{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}/ws-terminal';
+        
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const statusEl = document.getElementById('connection-status');
+
+        function updateStatus(status) {
+            statusEl.className = 'connection-status ms-3 ' + status;
+            if (status === 'connected') {
+                statusEl.textContent = 'Connected';
+                reconnectAttempts = 0;
+            } else if (status === 'connecting') {
+                statusEl.textContent = 'Connecting...';
+            } else if (status === 'disconnected') {
+                statusEl.textContent = 'Disconnected';
+            }
+        }
+
+        function connect() {
+            updateStatus('connecting');
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                updateStatus('connected');
+                console.log('WebSocket connected');
+                
+                // Send terminal size
+                const size = {
+                    type: 'resize',
+                    cols: term.cols,
+                    rows: term.rows
+                };
+                ws.send(JSON.stringify(size));
+            };
+
+            ws.onmessage = (event) => {
+                // Write data from server to terminal
+                term.write(event.data);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = () => {
+                updateStatus('disconnected');
+                console.log('WebSocket closed');
+                
+                // Attempt to reconnect
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    console.log('Reconnecting... attempt', reconnectAttempts);
+                    setTimeout(connect, 2000);
+                } else {
+                    term.write('\r\n\r\n[Connection closed. Refresh page to reconnect.]\r\n');
+                }
+            };
+        }
+
+        // Handle terminal input
+        term.onData((data) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'input',
+                    data: data
+                };
+                ws.send(JSON.stringify(message));
+            }
+        });
+
+        // Handle terminal resize
+        term.onResize((size) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'resize',
+                    cols: size.cols,
+                    rows: size.rows
+                };
+                ws.send(JSON.stringify(message));
+            }
+        });
+
+        // Connect on page load
+        connect();
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>
