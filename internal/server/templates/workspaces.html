@@ -85,7 +85,7 @@
                     hx-on::after-request="this.reset(); if (window.pollProcessUpdates) window.pollProcessUpdates();">
                     <div class="mb-3">
                         <input type="text" class="form-control" name="command" placeholder="Enter command..." required
-                            autofocus>
+                            autofocus value="{{.CommandParam}}">
                     </div>
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn btn-primary">Execute</button>

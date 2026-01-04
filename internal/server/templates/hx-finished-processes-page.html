@@ -25,7 +25,7 @@
 <div class="card process-card mb-2">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-start">
-            <div>
+            <div class="flex-grow-1">
                 <h6 class="card-subtitle mb-2">
                     <a href="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}" class="text-decoration-none">
                         {{template "finished-process-badge" .}}
@@ -36,6 +36,22 @@
                     <small class="text-muted">Started: {{.StartTime.Format "2006-01-02 15:04:05"}}{{$duration :=
                         formatDuration .StartTime .EndTime}}{{if $duration}} ({{$duration}}){{end}}</small>
                 </p>
+            </div>
+            <div class="ms-2">
+                <form hx-post="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/hx-execute"
+                      hx-target="#running-processes"
+                      hx-swap="beforeend"
+                      hx-on::after-request="this.reset(); if (window.pollProcessUpdates) window.pollProcessUpdates();"
+                      style="display: inline;">
+                    <input type="hidden" name="command" value="{{.Command}}">
+                    <button type="submit" class="btn btn-sm btn-outline-primary" title="Rerun this command">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-clockwise" viewBox="0 0 16 16">
+                            <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+                            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
+                        </svg>
+                        Rerun
+                    </button>
+                </form>
             </div>
         </div>
         <div id="output-{{.ID}}" class="mt-2"
