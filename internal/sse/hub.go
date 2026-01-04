@@ -54,20 +54,21 @@ func (h *Hub) RegisterClient(client *Client) {
 }
 
 // UnregisterClient removes a client from the hub
+// The client's Done channel should be closed by the handler that created the client,
+// not by this method. This ensures proper cleanup order and prevents race conditions.
 func (h *Hub) UnregisterClient(clientID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	
 	if client, ok := h.clients[clientID]; ok {
-		// Don't close the channel here - let the sender close it
-		// Just remove from the map to stop new broadcasts
+		// Remove from the map to stop new broadcasts
 		delete(h.clients, clientID)
-		// Signal that the client is being unregistered
+		// Check if client is already done (optional, for logging purposes)
 		select {
 		case <-client.Done:
-			// Already closed
+			// Client already signaled done
 		default:
-			// Not our responsibility to close, but we can signal
+			// Client not yet done, handler will close Done channel
 		}
 		slog.Info("SSE client unregistered", "clientID", clientID)
 	}

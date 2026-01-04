@@ -1026,9 +1026,11 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 				if err == nil {
 					err = process.Signal(syscall.Signal(0))
 					if err != nil {
-						// Process died, mark as completed
+						// Process died, mark as completed and log any update errors
 						slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
-						_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
+						if err := workspace.UpdateProcessExit(ws, p.Hash, -1, ""); err != nil {
+							slog.Error("Failed to update dead process status", "error", err, "pid", p.PID, "id", p.ID)
+						}
 						p.Completed = true
 					}
 				}
@@ -1071,7 +1073,8 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 			}
 			// If new and already completed, ignore (it finished before we started monitoring)
 		} else if !wasKnown && p.Completed {
-			// Process transition: was running (wasKnown=false), now completed
+			// Process transition: was not completed before (!wasKnown means knownProcesses[p.ID]=false),
+			// now completed (p.Completed=true)
 			event := sse.Event{
 				Type: "process_finished",
 				Data: map[string]interface{}{
