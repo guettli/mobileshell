@@ -499,9 +499,6 @@ func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]by
 		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
 	}
 
-	// Get command from query parameter (for rerun functionality)
-	commandParam := r.URL.Query().Get("command")
-
 	// Render workspace page
 	basePath := s.getBasePath(r)
 	var buf bytes.Buffer
@@ -513,7 +510,6 @@ func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]by
 			"Directory":  ws.Directory,
 			"PreCommand": ws.PreCommand,
 		},
-		"CommandParam": commandParam,
 	})
 	if err != nil {
 		return nil, err
