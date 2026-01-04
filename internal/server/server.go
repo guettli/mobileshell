@@ -302,6 +302,13 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
 }
 
+// Flush implements http.Flusher to support SSE
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func (s *Server) SetupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -831,6 +838,7 @@ func (s *Server) handleSSEProcessUpdates(w http.ResponseWriter, r *http.Request)
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
+		slog.Error("SSE: Workspace ID is required")
 		http.Error(w, "Workspace ID is required", http.StatusBadRequest)
 		return
 	}
@@ -838,7 +846,16 @@ func (s *Server) handleSSEProcessUpdates(w http.ResponseWriter, r *http.Request)
 	// Verify workspace exists
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
+		slog.Error("SSE: Workspace not found", "workspaceID", workspaceID, "error", err)
 		http.Error(w, "Workspace not found", http.StatusNotFound)
+		return
+	}
+
+	// Get flusher to support streaming (check before setting headers)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		slog.Error("SSE: Streaming not supported")
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
 
@@ -861,16 +878,11 @@ func (s *Server) handleSSEProcessUpdates(w http.ResponseWriter, r *http.Request)
 	s.sseHub.RegisterClient(client)
 	defer s.sseHub.UnregisterClient(clientID)
 
-	// Get flusher to support streaming
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
 	// Send initial reconciliation: full current state
 	if err := s.sendReconciliationEvents(w, flusher, ws, r); err != nil {
-		slog.Error("Failed to send reconciliation", "error", err)
+		slog.Error("Failed to send reconciliation", "error", err, "workspaceID", workspaceID)
+		// Can't use http.Error after headers are sent
+		close(client.Done)
 		return
 	}
 
