@@ -80,3 +80,42 @@ for file in "${DOWNLOADED_FILES[@]}"; do
 done
 
 echo "✓ All static files have clear sources (downloaded or custom)"
+
+# Test: Verify custom files don't contain typeof
+# typeof is usually not needed in modern JavaScript
+echo ""
+echo "Checking for 'typeof' in custom JavaScript and HTML files..."
+
+# Get all JS and HTML files tracked by git
+all_files=$(git ls-files '*.js' '*.html')
+
+# Check each file, excluding third-party downloaded files
+found_typeof=false
+for file in $all_files; do
+    # Skip third-party files
+    basename_file=$(basename "$file")
+    skip=false
+    for downloaded in "${DOWNLOADED_FILES[@]}"; do
+        if [[ "$basename_file" == "$downloaded" ]]; then
+            skip=true
+            break
+        fi
+    done
+    
+    if [[ "$skip" == true ]]; then
+        continue
+    fi
+    
+    # Check for typeof in this file
+    if grep -n "typeof" "$file" 2>/dev/null; then
+        echo "❌ Found 'typeof' in $file"
+        echo "   typeof is usually not needed. Please refactor to avoid it."
+        found_typeof=true
+    fi
+done
+
+if [[ "$found_typeof" == true ]]; then
+    exit 1
+fi
+
+echo "✓ No 'typeof' found in custom JavaScript or HTML files"
