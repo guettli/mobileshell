@@ -1040,7 +1040,7 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 		wasKnown, existed := knownProcesses[p.ID]
 		
 		if !existed {
-			// New process
+			// New process - we haven't seen it before
 			if !p.Completed {
 				// New running process
 				html, err := s.renderRunningProcessSnippet(p, ws.ID, r)
@@ -1069,8 +1069,9 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 				}
 				flusher.Flush()
 			}
+			// If new and already completed, ignore (it finished before we started monitoring)
 		} else if !wasKnown && p.Completed {
-			// Process finished
+			// Process transition: was running (wasKnown=false), now completed
 			event := sse.Event{
 				Type: "process_finished",
 				Data: map[string]interface{}{

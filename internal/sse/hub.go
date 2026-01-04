@@ -59,8 +59,16 @@ func (h *Hub) UnregisterClient(clientID string) {
 	defer h.mu.Unlock()
 	
 	if client, ok := h.clients[clientID]; ok {
-		close(client.EventChan)
+		// Don't close the channel here - let the sender close it
+		// Just remove from the map to stop new broadcasts
 		delete(h.clients, clientID)
+		// Signal that the client is being unregistered
+		select {
+		case <-client.Done:
+			// Already closed
+		default:
+			// Not our responsibility to close, but we can signal
+		}
 		slog.Info("SSE client unregistered", "clientID", clientID)
 	}
 }
