@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"embed"
@@ -10,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -287,6 +289,14 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.statusCode = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack implements http.Hijacker to support WebSocket upgrades
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
 }
 
 func (s *Server) SetupRoutes() http.Handler {
@@ -608,7 +618,7 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 
 	command := r.FormValue("command")
 	if command == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Command is required")
+		command = "bash"
 	}
 
 	// Get workspace ID from path parameter
@@ -1458,7 +1468,7 @@ return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
 
 command := r.FormValue("command")
 if command == "" {
-return nil, newHTTPError(http.StatusBadRequest, "Command is required")
+command = "bash"
 }
 
 // Get workspace

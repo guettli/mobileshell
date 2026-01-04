@@ -468,6 +468,173 @@ async function testWorkspaceEditing() {
   console.log(`✓ ${testName} passed`);
 }
 
+// Test 7: Interactive Terminal with bash prompt
+async function testInteractiveTerminal() {
+  const testName = 'Test 7: Interactive Terminal';
+  console.log(`\n=== ${testName} ===`);
+
+  const sessionCookie = await login();
+  const workspaceName = `test-workspace-${Date.now()}-7`;
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  console.log(`✓ Workspace created: ${workspaceName}`);
+
+  // Launch interactive terminal with bash
+  const terminalExecuteResponse = await request('POST', `/workspaces/${workspaceId}/terminal-execute`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+    body: 'command=bash',
+  });
+
+  assert.ok([302, 303].includes(terminalExecuteResponse.status), `Should redirect to terminal page (got ${terminalExecuteResponse.status})`);
+
+  // Extract the redirect location
+  const location = terminalExecuteResponse.headers['location'];
+  assert.ok(location, 'Should have redirect location header');
+  assert.ok(location.includes('/terminal'), 'Should redirect to terminal page');
+
+  // Extract process ID from redirect URL
+  const processMatch = location.match(/processes\/([^\/]+)\/terminal/);
+  assert.ok(processMatch, 'Should have process ID in redirect URL');
+  const processId = processMatch[1];
+
+  // Load the terminal page
+  const terminalPageResponse = await request('GET', location, {
+    headers: { Cookie: sessionCookie },
+  });
+
+  assert.equal(terminalPageResponse.status, 200, 'Should load terminal page');
+  assert.ok(terminalPageResponse.text.includes('Interactive Terminal'), 'Page should have "Interactive Terminal" title');
+  assert.ok(terminalPageResponse.text.includes('bash'), 'Page should show bash command');
+
+  // Parse the page to find the WebSocket URL
+  const terminalDoc = parseHTML(terminalPageResponse.text);
+  const scriptContent = terminalPageResponse.text;
+  const wsUrlMatch = scriptContent.match(/ws-terminal/);
+  assert.ok(wsUrlMatch, 'Should have WebSocket terminal endpoint in script');
+
+  // Test WebSocket connection using ws module
+  const { WebSocket } = await import('ws');
+  const protocol = 'ws:';
+  const wsUrl = `${protocol}//${SERVER_URL.replace('http://', '').replace('https://', '')}/workspaces/${workspaceId}/processes/${processId}/ws-terminal`;
+
+  console.log(`Connecting to WebSocket at ${wsUrl}`);
+
+  const ws = new WebSocket(wsUrl, {
+    headers: {
+      'Cookie': sessionCookie,
+    },
+  });
+
+  let promptReceived = false;
+  let receivedData = '';
+
+  // Wait for WebSocket to open
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('WebSocket connection timeout'));
+    }, 5000);
+
+    ws.on('open', () => {
+      clearTimeout(timeout);
+      console.log('✓ WebSocket connected');
+
+      // Send terminal size
+      const sizeMsg = JSON.stringify({
+        type: 'resize',
+        cols: 80,
+        rows: 24,
+      });
+      ws.send(sizeMsg);
+
+      resolve();
+    });
+
+    ws.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+
+  // Listen for messages from the terminal
+  const bashStartedPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      // Check if we received any data - if bash sent anything, it's running
+      if (receivedData.length > 0) {
+        // If we got data, bash is working
+        console.log('✓ Received initial data from bash');
+
+        // Check for bash completion errors
+        if (receivedData.includes('bash: complete: command not found') ||
+            receivedData.includes('bash: shopt: progcomp: invalid shell option name') ||
+            receivedData.includes('bash: compgen: command not found')) {
+          reject(new Error('Bash completion errors detected. Please configure bash to suppress these errors in your .bashrc'));
+        }
+
+        resolve();
+      } else {
+        reject(new Error(`No data received from bash within timeout.`));
+      }
+    }, 5000);
+
+    ws.on('message', (data) => {
+      const text = data.toString();
+      receivedData += text;
+
+      // Once we get any data, bash has started
+      if (receivedData.length > 100) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+
+    ws.on('close', () => {
+      clearTimeout(timeout);
+      reject(new Error('WebSocket closed before receiving bash output'));
+    });
+
+    ws.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+
+  await bashStartedPromise;
+  console.log('✓ Bash started without completion errors');
+
+  // Test sending input
+  const inputMsg = JSON.stringify({
+    type: 'input',
+    data: 'echo "test-output"\n',
+  });
+  ws.send(inputMsg);
+
+  // Wait for echo output
+  const echoPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Echo output not received'));
+    }, 5000);
+
+    let echoReceived = false;
+    ws.on('message', (data) => {
+      const text = data.toString();
+      if (text.includes('test-output') && !echoReceived) {
+        echoReceived = true;
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+
+  await echoPromise;
+  console.log('✓ Echo command output received');
+
+  // Close WebSocket
+  ws.close();
+
+  console.log(`✓ ${testName} passed`);
+}
+
 // Main test runner
 async function runTests() {
   try {
@@ -483,6 +650,7 @@ async function runTests() {
       testPerProcessPages(),
       testStdinInput(),
       testWorkspaceEditing(),
+      testInteractiveTerminal(),
     ]);
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);

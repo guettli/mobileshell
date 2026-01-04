@@ -18,13 +18,13 @@ import (
 
 // Session represents an interactive terminal session
 type Session struct {
-	ws         *websocket.Conn
-	ptmx       *os.File
-	cmd        *exec.Cmd
-	workspace  *workspace.Workspace
-	done       chan struct{}
-	closeOnce  sync.Once
-	writeChan  chan []byte
+	ws        *websocket.Conn
+	ptmx      *os.File
+	cmd       *exec.Cmd
+	workspace *workspace.Workspace
+	done      chan struct{}
+	closeOnce sync.Once
+	writeChan chan []byte
 }
 
 // Message represents a WebSocket message
@@ -55,17 +55,27 @@ func NewSession(ws *websocket.Conn, stateDir string, workspaceID string, command
 		return nil, fmt.Errorf("workspace not found: %s", workspaceID)
 	}
 
-	// Build the full command with pre-command if specified
-	var fullCommand string
+	// Create the command with pre-command if specified
+	var cmd *exec.Cmd
 	if targetWorkspace.PreCommand != "" {
-		fullCommand = targetWorkspace.PreCommand + " && " + command
+		// If there's a pre-command, combine and run via sh -c
+		fullCommand := targetWorkspace.PreCommand + " && " + command
+		cmd = exec.Command("sh", "-c", fullCommand)
 	} else {
-		fullCommand = command
+		// No pre-command: run the command directly with PTY
+		// For bash, run directly - the PTY makes it interactive
+		if command == "bash" {
+			cmd = exec.Command("bash")
+		} else {
+			cmd = exec.Command("sh", "-c", command)
+		}
 	}
-
-	// Create the command
-	cmd := exec.Command("sh", "-c", fullCommand)
 	cmd.Dir = targetWorkspace.Directory
+
+	// Set up environment variables for interactive terminal
+	cmd.Env = append(os.Environ(),
+		"TERM=xterm-256color",
+	)
 
 	// Start the command with a PTY
 	ptmx, err := pty.Start(cmd)
@@ -218,7 +228,7 @@ func (s *Session) Close() error {
 	// Try to terminate the process gracefully
 	if s.cmd.Process != nil {
 		_ = s.cmd.Process.Signal(syscall.SIGTERM)
-		
+
 		// Wait a bit for graceful shutdown
 		waitDone := make(chan struct{})
 		go func() {
