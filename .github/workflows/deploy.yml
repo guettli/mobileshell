@@ -69,6 +69,8 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          # Note: ssh-keyscan trusts the first connection.
+          # For production, verify PROD_HOST fingerprint matches expected value
           ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
 
           # Configure SSH to use the deploy key for production host
@@ -85,9 +87,9 @@ jobs:
 
       - name: Build and Deploy to Production
         if: success()
-        run: >
-          ./scripts/install.sh "${{ secrets.PROD_HOST }}"
-          "${{ secrets.PROD_USER }}"
+        run: |
+          ./scripts/install.sh "${{ secrets.PROD_HOST }}" \
+            "${{ secrets.PROD_USER }}"
         shell: bash
 
       - name: Send success notification
