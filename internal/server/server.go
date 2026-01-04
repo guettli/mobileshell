@@ -1633,7 +1633,6 @@ func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, e
 		FilePath         string
 		Content          string
 		OriginalChecksum string
-		SessionID        string
 		IsNewFile        bool
 	}{
 		BasePath:         basePath,
@@ -1641,7 +1640,6 @@ func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, e
 		FilePath:         relativePath,
 		Content:          session.OriginalContent,
 		OriginalChecksum: session.OriginalChecksum,
-		SessionID:        session.SessionID,
 		IsNewFile:        session.OriginalContent == "",
 	}
 

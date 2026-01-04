@@ -16,7 +16,6 @@ type FileSession struct {
 	OriginalContent  string    `json:"-"` // Not exposed in JSON for security
 	OriginalChecksum string    `json:"original_checksum"`
 	LastModified     time.Time `json:"last_modified"`
-	SessionID        string    `json:"session_id"`
 }
 
 // FileEditRequest represents a request to save file content
@@ -48,7 +47,6 @@ func ReadFile(filePath string) (*FileSession, error) {
 				OriginalContent:  "",
 				OriginalChecksum: calculateChecksum(""),
 				LastModified:     time.Time{},
-				SessionID:        generateSessionID(filePath),
 			}, nil
 		}
 		return nil, fmt.Errorf("failed to stat file: %w", err)
@@ -68,7 +66,6 @@ func ReadFile(filePath string) (*FileSession, error) {
 		OriginalContent:  contentStr,
 		OriginalChecksum: checksum,
 		LastModified:     info.ModTime(),
-		SessionID:        generateSessionID(filePath),
 	}, nil
 }
 
@@ -97,10 +94,10 @@ func WriteFile(session *FileSession, newContent string) (*FileEditResult, error)
 			result.Message = "File has been modified externally. Please review the differences."
 
 			// Generate diff between original and current (external changes)
-			result.ExternalDiff = generateDiff(session.OriginalContent, string(currentContent))
+			result.ExternalDiff = GenerateDiff(session.OriginalContent, string(currentContent))
 
 			// Generate diff between original and proposed (user's changes)
-			result.ProposedDiff = generateDiff(session.OriginalContent, newContent)
+			result.ProposedDiff = GenerateDiff(session.OriginalContent, newContent)
 
 			return result, nil
 		}
@@ -130,7 +127,7 @@ func WriteFile(session *FileSession, newContent string) (*FileEditResult, error)
 
 	result.Success = true
 	result.NewChecksum = calculateChecksum(newContent)
-	result.ProposedDiff = generateDiff(session.OriginalContent, newContent)
+	result.ProposedDiff = GenerateDiff(session.OriginalContent, newContent)
 
 	return result, nil
 }
@@ -141,20 +138,9 @@ func calculateChecksum(content string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-// generateSessionID generates a unique session ID for a file path
-func generateSessionID(filePath string) string {
-	data := fmt.Sprintf("%s:%d", filePath, time.Now().UnixNano())
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash[:])[:16]
-}
 
 // GenerateDiff generates a simple unified diff between two strings
 func GenerateDiff(original, current string) string {
-	return generateDiff(original, current)
-}
-
-// generateDiff generates a simple unified diff between two strings
-func generateDiff(original, current string) string {
 	originalLines := strings.Split(original, "\n")
 	currentLines := strings.Split(current, "\n")
 

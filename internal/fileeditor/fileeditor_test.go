@@ -237,7 +237,7 @@ func TestGenerateDiff(t *testing.T) {
 	original := "line1\nline2\nline3"
 	current := "line1\nmodified line2\nline3"
 
-	diff := generateDiff(original, current)
+	diff := GenerateDiff(original, current)
 
 	if !strings.Contains(diff, "-line2") {
 		t.Errorf("Expected diff to contain removed line, got: %s", diff)
@@ -250,7 +250,7 @@ func TestGenerateDiff(t *testing.T) {
 
 func TestGenerateDiffIdentical(t *testing.T) {
 	content := "line1\nline2\nline3"
-	diff := generateDiff(content, content)
+	diff := GenerateDiff(content, content)
 
 	if diff != "No differences" {
 		t.Errorf("Expected 'No differences', got: %s", diff)
