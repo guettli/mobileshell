@@ -1699,19 +1699,54 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	// Read current file state
-	session, err := fileeditor.ReadFile(absFilePath)
+	currentSession, err := fileeditor.ReadFile(absFilePath)
 	if err != nil {
 		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
 	}
 
-	// Verify checksum matches to ensure we're working with the same version
-	if session.OriginalChecksum != originalChecksum {
-		// File has been modified, create a new session to get current state
-		session, err = fileeditor.ReadFile(absFilePath)
-		if err != nil {
-			return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+	// Check if file has been modified since the user loaded it
+	if currentSession.OriginalChecksum != originalChecksum {
+		// File has been modified externally - create a conflict response
+		result := &fileeditor.FileEditResult{
+			Success:          false,
+			ConflictDetected: true,
+			Message:          "File has been modified externally. Please review the current content and try again.",
+			// We can only show the diff between current and proposed since we don't have the original
+			ProposedDiff:     fileeditor.GenerateDiff(currentSession.OriginalContent, newContent),
 		}
+
+		basePath := s.getBasePath(r)
+		data := struct {
+			BasePath         string
+			WorkspaceID      string
+			FilePath         string
+			Success          bool
+			Message          string
+			ConflictDetected bool
+			ExternalDiff     string
+			ProposedDiff     string
+			NewChecksum      string
+			CurrentContent   string
+		}{
+			BasePath:         basePath,
+			WorkspaceID:      workspaceID,
+			FilePath:         relativePath,
+			Success:          result.Success,
+			Message:          result.Message,
+			ConflictDetected: result.ConflictDetected,
+			ProposedDiff:     result.ProposedDiff,
+			CurrentContent:   currentSession.OriginalContent,
+		}
+
+		var buf bytes.Buffer
+		if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
 	}
+
+	// No conflict - proceed with saving
+	session := currentSession
 
 	// Try to write the file
 	result, err := fileeditor.WriteFile(session, newContent)

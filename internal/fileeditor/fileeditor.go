@@ -148,6 +148,11 @@ func generateSessionID(filePath string) string {
 	return hex.EncodeToString(hash[:])[:16]
 }
 
+// GenerateDiff generates a simple unified diff between two strings
+func GenerateDiff(original, current string) string {
+	return generateDiff(original, current)
+}
+
 // generateDiff generates a simple unified diff between two strings
 func generateDiff(original, current string) string {
 	originalLines := strings.Split(original, "\n")

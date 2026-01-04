@@ -20,17 +20,27 @@
         <h5 class="alert-heading">⚠ Conflict Detected!</h5>
         <p>{{.Message}}</p>
         
+        {{if .CurrentContent}}
+        <hr>
+        <h6>Current File Content (on disk):</h6>
+        <pre class="diff-container" style="background: #fff3cd;">{{.CurrentContent}}</pre>
+        {{end}}
+        
+        {{if .ExternalDiff}}
         <hr>
         <h6>External Changes (what was changed on disk):</h6>
         <div class="diff-container">{{.ExternalDiff}}</div>
+        {{end}}
         
+        {{if .ProposedDiff}}
         <hr>
-        <h6>Your Proposed Changes:</h6>
+        <h6>Your Proposed Changes (diff from current to your version):</h6>
         <div class="diff-container">{{.ProposedDiff}}</div>
+        {{end}}
         
         <hr>
         <p class="mb-0">
-            <strong>What to do:</strong> Review the differences above. You can:
+            <strong>What to do:</strong> The file has been modified since you started editing. You can:
         </p>
         <ul>
             <li>Click "Reload File" to see the current version and merge your changes manually</li>
