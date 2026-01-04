@@ -7,8 +7,10 @@ name: Deploy to Production
 # - PROD_HOST: Hostname or IP address of the production server
 # - PROD_USER: Username for the systemd service on production server
 # - MAILTO: Email address for deployment notifications
-# - MAIL_USERNAME: SMTP username for sending emails (e.g., Gmail address)
+# - MAIL_USERNAME: SMTP username for sending emails
 # - MAIL_PASSWORD: SMTP password or app password for sending emails
+# - MAIL_HOST: SMTP server address (e.g., smtp.gmail.com)
+# - MAIL_PORT: SMTP server port (e.g., 465 for SSL)
 
 'on':
   push:
@@ -33,8 +35,8 @@ jobs:
         if: failure() && steps.tests.outcome == 'failure'
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
-          server_port: 465
+          server_address: ${{ secrets.MAIL_HOST }}
+          server_port: ${{ secrets.MAIL_PORT }}
           secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
@@ -92,41 +94,12 @@ jobs:
             "${{ secrets.PROD_USER }}"
         shell: bash
 
-      - name: Send success notification
-        if: success()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "✅ MobileShell Production Deploy Successful"
-          to: ${{ secrets.MAILTO }}
-          from: GitHub Actions
-          body: >
-            The production deployment for MobileShell was successful!
-
-
-            Repository: ${{ github.repository }}
-
-            Branch: ${{ github.ref }}
-
-            Commit: ${{ github.sha }}
-
-            Commit Message: ${{ github.event.head_commit.message }}
-
-            Author: ${{ github.actor }}
-
-
-            Deployment Job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
       - name: Send deployment failure notification
         if: failure() && steps.tests.outcome != 'failure'
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
-          server_port: 465
+          server_address: ${{ secrets.MAIL_HOST }}
+          server_port: ${{ secrets.MAIL_PORT }}
           secure: true
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}

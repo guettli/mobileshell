@@ -107,42 +107,12 @@ The installation is idempotent and can be run multiple times safely.
 
 ## CI/CD
 
-### Automated Testing
-
 All pull requests to the `main` branch automatically run the full test suite
-via GitHub Actions. Tests include:
+via GitHub Actions.
 
-- Go tests and linting
-- Shell script checks
-- Documentation validation
-- Code duplication checks
-- And more
-
-### Automated Production Deployment
-
-On every push to the `main` branch, the deploy workflow automatically:
-
-1. Runs the full test suite
-2. If tests pass, deploys to production server via SSH
-3. Sends email notifications on success or failure
-
-#### Required GitHub Secrets
-
-Configure these secrets in your repository settings:
-
-- `SSH_PRIVATE_KEY`: SSH private key for root access to production server
-- `PROD_HOST`: Hostname or IP address of production server
-- `PROD_USER`: Username for the systemd service on production server
-- `MAILTO`: Email address for deployment notifications
-- `MAIL_USERNAME`: SMTP username for sending emails (e.g., Gmail)
-- `MAIL_PASSWORD`: SMTP password or app-specific password
-
-The deploy workflow will:
-
-- Execute `scripts/test.sh` to verify code quality
-- On test failure, send an email with links to the failed CI job
-- On test success, use the SSH key to deploy via `scripts/install.sh`
-- Send notifications for both successful and failed deployments
+On every push to the `main` branch, tests are run and if they pass, the code
+is automatically deployed to production via SSH. Email notifications are sent
+on failure.
 
 ## Project Structure
 
