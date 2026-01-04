@@ -75,12 +75,13 @@ for i in {1..30}; do
 done
 
 # Install pnpm dependencies if needed
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 if [ ! -d "node_modules" ]; then
   echo "Installing pnpm dependencies..."
-  pnpm install --no-lockfile jsdom > /dev/null 2>&1
+  pnpm install > /dev/null 2>&1
   echo "✓ Dependencies installed"
 fi
+cd "$(dirname "$0")"
 
 # Run the JSDOM tests in parallel
 echo "Running JSDOM tests in parallel..."

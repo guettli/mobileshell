@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	stateDir string
-	port     string
+	stateDir  string
+	port      string
+	allowRoot bool
 )
 
 var rootCmd = &cobra.Command{
@@ -24,11 +25,22 @@ var rootCmd = &cobra.Command{
 	Long:  `MobileShell is a web-based server for executing commands remotely with output streaming.`,
 }
 
+// checkRootUser returns an error if running as root and allowRoot is false
+func checkRootUser(allowRoot bool) error {
+	if os.Geteuid() == 0 && !allowRoot {
+		return fmt.Errorf("running as root is not allowed for security reasons. Use --allow-root to override")
+	}
+	return nil
+}
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the MobileShell server",
 	Long:  `Start the MobileShell server to accept remote command execution requests.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := checkRootUser(allowRoot); err != nil {
+			return err
+		}
 		return server.Run(stateDir, port)
 	},
 }
@@ -44,6 +56,10 @@ var addPasswordCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := checkRootUser(allowRoot); err != nil {
+			return err
+		}
+
 		// Get state directory, don't create it if it doesn't exist
 		dir, err := server.GetStateDir(stateDir, false)
 		if err != nil {
@@ -101,9 +117,11 @@ var nohupCmd = &cobra.Command{
 func init() {
 	runCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 	runCmd.Flags().StringVarP(&port, "port", "p", "22123", "Port to listen on")
+	runCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
 
 	addPasswordCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 	addPasswordCmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "Read password from stdin without prompting (for scripts)")
+	addPasswordCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
 
 	nohupCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 
