@@ -22,9 +22,9 @@ type Session struct {
 	ptmx       *os.File
 	cmd        *exec.Cmd
 	workspace  *workspace.Workspace
-	mu         sync.Mutex
 	done       chan struct{}
 	closeOnce  sync.Once
+	writeChan  chan []byte
 }
 
 // Message represents a WebSocket message
@@ -82,6 +82,7 @@ func NewSession(ws *websocket.Conn, stateDir string, workspaceID string, command
 		cmd:       cmd,
 		workspace: targetWorkspace,
 		done:      make(chan struct{}),
+		writeChan: make(chan []byte, 100),
 	}
 
 	return session, nil
@@ -94,6 +95,9 @@ func (s *Session) Start() {
 
 	// Read from WebSocket and write to PTY
 	go s.readFromWebSocket()
+
+	// Handle WebSocket writes via channel
+	go s.writeToWebSocket()
 
 	// Wait for process to complete
 	go s.waitForProcess()
@@ -113,14 +117,30 @@ func (s *Session) readFromPTY() {
 		}
 
 		if n > 0 {
-			s.mu.Lock()
-			if err := s.ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+			// Send data to write channel
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			select {
+			case s.writeChan <- data:
+			case <-s.done:
+				return
+			}
+		}
+	}
+}
+
+// writeToWebSocket handles all WebSocket writes through a channel
+func (s *Session) writeToWebSocket() {
+	for {
+		select {
+		case data := <-s.writeChan:
+			if err := s.ws.WriteMessage(websocket.TextMessage, data); err != nil {
 				slog.Error("Error writing to WebSocket", "error", err)
-				s.mu.Unlock()
 				s.closeOnce.Do(func() { close(s.done) })
 				return
 			}
-			s.mu.Unlock()
+		case <-s.done:
+			return
 		}
 	}
 }
@@ -176,11 +196,13 @@ func (s *Session) waitForProcess() {
 	// Give a moment for any final output to be sent
 	time.Sleep(100 * time.Millisecond)
 	
-	// Send exit notification
-	s.mu.Lock()
-	exitMsg := "\r\n\r\n[Process exited]\r\n"
-	_ = s.ws.WriteMessage(websocket.TextMessage, []byte(exitMsg))
-	s.mu.Unlock()
+	// Send exit notification via channel
+	exitMsg := []byte("\r\n\r\n[Process exited]\r\n")
+	select {
+	case s.writeChan <- exitMsg:
+	case <-time.After(1 * time.Second):
+		// If we can't send, continue with cleanup
+	}
 	
 	s.closeOnce.Do(func() { close(s.done) })
 }
@@ -188,9 +210,7 @@ func (s *Session) waitForProcess() {
 // Close cleans up the session
 func (s *Session) Close() error {
 	// Close WebSocket
-	s.mu.Lock()
 	_ = s.ws.Close()
-	s.mu.Unlock()
 
 	// Close PTY
 	_ = s.ptmx.Close()

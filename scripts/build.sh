@@ -16,6 +16,9 @@ mkdir -p internal/server/static
 cp node_modules/bootstrap/dist/css/bootstrap.min.css internal/server/static/
 cp node_modules/htmx.org/dist/htmx.min.js internal/server/static/
 cp node_modules/idiomorph/dist/idiomorph-ext.min.js internal/server/static/
+cp node_modules/xterm/css/xterm.css internal/server/static/xterm.min.css
+cp node_modules/xterm/lib/xterm.js internal/server/static/xterm.min.js
+cp node_modules/xterm-addon-fit/lib/xterm-addon-fit.js internal/server/static/xterm-addon-fit.min.js
 
 # Build the Go binary
 go build -o mobileshell ./cmd/mobileshell
