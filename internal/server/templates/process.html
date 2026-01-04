@@ -81,15 +81,6 @@
                     {{end}}
                 </p>
 
-                {{if .Process.Completed}}
-                <div class="mb-3">
-                    <form action="{{.BasePath}}/workspaces/{{.WorkspaceID}}" method="GET" style="display: inline;">
-                        <input type="hidden" name="command" value="{{.Process.Command}}">
-                        <button type="submit" class="btn btn-primary">Rerun Command</button>
-                    </form>
-                </div>
-                {{end}}
-
                 <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
                     <h5 class="mb-0">Full Output</h5>
                     <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}/download"

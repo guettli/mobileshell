@@ -84,7 +84,7 @@
                     hx-target="#running-processes" hx-swap="beforeend"
                     hx-on::after-request="this.reset(); if (window.pollProcessUpdates) window.pollProcessUpdates();">
                     <div class="mb-3">
-                        <input type="text" class="form-control" id="command-input" name="command" placeholder="Enter command..." required
+                        <input type="text" class="form-control" name="command" placeholder="Enter command..." required
                             autofocus>
                     </div>
                     <div class="d-flex gap-2">
@@ -102,18 +102,6 @@
         </div>
 
         <script>
-        // Pre-fill command from URL parameter if present
-        (function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const commandParam = urlParams.get('command');
-            if (commandParam) {
-                const commandInput = document.getElementById('command-input');
-                if (commandInput) {
-                    commandInput.value = commandParam;
-                }
-            }
-        })();
-
         function launchInteractiveTerminal() {
             const commandInput = document.querySelector('input[name="command"]');
             const command = commandInput.value.trim() || 'bash';
