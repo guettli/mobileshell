@@ -35,8 +35,9 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	stateDir string
-	tmpl     *template.Template
+	stateDir       string
+	tmpl           *template.Template
+	sessionManager *terminal.Manager
 }
 
 func New(stateDir string) (*Server, error) {
@@ -49,8 +50,9 @@ func New(stateDir string) (*Server, error) {
 	}
 
 	s := &Server{
-		stateDir: stateDir,
-		tmpl:     tmpl,
+		stateDir:       stateDir,
+		tmpl:           tmpl,
+		sessionManager: terminal.NewManager(),
 	}
 
 	return s, nil
@@ -1521,20 +1523,26 @@ slog.Error("Failed to upgrade to WebSocket", "error", err)
 return
 }
 
-// Create terminal session
-session, err := terminal.NewSession(ws, s.stateDir, workspaceID, proc.Command)
+// Get or create terminal session (reuse existing if process is still running)
+session, isNew, err := s.sessionManager.GetOrCreateSession(ws, s.stateDir, workspaceID, proc.Command, processID)
 if err != nil {
-slog.Error("Failed to create terminal session", "error", err)
+slog.Error("Failed to get or create terminal session", "error", err)
 _ = ws.Close()
 return
 }
 
-// Start the session
+// Start the session only if it's new
+if isNew {
 session.Start()
 
-// Wait for session to complete
+// Wait for session to complete in a goroutine
+go func() {
 session.Wait()
-
-// Clean up
+// Clean up and remove from manager when done
 _ = session.Close()
+s.sessionManager.RemoveSession(processID)
+}()
+}
+// For reconnected sessions, the goroutines are already running
+// The new WebSocket will be handled by the existing readFromWebSocket goroutine
 }

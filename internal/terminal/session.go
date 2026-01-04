@@ -17,15 +17,70 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Manager manages active terminal sessions
+type Manager struct {
+	sessions map[string]*Session
+	mu       sync.RWMutex
+}
+
+// NewManager creates a new session manager
+func NewManager() *Manager {
+	return &Manager{
+		sessions: make(map[string]*Session),
+	}
+}
+
+// GetOrCreateSession retrieves an existing session or creates a new one
+func (m *Manager) GetOrCreateSession(ws *websocket.Conn, stateDir string, workspaceID string, command string, processID string) (*Session, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if session already exists and is alive
+	if session, exists := m.sessions[processID]; exists {
+		if session.IsAlive() {
+			// Reconnect to existing session
+			if err := session.Reconnect(ws); err != nil {
+				return nil, false, fmt.Errorf("failed to reconnect to session: %w", err)
+			}
+			slog.Info("Reconnected to existing terminal session", "processID", processID)
+			return session, false, nil
+		}
+		// Session exists but process is dead, remove it
+		delete(m.sessions, processID)
+	}
+
+	// Create new session
+	session, err := NewSession(ws, stateDir, workspaceID, command, processID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	m.sessions[processID] = session
+	slog.Info("Created new terminal session", "processID", processID)
+	return session, true, nil
+}
+
+// RemoveSession removes a session from the manager
+func (m *Manager) RemoveSession(processID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, processID)
+	slog.Info("Removed terminal session", "processID", processID)
+}
+
 // Session represents an interactive terminal session
 type Session struct {
-	ws        *websocket.Conn
-	ptmx      *os.File
-	cmd       *exec.Cmd
-	workspace *workspace.Workspace
-	done      chan struct{}
-	closeOnce sync.Once
-	writeChan chan []byte
+	ws         *websocket.Conn
+	wsMutex    sync.Mutex // Protects ws field during reconnection
+	ptmx       *os.File
+	cmd        *exec.Cmd
+	workspace  *workspace.Workspace
+	done       chan struct{}
+	closeOnce  sync.Once
+	writeChan  chan []byte
+	processID  string
+	isRunning  bool
+	runningMux sync.Mutex
 }
 
 // Message represents a WebSocket message
@@ -37,7 +92,7 @@ type Message struct {
 }
 
 // NewSession creates a new interactive terminal session
-func NewSession(ws *websocket.Conn, stateDir string, workspaceID string, command string) (*Session, error) {
+func NewSession(ws *websocket.Conn, stateDir string, workspaceID string, command string, processID string) (*Session, error) {
 	// Get workspace
 	wsList, err := workspace.ListWorkspaces(stateDir)
 	if err != nil {
@@ -94,6 +149,8 @@ func NewSession(ws *websocket.Conn, stateDir string, workspaceID string, command
 		workspace: targetWorkspace,
 		done:      make(chan struct{}),
 		writeChan: make(chan []byte, 100),
+		processID: processID,
+		isRunning: false,
 	}
 
 	return session, nil
@@ -101,6 +158,14 @@ func NewSession(ws *websocket.Conn, stateDir string, workspaceID string, command
 
 // Start begins handling the terminal session
 func (s *Session) Start() {
+	s.runningMux.Lock()
+	if s.isRunning {
+		s.runningMux.Unlock()
+		return
+	}
+	s.isRunning = true
+	s.runningMux.Unlock()
+
 	// Read from PTY and send to WebSocket
 	go s.readFromPTY()
 
@@ -145,11 +210,14 @@ func (s *Session) writeToWebSocket() {
 	for {
 		select {
 		case data := <-s.writeChan:
-			if err := s.ws.WriteMessage(websocket.TextMessage, data); err != nil {
-				slog.Error("Error writing to WebSocket", "error", err)
-				s.closeOnce.Do(func() { close(s.done) })
-				return
+			s.wsMutex.Lock()
+			if s.ws != nil {
+				if err := s.ws.WriteMessage(websocket.TextMessage, data); err != nil {
+					slog.Error("Error writing to WebSocket", "error", err)
+					s.ws = nil // Clear the WebSocket on error
+				}
 			}
+			s.wsMutex.Unlock()
 		case <-s.done:
 			return
 		}
@@ -159,13 +227,27 @@ func (s *Session) writeToWebSocket() {
 // readFromWebSocket reads messages from the WebSocket and processes them
 func (s *Session) readFromWebSocket() {
 	for {
-		_, data, err := s.ws.ReadMessage()
+		s.wsMutex.Lock()
+		ws := s.ws
+		s.wsMutex.Unlock()
+
+		if ws == nil {
+			// No active WebSocket, wait and retry
+			time.Sleep(100 * time.Millisecond)
+			continue
+		}
+
+		_, data, err := ws.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				slog.Error("WebSocket read error", "error", err)
+				slog.Info("WebSocket disconnected (may reconnect)", "error", err)
 			}
-			s.closeOnce.Do(func() { close(s.done) })
-			return
+			// Don't close the session, just clear the WebSocket
+			s.wsMutex.Lock()
+			s.ws = nil
+			s.wsMutex.Unlock()
+			time.Sleep(100 * time.Millisecond)
+			continue
 		}
 
 		var msg Message
@@ -221,7 +303,12 @@ func (s *Session) waitForProcess() {
 // Close cleans up the session
 func (s *Session) Close() error {
 	// Close WebSocket
-	_ = s.ws.Close()
+	s.wsMutex.Lock()
+	if s.ws != nil {
+		_ = s.ws.Close()
+		s.ws = nil
+	}
+	s.wsMutex.Unlock()
 
 	// Close PTY
 	_ = s.ptmx.Close()
@@ -252,4 +339,32 @@ func (s *Session) Close() error {
 // Wait waits for the session to complete
 func (s *Session) Wait() {
 	<-s.done
+}
+
+// Reconnect attaches a new WebSocket connection to this session
+func (s *Session) Reconnect(ws *websocket.Conn) error {
+	s.wsMutex.Lock()
+	defer s.wsMutex.Unlock()
+
+	// Close old WebSocket if it exists
+	if s.ws != nil {
+		_ = s.ws.Close()
+	}
+
+	// Set new WebSocket
+	s.ws = ws
+
+	slog.Info("WebSocket reconnected to terminal session", "processID", s.processID)
+	return nil
+}
+
+// IsAlive checks if the terminal process is still running
+func (s *Session) IsAlive() bool {
+	if s.cmd == nil || s.cmd.Process == nil {
+		return false
+	}
+
+	// Check if process is still running
+	err := s.cmd.Process.Signal(syscall.Signal(0))
+	return err == nil
 }

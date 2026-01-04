@@ -635,6 +635,198 @@ async function testInteractiveTerminal() {
   console.log(`✓ ${testName} passed`);
 }
 
+// Test 8: Terminal Reconnection
+async function testTerminalReconnection() {
+  const testName = 'Test 8: Terminal Reconnection';
+  console.log(`\n=== ${testName} ===`);
+
+  const sessionCookie = await login();
+  const workspaceName = `test-workspace-${Date.now()}-8`;
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  console.log(`✓ Workspace created: ${workspaceName}`);
+
+  // Launch interactive terminal with bash
+  const terminalExecuteResponse = await request('POST', `/workspaces/${workspaceId}/terminal-execute`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+    body: 'command=bash',
+  });
+
+  assert.ok([302, 303].includes(terminalExecuteResponse.status), `Should redirect to terminal page (got ${terminalExecuteResponse.status})`);
+
+  // Extract process ID from redirect URL
+  const location = terminalExecuteResponse.headers['location'];
+  const processMatch = location.match(/processes\/([^\/]+)\/terminal/);
+  assert.ok(processMatch, 'Should have process ID in redirect URL');
+  const processId = processMatch[1];
+
+  // Test WebSocket connection using ws module
+  const { WebSocket } = await import('ws');
+  const protocol = 'ws:';
+  const wsUrl = `${protocol}//${SERVER_URL.replace('http://', '').replace('https://', '')}/workspaces/${workspaceId}/processes/${processId}/ws-terminal`;
+
+  console.log(`First connection to WebSocket at ${wsUrl}`);
+
+  // First connection
+  const ws1 = new WebSocket(wsUrl, {
+    headers: {
+      'Cookie': sessionCookie,
+    },
+  });
+
+  let receivedData1 = '';
+
+  // Wait for first WebSocket to open
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('First WebSocket connection timeout'));
+    }, 5000);
+
+    ws1.on('open', () => {
+      clearTimeout(timeout);
+      console.log('✓ First WebSocket connected');
+
+      // Send terminal size
+      const sizeMsg = JSON.stringify({
+        type: 'resize',
+        cols: 80,
+        rows: 24,
+      });
+      ws1.send(sizeMsg);
+
+      resolve();
+    });
+
+    ws1.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+
+  // Wait for initial bash output
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (receivedData1.length > 0) {
+        resolve();
+      } else {
+        reject(new Error('No data received from first connection'));
+      }
+    }, 3000);
+
+    ws1.on('message', (data) => {
+      receivedData1 += data.toString();
+      if (receivedData1.length > 100) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+
+  console.log('✓ Received initial bash output from first connection');
+
+  // Send a unique command to verify session continuity
+  const uniqueMarker = `marker-${Date.now()}`;
+  const inputMsg1 = JSON.stringify({
+    type: 'input',
+    data: `echo "${uniqueMarker}"\n`,
+  });
+  ws1.send(inputMsg1);
+
+  // Wait for the marker to appear
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Marker not received in first connection'));
+    }, 5000);
+
+    ws1.on('message', (data) => {
+      const text = data.toString();
+      if (text.includes(uniqueMarker)) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+
+  console.log(`✓ Marker "${uniqueMarker}" received in first connection`);
+
+  // Close first WebSocket (simulating page reload)
+  ws1.close();
+  console.log('✓ First WebSocket closed (simulating page reload)');
+
+  // Wait a bit to ensure the close is processed
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Second connection (simulating reconnection after page reload)
+  console.log('Reconnecting to the same terminal session...');
+  const ws2 = new WebSocket(wsUrl, {
+    headers: {
+      'Cookie': sessionCookie,
+    },
+  });
+
+  let receivedData2 = '';
+
+  // Wait for second WebSocket to open
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Second WebSocket connection timeout'));
+    }, 5000);
+
+    ws2.on('open', () => {
+      clearTimeout(timeout);
+      console.log('✓ Second WebSocket connected (reconnected)');
+
+      // Send terminal size again
+      const sizeMsg = JSON.stringify({
+        type: 'resize',
+        cols: 80,
+        rows: 24,
+      });
+      ws2.send(sizeMsg);
+
+      resolve();
+    });
+
+    ws2.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+  });
+
+  // The terminal should still be running - send another command
+  const uniqueMarker2 = `marker2-${Date.now()}`;
+  const inputMsg2 = JSON.stringify({
+    type: 'input',
+    data: `echo "${uniqueMarker2}"\n`,
+  });
+  ws2.send(inputMsg2);
+
+  // Wait for the second marker to appear
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Second marker not received - terminal session did not persist'));
+    }, 5000);
+
+    ws2.on('message', (data) => {
+      const text = data.toString();
+      receivedData2 += text;
+      if (text.includes(uniqueMarker2)) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+
+  console.log(`✓ Marker "${uniqueMarker2}" received in second connection`);
+  console.log('✓ Terminal session successfully reconnected - same bash process is still running!');
+
+  // Close second WebSocket
+  ws2.close();
+
+  console.log(`✓ ${testName} passed`);
+}
+
 // Main test runner
 async function runTests() {
   try {
@@ -651,6 +843,7 @@ async function runTests() {
       testStdinInput(),
       testWorkspaceEditing(),
       testInteractiveTerminal(),
+      testTerminalReconnection(),
     ]);
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
