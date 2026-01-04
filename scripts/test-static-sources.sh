@@ -80,3 +80,31 @@ for file in "${DOWNLOADED_FILES[@]}"; do
 done
 
 echo "✓ All static files have clear sources (downloaded or custom)"
+
+# Test: Verify custom files don't contain typeof
+# typeof is usually not needed in modern JavaScript
+echo ""
+echo "Checking for 'typeof' in custom JavaScript and HTML files..."
+
+# Check custom JS files
+for file in "${CUSTOM_FILES[@]}"; do
+    if [[ "$file" == *.js ]]; then
+        filepath="$STATIC_DIR/$file"
+        if grep -n "typeof" "$filepath" 2>/dev/null; then
+            echo "❌ Found 'typeof' in custom JS file: $filepath"
+            echo "   typeof is usually not needed. Please refactor to avoid it."
+            exit 1
+        fi
+    fi
+done
+
+# Check HTML template files
+TEMPLATES_DIR="internal/server/templates"
+if find "$TEMPLATES_DIR" -name "*.html" -exec grep -l "typeof" {} \; 2>/dev/null | grep -q .; then
+    echo "❌ Found 'typeof' in HTML template files:"
+    find "$TEMPLATES_DIR" -name "*.html" -exec grep -Hn "typeof" {} \;
+    echo "   typeof is usually not needed. Please refactor to avoid it."
+    exit 1
+fi
+
+echo "✓ No 'typeof' found in custom JavaScript or HTML files"
