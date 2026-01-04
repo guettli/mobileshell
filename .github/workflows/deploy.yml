@@ -1,0 +1,141 @@
+name: Deploy to Production
+
+# This workflow deploys MobileShell to production on every push to main
+#
+# Required GitHub Secrets:
+# - SSH_PRIVATE_KEY: SSH private key for root access to production server
+# - PROD_HOST: Hostname or IP address of the production server
+# - PROD_USER: Username for the systemd service on production server
+# - MAILTO: Email address for deployment notifications
+# - MAIL_USERNAME: SMTP username for sending emails (e.g., Gmail address)
+# - MAIL_PASSWORD: SMTP password or app password for sending emails
+
+'on':
+  push:
+    branches:
+      - main
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Tests
+        id: tests
+        uses: ./.github/actions/run-tests
+
+      - name: Send failure notification
+        if: failure() && steps.tests.outcome == 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "❌ MobileShell Production Deploy Failed - Tests"
+          to: ${{ secrets.MAILTO }}
+          from: GitHub Actions
+          body: |
+            The production deployment for MobileShell failed during
+            testing.
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Commit Message: ${{ github.event.head_commit.message }}
+            Author: ${{ github.actor }}
+
+            Failed Job: ${{ github.server_url }}/${{ github.repository
+              }}/actions/runs/${{ github.run_id }}
+
+            Please review the logs and fix the issues before the next
+            deployment.
+
+      - name: Setup SSH
+        if: success()
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+
+          # Configure SSH to use the deploy key for production host
+          cat >> ~/.ssh/config <<EOF
+          Host ${{ secrets.PROD_HOST }}
+            HostName ${{ secrets.PROD_HOST }}
+            User root
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking no
+          EOF
+          chmod 600 ~/.ssh/config
+        shell: bash
+
+      - name: Build and Deploy to Production
+        if: success()
+        run: |
+          ./scripts/install.sh "${{ secrets.PROD_HOST }}" "${{
+            secrets.PROD_USER }}"
+        shell: bash
+
+      - name: Send success notification
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "✅ MobileShell Production Deploy Successful"
+          to: ${{ secrets.MAILTO }}
+          from: GitHub Actions
+          body: |
+            The production deployment for MobileShell was successful!
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Commit Message: ${{ github.event.head_commit.message }}
+            Author: ${{ github.actor }}
+
+            Deployment Job: ${{ github.server_url }}/${{
+              github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send deployment failure notification
+        if: failure() && steps.tests.outcome != 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "❌ MobileShell Production Deploy Failed - Deployment"
+          to: ${{ secrets.MAILTO }}
+          from: GitHub Actions
+          body: |
+            The production deployment for MobileShell failed during
+            deployment.
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Commit: ${{ github.sha }}
+            Commit Message: ${{ github.event.head_commit.message }}
+            Author: ${{ github.actor }}
+
+            Failed Job: ${{ github.server_url }}/${{ github.repository
+              }}/actions/runs/${{ github.run_id }}
+
+            Please review the logs and investigate the deployment issue.
+
+      - name: Cleanup SSH
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+        shell: bash
