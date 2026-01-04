@@ -232,9 +232,13 @@ func (s *Session) readFromWebSocket() {
 		s.wsMutex.Unlock()
 
 		if ws == nil {
-			// No active WebSocket, wait and retry
-			time.Sleep(100 * time.Millisecond)
-			continue
+			// No active WebSocket, wait for reconnection
+			select {
+			case <-s.done:
+				return
+			case <-time.After(100 * time.Millisecond):
+				continue
+			}
 		}
 
 		_, data, err := ws.ReadMessage()
@@ -242,11 +246,10 @@ func (s *Session) readFromWebSocket() {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				slog.Info("WebSocket disconnected (may reconnect)", "error", err)
 			}
-			// Don't close the session, just clear the WebSocket
+			// Don't close the session, just clear the WebSocket and wait for reconnection
 			s.wsMutex.Lock()
 			s.ws = nil
 			s.wsMutex.Unlock()
-			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
@@ -359,12 +362,14 @@ func (s *Session) Reconnect(ws *websocket.Conn) error {
 }
 
 // IsAlive checks if the terminal process is still running
+// Note: This uses Unix-specific syscall.Signal(0) which is consistent with
+// the PTY implementation that is also Unix-specific
 func (s *Session) IsAlive() bool {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return false
 	}
 
-	// Check if process is still running
+	// Check if process is still running using signal 0 (doesn't actually send a signal)
 	err := s.cmd.Process.Signal(syscall.Signal(0))
 	return err == nil
 }
