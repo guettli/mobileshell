@@ -30,8 +30,8 @@ CUSTOM_FILES=(
     "url-links.js"
 )
 
-# Get all files in static directory
-actual_files=$(find "$STATIC_DIR" -type f -exec basename {} \; | sort)
+# Get all files in static directory (maxdepth 1 to only get files in static dir, not subdirs)
+actual_files=$(cd "$STATIC_DIR" && ls -1 | sort)
 
 # Build expected files list
 expected_files=$(printf "%s\n" "${DOWNLOADED_FILES[@]}" "${CUSTOM_FILES[@]}" | sort)
@@ -47,20 +47,25 @@ if [[ "$actual_files" != "$expected_files" ]]; then
     echo "$actual_files"
     echo ""
     
+    # Create secure temporary files
+    tmp_unexpected=$(mktemp)
+    tmp_missing=$(mktemp)
+    trap 'rm -f "$tmp_unexpected" "$tmp_missing"' EXIT
+    
     # Show files that are unexpected
-    comm -13 <(echo "$expected_files") <(echo "$actual_files") > /tmp/unexpected_files
-    if [[ -s /tmp/unexpected_files ]]; then
+    comm -13 <(echo "$expected_files") <(echo "$actual_files") > "$tmp_unexpected"
+    if [[ -s "$tmp_unexpected" ]]; then
         echo "Unexpected files (not in downloaded or custom list):"
-        cat /tmp/unexpected_files
+        cat "$tmp_unexpected"
         echo ""
         echo "Add these files to either DOWNLOADED_FILES or CUSTOM_FILES in $0"
     fi
     
     # Show files that are missing
-    comm -23 <(echo "$expected_files") <(echo "$actual_files") > /tmp/missing_files
-    if [[ -s /tmp/missing_files ]]; then
+    comm -23 <(echo "$expected_files") <(echo "$actual_files") > "$tmp_missing"
+    if [[ -s "$tmp_missing" ]]; then
         echo "Missing files (expected but not found):"
-        cat /tmp/missing_files
+        cat "$tmp_missing"
     fi
     
     exit 1
@@ -68,7 +73,7 @@ fi
 
 # Verify downloaded files are in build.sh
 for file in "${DOWNLOADED_FILES[@]}"; do
-    if ! grep -F "$file" scripts/build.sh | grep -q "^cp"; then
+    if ! grep -F "$file" scripts/build.sh | grep -q "^[[:space:]]*cp"; then
         echo "❌ Downloaded file '$file' not found in scripts/build.sh copy commands"
         exit 1
     fi
