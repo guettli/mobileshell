@@ -18,18 +18,6 @@ With PTY support, MobileShell can now run:
 
 ## Examples
 
-### Terminal Detection
-
-Commands that check for TTY will now detect it:
-
-```bash
-# This will output "TTY detected" with PTY support
-test -t 0 && echo "TTY detected" || echo "No TTY"
-
-# Check TTY device
-tty
-```
-
 ### Color Output
 
 Many commands automatically enable colored output when they detect a TTY:
@@ -50,56 +38,11 @@ Programs that require a TTY can now be used:
 nano
 vim  # Use :q! to exit if input is limited
 
-# Interactive shells
-bash
-zsh
+# Interactive shells: bash, fish, zsh
 
 # Process monitoring (use kill command to stop)
 top
 htop
-
-# Pagers
-less file.txt
-more file.txt
-```
-
-### Terminal Control
-
-Programs using terminal control codes work correctly:
-
-```bash
-# Progress bars and spinners
-python -c "import time; import sys; \
-[sys.stdout.write(f'\rProgress: {i}%') or sys.stdout.flush() \
-or time.sleep(0.1) for i in range(101)]"
-
-# ANSI escape codes
-printf '\033[31mRed text\033[0m\n'
-printf '\033[1;32mBold green\033[0m\n'
-
-# Terminal capabilities
-tput colors
-tput cols
-tput lines
-```
-
-### Development Tools
-
-Many development tools behave better with TTY:
-
-```bash
-# Git shows colors and uses pager when TTY detected
-git log
-git diff
-
-# npm/yarn show progress bars
-npm install
-
-# pytest shows colored output
-pytest --color=yes
-
-# Docker shows colored output
-docker ps
 ```
 
 ## Important Notes
