@@ -41,18 +41,24 @@ jobs:
           subject: "❌ MobileShell Production Deploy Failed - Tests"
           to: ${{ secrets.MAILTO }}
           from: GitHub Actions
-          body: |
+          body: >
             The production deployment for MobileShell failed during
             testing.
 
+
             Repository: ${{ github.repository }}
+
             Branch: ${{ github.ref }}
+
             Commit: ${{ github.sha }}
+
             Commit Message: ${{ github.event.head_commit.message }}
+
             Author: ${{ github.actor }}
 
-            Failed Job: ${{ github.server_url }}/${{ github.repository
-              }}/actions/runs/${{ github.run_id }}
+
+            Failed Job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 
             Please review the logs and fix the issues before the next
             deployment.
@@ -72,16 +78,16 @@ jobs:
             User root
             IdentityFile ~/.ssh/deploy_key
             IdentitiesOnly yes
-            StrictHostKeyChecking no
+            StrictHostKeyChecking accept-new
           EOF
           chmod 600 ~/.ssh/config
         shell: bash
 
       - name: Build and Deploy to Production
         if: success()
-        run: |
-          ./scripts/install.sh "${{ secrets.PROD_HOST }}" "${{
-            secrets.PROD_USER }}"
+        run: >
+          ./scripts/install.sh "${{ secrets.PROD_HOST }}"
+          "${{ secrets.PROD_USER }}"
         shell: bash
 
       - name: Send success notification
@@ -96,17 +102,22 @@ jobs:
           subject: "✅ MobileShell Production Deploy Successful"
           to: ${{ secrets.MAILTO }}
           from: GitHub Actions
-          body: |
+          body: >
             The production deployment for MobileShell was successful!
 
+
             Repository: ${{ github.repository }}
+
             Branch: ${{ github.ref }}
+
             Commit: ${{ github.sha }}
+
             Commit Message: ${{ github.event.head_commit.message }}
+
             Author: ${{ github.actor }}
 
-            Deployment Job: ${{ github.server_url }}/${{
-              github.repository }}/actions/runs/${{ github.run_id }}
+
+            Deployment Job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Send deployment failure notification
         if: failure() && steps.tests.outcome != 'failure'
@@ -120,18 +131,24 @@ jobs:
           subject: "❌ MobileShell Production Deploy Failed - Deployment"
           to: ${{ secrets.MAILTO }}
           from: GitHub Actions
-          body: |
+          body: >
             The production deployment for MobileShell failed during
             deployment.
 
+
             Repository: ${{ github.repository }}
+
             Branch: ${{ github.ref }}
+
             Commit: ${{ github.sha }}
+
             Commit Message: ${{ github.event.head_commit.message }}
+
             Author: ${{ github.actor }}
 
-            Failed Job: ${{ github.server_url }}/${{ github.repository
-              }}/actions/runs/${{ github.run_id }}
+
+            Failed Job: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 
             Please review the logs and investigate the deployment issue.
 
