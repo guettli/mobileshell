@@ -31,7 +31,7 @@ CUSTOM_FILES=(
 )
 
 # Get all files in static directory
-actual_files=$(find "$STATIC_DIR" -type f -printf "%f\n" | sort)
+actual_files=$(find "$STATIC_DIR" -type f -exec basename {} \; | sort)
 
 # Build expected files list
 expected_files=$(printf "%s\n" "${DOWNLOADED_FILES[@]}" "${CUSTOM_FILES[@]}" | sort)
@@ -68,7 +68,7 @@ fi
 
 # Verify downloaded files are in build.sh
 for file in "${DOWNLOADED_FILES[@]}"; do
-    if ! grep -q "cp.*$file" scripts/build.sh; then
+    if ! grep -F "$file" scripts/build.sh | grep -q "^cp"; then
         echo "❌ Downloaded file '$file' not found in scripts/build.sh copy commands"
         exit 1
     fi
