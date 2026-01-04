@@ -44,8 +44,8 @@ var addPasswordCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get state directory, creating it if it doesn't exist
-		dir, err := server.GetStateDir(stateDir, true)
+		// Get state directory, don't create it if it doesn't exist
+		dir, err := server.GetStateDir(stateDir, false)
 		if err != nil {
 			return err
 		}
