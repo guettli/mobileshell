@@ -30,8 +30,8 @@ CUSTOM_FILES=(
     "url-links.js"
 )
 
-# Get all files in static directory (maxdepth 1 to only get files in static dir, not subdirs)
-actual_files=$(cd "$STATIC_DIR" && ls -1 | sort)
+# Get all files in static directory (only files directly in the directory, not subdirs)
+actual_files=$(cd "$STATIC_DIR" && printf '%s\n' * | grep -v '^\*$' | sort)
 
 # Build expected files list
 expected_files=$(printf "%s\n" "${DOWNLOADED_FILES[@]}" "${CUSTOM_FILES[@]}" | sort)
