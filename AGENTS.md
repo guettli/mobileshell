@@ -8,6 +8,9 @@ after changes run `./scripts/test.sh`.
 
 use UTC when writing dates.
 
+This project uses pnpm for package management. Never run `npm install` - always use `pnpm install`.
+The package-lock.json file should never be created or committed.
+
 Endpoints which return HTML should either return a complete page XOR return an HTML snippet (for
 htmx). If an endpoint returns a snippet, then the endpoint should end with "hx-foo" like
 /bar/hx-foo. The corresponding handler should have the prefix "hx", too. Additionally, a template
