@@ -54,7 +54,8 @@ go build -o mobileshell ./cmd/mobileshell
 
 - **Authentication**: Secure password authentication with session management
 - **Command Execution**: Execute shell commands asynchronously with full TTY support
-- **TTY Support**: Commands run with a pseudo-terminal (PTY), enabling interactive programs (see [TTY_SUPPORT.md](TTY_SUPPORT.md) for details)
+- **TTY Support**: Commands run with a pseudo-terminal (PTY), enabling interactive
+  programs (see [TTY_SUPPORT.md](TTY_SUPPORT.md) for details)
 - **Process Management**: View running and completed processes
 - **Output Viewing**: View stdout and stderr for each process
 - **Auto-refresh**: Process list updates automatically every 3 seconds
