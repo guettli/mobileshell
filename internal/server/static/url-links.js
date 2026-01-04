@@ -33,3 +33,24 @@ function makeUrlsClickable() {
         container.dataset.urlsProcessed = 'true';
     });
 }
+
+// Auto-initialize when script loads
+(function() {
+    // Run on DOMContentLoaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', makeUrlsClickable);
+    } else {
+        // DOM already loaded, run immediately
+        makeUrlsClickable();
+    }
+    
+    // Listen for HTMX after swap events to process dynamically loaded content
+    if (document.body) {
+        document.body.addEventListener('htmx:afterSwap', makeUrlsClickable);
+    } else {
+        // Body not ready yet, wait for DOMContentLoaded
+        document.addEventListener('DOMContentLoaded', function() {
+            document.body.addEventListener('htmx:afterSwap', makeUrlsClickable);
+        });
+    }
+})();

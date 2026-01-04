@@ -358,29 +358,6 @@
     </script>
 
     <script src="{{.BasePath}}/static/static/url-links.js"></script>
-    <script>
-        // Run on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            if (typeof makeUrlsClickable === 'function') {
-                makeUrlsClickable();
-            }
-        });
-        
-        // Listen for HTMX after swap events to process dynamically loaded content
-        document.body.addEventListener('htmx:afterSwap', function(evt) {
-            if (typeof makeUrlsClickable === 'function') {
-                makeUrlsClickable();
-            }
-        });
-        
-        // Also run immediately in case DOM is already loaded
-        if (document.readyState !== 'loading') {
-            // DOM already loaded, wait for script to load
-            if (typeof makeUrlsClickable === 'function') {
-                makeUrlsClickable();
-            }
-        }
-    </script>
 </body>
 
 </html>
