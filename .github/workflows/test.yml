@@ -57,3 +57,14 @@ jobs:
       - name: Run tests
         run: ./scripts/test.sh
         shell: bash
+
+      - name: Check git is clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "❌ Git is not clean"
+            git status
+            git diff HEAD
+            exit 1
+          fi
+          echo "✓ Git is clean"
+        shell: bash

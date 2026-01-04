@@ -25,6 +25,15 @@ It is up to you to configure TLS termination. Example snippet for nginx:
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_set_header X-Forwarded-Prefix /mobileshell;
+
+            # WebSocket support
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+
+            # Increase timeouts for long-lived WebSocket connections
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
         }
 ```
 
