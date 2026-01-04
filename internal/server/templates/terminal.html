@@ -8,8 +8,8 @@
     <link href="{{.BasePath}}/static/static/xterm.min.css" rel="stylesheet">
     <style>
         #terminal-container {
-            height: calc(100vh - 200px);
-            min-height: 400px;
+            height: calc(100vh - 400px);
+            min-height: 300px;
             background: #000;
             padding: 10px;
         }
@@ -32,6 +32,29 @@
         .connection-status.connecting {
             background: #fff3cd;
             color: #856404;
+        }
+        .mobile-keyboard {
+            background: #f8f9fa;
+            padding: 8px;
+            border-top: 2px solid #dee2e6;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .mobile-keyboard .btn {
+            margin: 0;
+            min-width: 45px;
+            font-size: 0.75rem;
+            padding: 6px 8px;
+            touch-action: manipulation;
+        }
+        .mobile-keyboard .btn-arrow {
+            min-width: 40px;
+            font-size: 1rem;
+        }
+        .mobile-keyboard .btn:active {
+            transform: scale(0.95);
         }
     </style>
 </head>
@@ -59,6 +82,23 @@
                             <div id="terminal"></div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-2">
+            <div class="col">
+                <div class="mobile-keyboard">
+                    <button class="btn btn-secondary btn-arrow" data-key="ArrowLeft">←</button>
+                    <button class="btn btn-secondary btn-arrow" data-key="ArrowUp">↑</button>
+                    <button class="btn btn-secondary btn-arrow" data-key="ArrowDown">↓</button>
+                    <button class="btn btn-secondary btn-arrow" data-key="ArrowRight">→</button>
+                    <button class="btn btn-secondary" data-key="PageUp">PgUp</button>
+                    <button class="btn btn-secondary" data-key="PageDown">PgDn</button>
+                    <button class="btn btn-primary" data-key="Tab">TAB</button>
+                    <button class="btn btn-success" data-key="Enter">ENTER</button>
+                    <button class="btn btn-warning" data-key="Escape">ESC</button>
+                    <button class="btn btn-info" data-key="Ctrl+r">Ctrl+R</button>
                 </div>
             </div>
         </div>
@@ -198,6 +238,75 @@
             if (ws) {
                 ws.close();
             }
+        });
+
+        // Mobile keyboard button handlers
+        function sendKey(key) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            let data;
+            switch(key) {
+                case 'ArrowUp':
+                    data = '\x1b[A';
+                    break;
+                case 'ArrowDown':
+                    data = '\x1b[B';
+                    break;
+                case 'ArrowRight':
+                    data = '\x1b[C';
+                    break;
+                case 'ArrowLeft':
+                    data = '\x1b[D';
+                    break;
+                case 'PageUp':
+                    data = '\x1b[5~';
+                    break;
+                case 'PageDown':
+                    data = '\x1b[6~';
+                    break;
+                case 'Tab':
+                    data = '\t';
+                    break;
+                case 'Enter':
+                    data = '\r';
+                    break;
+                case 'Escape':
+                    data = '\x1b';
+                    break;
+                case 'Ctrl+r':
+                    data = '\x12';
+                    break;
+                default:
+                    return;
+            }
+
+            const message = {
+                type: 'input',
+                data: data
+            };
+            ws.send(JSON.stringify(message));
+        }
+
+        // Attach click handlers to all keyboard buttons
+        document.querySelectorAll('.mobile-keyboard .btn').forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                const key = button.getAttribute('data-key');
+                sendKey(key);
+
+                // Visual feedback
+                button.blur();
+            });
+
+            // Prevent double-tap zoom on mobile
+            button.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                const key = button.getAttribute('data-key');
+                sendKey(key);
+                button.blur();
+            });
         });
     </script>
 </body>

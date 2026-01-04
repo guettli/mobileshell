@@ -11,9 +11,10 @@ import (
 	"syscall"
 	"time"
 
+	"mobileshell/internal/workspace"
+
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
-	"mobileshell/internal/workspace"
 )
 
 // Session represents an interactive terminal session
@@ -29,10 +30,10 @@ type Session struct {
 
 // Message represents a WebSocket message
 type Message struct {
-	Type string          `json:"type"` // "input", "resize"
-	Data string          `json:"data,omitempty"`
-	Cols int             `json:"cols,omitempty"`
-	Rows int             `json:"rows,omitempty"`
+	Type string `json:"type"` // "input", "resize"
+	Data string `json:"data,omitempty"`
+	Cols int    `json:"cols,omitempty"`
+	Rows int    `json:"rows,omitempty"`
 }
 
 // NewSession creates a new interactive terminal session
@@ -202,10 +203,10 @@ func (s *Session) readFromWebSocket() {
 // waitForProcess waits for the command to complete
 func (s *Session) waitForProcess() {
 	_ = s.cmd.Wait()
-	
+
 	// Give a moment for any final output to be sent
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Send exit notification via channel
 	exitMsg := []byte("\r\n\r\n[Process exited]\r\n")
 	select {
@@ -213,7 +214,7 @@ func (s *Session) waitForProcess() {
 	case <-time.After(1 * time.Second):
 		// If we can't send, continue with cleanup
 	}
-	
+
 	s.closeOnce.Do(func() { close(s.done) })
 }
 
