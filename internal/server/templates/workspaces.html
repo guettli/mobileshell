@@ -276,9 +276,7 @@
                                 runningProcessesContainer.appendChild(newElement);
 
                                 // Initialize HTMX for the new element
-                                if (window.htmx) {
-                                    htmx.process(newElement);
-                                }
+                                htmx.process(newElement);
                             }
                             break;
 
@@ -308,9 +306,7 @@
                                 runningProcessesContainer.appendChild(newElement);
 
                                 // Initialize HTMX for the new element
-                                if (window.htmx) {
-                                    htmx.process(newElement);
-                                }
+                                htmx.process(newElement);
                             }
                             break;
 
@@ -319,9 +315,7 @@
                             if (outputDiv && msg.data.output_html) {
                                 outputDiv.innerHTML = msg.data.output_html;
                                 // Re-process HTMX attributes in case there's an expand button
-                                if (window.htmx) {
-                                    htmx.process(outputDiv);
-                                }
+                                htmx.process(outputDiv);
                             }
                             break;
 
@@ -346,9 +340,7 @@
                                 refreshTrigger.setAttribute('hx-target', '#finished-processes');
                                 refreshTrigger.setAttribute('hx-swap', 'innerHTML');
                                 document.body.appendChild(refreshTrigger);
-                                if (window.htmx) {
-                                    htmx.process(refreshTrigger);
-                                }
+                                htmx.process(refreshTrigger);
                                 setTimeout(() => refreshTrigger.remove(), 100);
                             }
                             break;
