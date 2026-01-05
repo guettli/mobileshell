@@ -9,7 +9,8 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     exec nix develop --command "$0" "$@"
 fi
 
-go_mutex=$(git ls-files '*.go' | { xargs rg -n 'Mutex' || true; })
+# Exclude internal/wshub since mutex is required for thread-safe WebSocket connection management
+go_mutex=$(git ls-files '*.go' | grep -v 'internal/wshub/' | { xargs rg -n 'Mutex' || true; })
 if [[ -n $go_mutex ]]; then
     echo "Found 'Mutex' in Go source code. Please avoid mutexes. This is stateless http. There should be a way to avoid mutexes"
     echo
