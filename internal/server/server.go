@@ -24,6 +24,7 @@ import (
 	"github.com/gorilla/websocket"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
+	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 	"mobileshell/internal/wshub"
@@ -338,6 +339,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/terminal", s.authMiddleware(s.wrapHandler(s.handleTerminal)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/ws-terminal", s.authMiddleware(s.handleWebSocketTerminal))
 	mux.HandleFunc("/workspaces/{id}/terminal-execute", s.authMiddleware(s.wrapHandler(s.handleTerminalExecute)))
+
+	// File editor routes
+	mux.HandleFunc("/workspaces/{id}/files", s.authMiddleware(s.wrapHandler(s.handleFileEditor)))
+	mux.HandleFunc("/workspaces/{id}/files/read", s.authMiddleware(s.wrapHandler(s.handleFileRead)))
+	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -1824,3 +1830,213 @@ session.Wait()
 // Clean up
 _ = session.Close()
 }
+
+// handleFileEditor shows the file editor page
+func (s *Server) handleFileEditor(ctx context.Context, r *http.Request) ([]byte, error) {
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath      string
+		WorkspaceID   string
+		WorkspaceName string
+		Directory     string
+	}{
+		BasePath:      basePath,
+		WorkspaceID:   workspaceID,
+		WorkspaceName: ws.Name,
+		Directory:     ws.Directory,
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "file-editor.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// handleFileRead reads a file and returns its content with session info
+func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	relativePath := r.FormValue("file_path")
+	if relativePath == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+	}
+
+	// Resolve file path relative to workspace directory
+	filePath := filepath.Join(ws.Directory, relativePath)
+
+	// Read file
+	session, err := fileeditor.ReadFile(filePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath         string
+		WorkspaceID      string
+		FilePath         string
+		Content          string
+		OriginalChecksum string
+		IsNewFile        bool
+	}{
+		BasePath:         basePath,
+		WorkspaceID:      workspaceID,
+		FilePath:         relativePath,
+		Content:          session.OriginalContent,
+		OriginalChecksum: session.OriginalChecksum,
+		IsNewFile:        session.OriginalContent == "",
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-content.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// handleFileSave saves a file with conflict detection
+func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	relativePath := r.FormValue("file_path")
+	newContent := r.FormValue("content")
+	originalChecksum := r.FormValue("original_checksum")
+
+	if relativePath == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+	}
+
+	// Resolve file path relative to workspace directory
+	filePath := filepath.Join(ws.Directory, relativePath)
+
+	// Read current file state
+	currentSession, err := fileeditor.ReadFile(filePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+	}
+
+	// Check if file has been modified since the user loaded it
+	if currentSession.OriginalChecksum != originalChecksum {
+		// File has been modified externally - create a conflict response
+		result := &fileeditor.FileEditResult{
+			Success:          false,
+			ConflictDetected: true,
+			Message:          "File has been modified externally. Please review the current content and try again.",
+			// We can only show the diff between current and proposed since we don't have the original
+			ProposedDiff:     fileeditor.GenerateDiff(currentSession.OriginalContent, newContent),
+		}
+
+		basePath := s.getBasePath(r)
+		data := struct {
+			BasePath         string
+			WorkspaceID      string
+			FilePath         string
+			Success          bool
+			Message          string
+			ConflictDetected bool
+			ExternalDiff     string
+			ProposedDiff     string
+			NewChecksum      string
+			CurrentContent   string
+		}{
+			BasePath:         basePath,
+			WorkspaceID:      workspaceID,
+			FilePath:         relativePath,
+			Success:          result.Success,
+			Message:          result.Message,
+			ConflictDetected: result.ConflictDetected,
+			ProposedDiff:     result.ProposedDiff,
+			CurrentContent:   currentSession.OriginalContent,
+		}
+
+		var buf bytes.Buffer
+		if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+
+	// No conflict - proceed with saving
+	session := currentSession
+
+	// Try to write the file
+	result, err := fileeditor.WriteFile(session, newContent)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to write file: %v", err))
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath         string
+		WorkspaceID      string
+		FilePath         string
+		Success          bool
+		Message          string
+		ConflictDetected bool
+		ExternalDiff     string
+		ProposedDiff     string
+		NewChecksum      string
+	}{
+		BasePath:         basePath,
+		WorkspaceID:      workspaceID,
+		FilePath:         relativePath,
+		Success:          result.Success,
+		Message:          result.Message,
+		ConflictDetected: result.ConflictDetected,
+		ExternalDiff:     result.ExternalDiff,
+		ProposedDiff:     result.ProposedDiff,
+		NewChecksum:      result.NewChecksum,
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+

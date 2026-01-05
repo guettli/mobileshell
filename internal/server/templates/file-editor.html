@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Editor - {{.WorkspaceName}} - MobileShell</title>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
+    <style>
+        .file-editor-container {
+            height: 70vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #file-content {
+            flex: 1;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            resize: none;
+        }
+
+        .diff-container {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+
+        .diff-line-add {
+            background-color: #e6ffe6;
+            color: #006600;
+        }
+
+        .diff-line-remove {
+            background-color: #ffe6e6;
+            color: #660000;
+        }
+
+        .diff-line-context {
+            color: #666;
+        }
+
+        .alert-success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+
+        .alert-danger {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+
+        .alert-warning {
+            background-color: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{.BasePath}}/">MobileShell</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{.BasePath}}/workspaces/{{.WorkspaceID}}">← Back to Workspace</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{.BasePath}}/logout">Logout</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <h2>File Editor</h2>
+                <p class="text-muted">Workspace: {{.WorkspaceName}} | Directory: {{.Directory}}</p>
+
+                <!-- File Path Input -->
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <form hx-post="{{.BasePath}}/workspaces/{{.WorkspaceID}}/files/read" 
+                              hx-target="#editor-content" 
+                              hx-swap="innerHTML">
+                            <div class="row">
+                                <div class="col-md-10">
+                                    <label for="file_path" class="form-label">File Path (relative to workspace directory)</label>
+                                    <input type="text" 
+                                           class="form-control" 
+                                           id="file_path" 
+                                           name="file_path" 
+                                           placeholder="e.g., src/main.go or scripts/deploy.sh"
+                                           required>
+                                    <div class="form-text">Path relative to: {{.Directory}}</div>
+                                </div>
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button type="submit" class="btn btn-primary w-100">Open File</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Editor Content (loaded dynamically) -->
+                <div id="editor-content">
+                    <div class="alert alert-info">
+                        Enter a file path above to edit or create a file.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{.BasePath}}/static/static/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>
