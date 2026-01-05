@@ -1,33 +1,34 @@
-package sse
+package wshub
 
 import (
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
-// Event represents an SSE event to send to clients
-type Event struct {
-	Type string      // Event type (e.g., "process_started", "process_updated", "process_finished")
-	Data interface{} // Event data (will be JSON encoded)
+// Message represents a WebSocket message to send to clients
+type Message struct {
+	Type string      `json:"type"` // Message type (e.g., "process_started", "process_updated", "process_finished")
+	Data interface{} `json:"data"` // Message data
 }
 
-// Client represents a single SSE client connection
+// Client represents a single WebSocket client connection
 type Client struct {
-	ID         string
+	ID          string
 	WorkspaceID string
-	ProcessID  string // Optional: for single-process subscriptions
-	EventChan  chan Event
-	Done       chan struct{}
+	ProcessID   string // Optional: for single-process subscriptions
+	Conn        *websocket.Conn
+	SendChan    chan Message
+	Done        chan struct{}
 }
 
-// Hub manages SSE connections and broadcasts events
+// Hub manages WebSocket connections and broadcasts messages
 type Hub struct {
-	mu            sync.RWMutex
-	clients       map[string]*Client
-	rateLimiters  map[string]*RateLimiter // processID -> rate limiter
+	mu           sync.RWMutex
+	clients      map[string]*Client
+	rateLimiters map[string]*RateLimiter // processID -> rate limiter
 }
 
 // RateLimiter tracks rate limiting for a single process
@@ -36,7 +37,7 @@ type RateLimiter struct {
 	minInterval time.Duration
 }
 
-// NewHub creates a new SSE hub
+// NewHub creates a new WebSocket hub
 func NewHub() *Hub {
 	return &Hub{
 		clients:      make(map[string]*Client),
@@ -44,13 +45,13 @@ func NewHub() *Hub {
 	}
 }
 
-// RegisterClient registers a new SSE client
+// RegisterClient registers a new WebSocket client
 func (h *Hub) RegisterClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	
 	h.clients[client.ID] = client
-	slog.Info("SSE client registered", "clientID", client.ID, "workspaceID", client.WorkspaceID, "processID", client.ProcessID)
+	slog.Info("WebSocket client registered", "clientID", client.ID, "workspaceID", client.WorkspaceID, "processID", client.ProcessID)
 }
 
 // UnregisterClient removes a client from the hub
@@ -70,43 +71,43 @@ func (h *Hub) UnregisterClient(clientID string) {
 		default:
 			// Client not yet done, handler will close Done channel
 		}
-		slog.Info("SSE client unregistered", "clientID", clientID)
+		slog.Info("WebSocket client unregistered", "clientID", clientID)
 	}
 }
 
-// BroadcastToWorkspace broadcasts an event to all clients subscribed to a workspace
-func (h *Hub) BroadcastToWorkspace(workspaceID string, event Event) {
+// BroadcastToWorkspace broadcasts a message to all clients subscribed to a workspace
+func (h *Hub) BroadcastToWorkspace(workspaceID string, message Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	
 	for _, client := range h.clients {
 		if client.WorkspaceID == workspaceID && client.ProcessID == "" {
 			select {
-			case client.EventChan <- event:
+			case client.SendChan <- message:
 			case <-client.Done:
 				// Client disconnected
 			default:
 				// Channel full, skip
-				slog.Warn("SSE client channel full, dropping event", "clientID", client.ID)
+				slog.Warn("WebSocket client channel full, dropping message", "clientID", client.ID)
 			}
 		}
 	}
 }
 
-// BroadcastToProcess broadcasts an event to all clients subscribed to a specific process
-func (h *Hub) BroadcastToProcess(workspaceID, processID string, event Event) {
+// BroadcastToProcess broadcasts a message to all clients subscribed to a specific process
+func (h *Hub) BroadcastToProcess(workspaceID, processID string, message Message) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	
 	for _, client := range h.clients {
 		if client.WorkspaceID == workspaceID && client.ProcessID == processID {
 			select {
-			case client.EventChan <- event:
+			case client.SendChan <- message:
 			case <-client.Done:
 				// Client disconnected
 			default:
 				// Channel full, skip
-				slog.Warn("SSE client channel full, dropping event", "clientID", client.ID)
+				slog.Warn("WebSocket client channel full, dropping message", "clientID", client.ID)
 			}
 		}
 	}
@@ -152,18 +153,4 @@ func (h *Hub) CleanupRateLimiters(processIDs []string) {
 			delete(h.rateLimiters, id)
 		}
 	}
-}
-
-// FormatSSE formats an event for Server-Sent Events protocol
-func FormatSSE(event Event) ([]byte, error) {
-	// Encode data as JSON
-	dataJSON, err := json.Marshal(event.Data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal event data: %w", err)
-	}
-	
-	// Format as SSE
-	// event: <type>\ndata: <json>\n\n
-	output := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Type, string(dataJSON))
-	return []byte(output), nil
 }

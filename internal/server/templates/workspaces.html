@@ -221,19 +221,19 @@
         });
 
         {{if .CurrentWorkspace}}
-        // Process updates using Server-Sent Events (SSE)
+        // Process updates using WebSocket
         (function() {
             const workspaceID = '{{.CurrentWorkspace.ID}}';
             const basePath = '{{.BasePath}}';
             const runningProcessesContainer = document.getElementById('running-processes');
             const finishedProcessesContainer = document.getElementById('finished-processes');
-            let eventSource = null;
+            let ws = null;
             let reconnectTimeout = null;
 
-            function connectSSE() {
+            function connectWS() {
                 // Close existing connection if any
-                if (eventSource) {
-                    eventSource.close();
+                if (ws) {
+                    ws.close();
                 }
 
                 // Clear any pending reconnect
@@ -242,156 +242,153 @@
                     reconnectTimeout = null;
                 }
 
-                console.log('Connecting to SSE for process updates...');
-                eventSource = new EventSource(`${basePath}/workspaces/${workspaceID}/sse-process-updates`);
+                // Build WebSocket URL (ws:// or wss:// based on current protocol)
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProtocol}//${window.location.host}${basePath}/workspaces/${workspaceID}/ws-process-updates`;
+                
+                console.log('Connecting to WebSocket for process updates...');
+                ws = new WebSocket(wsUrl);
 
-                // Handle reconciliation events (initial state on connect)
-                eventSource.addEventListener('reconcile_running', function(e) {
-                    const data = JSON.parse(e.data);
-                    console.log('Reconcile running process:', data.id);
-
-                    // Check if process already exists
-                    const existingElement = document.getElementById(`process-${data.id}`);
-                    if (!existingElement) {
-                        // Add new process
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = data.html;
-                        const newElement = tempDiv.firstElementChild;
-
-                        // Remove "No processes running" message if present
-                        const noProcessesMsg = runningProcessesContainer.querySelector('p.text-muted');
-                        if (noProcessesMsg) {
-                            runningProcessesContainer.innerHTML = '';
-                        }
-
-                        runningProcessesContainer.appendChild(newElement);
-
-                        // Initialize HTMX for the new element
-                        if (window.htmx) {
-                            htmx.process(newElement);
-                        }
-                    }
-                });
-
-                eventSource.addEventListener('reconcile_done', function(e) {
-                    const data = JSON.parse(e.data);
-                    console.log('Reconciliation done, running processes:', data.count);
-                    
-                    // If no running processes, show message
-                    if (data.count === 0) {
-                        runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
-                    }
-                });
-
-                // Handle new process started
-                eventSource.addEventListener('process_started', function(e) {
-                    const data = JSON.parse(e.data);
-                    console.log('Process started:', data.id);
-
-                    // Check if process already exists
-                    const existingElement = document.getElementById(`process-${data.id}`);
-                    if (!existingElement) {
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = data.html;
-                        const newElement = tempDiv.firstElementChild;
-
-                        // Remove "No processes running" message if present
-                        const noProcessesMsg = runningProcessesContainer.querySelector('p.text-muted');
-                        if (noProcessesMsg) {
-                            runningProcessesContainer.innerHTML = '';
-                        }
-
-                        runningProcessesContainer.appendChild(newElement);
-
-                        // Initialize HTMX for the new element
-                        if (window.htmx) {
-                            htmx.process(newElement);
-                        }
-                    }
-                });
-
-                // Handle process output updates
-                eventSource.addEventListener('process_output', function(e) {
-                    const data = JSON.parse(e.data);
-                    const outputDiv = document.getElementById(`output-${data.id}`);
-                    if (outputDiv && data.output_html) {
-                        outputDiv.innerHTML = data.output_html;
-                        // Re-process HTMX attributes in case there's an expand button
-                        if (window.htmx) {
-                            htmx.process(outputDiv);
-                        }
-                    }
-                });
-
-                // Handle process finished
-                eventSource.addEventListener('process_finished', function(e) {
-                    const data = JSON.parse(e.data);
-                    console.log('Process finished:', data.id);
-
-                    // Remove from running list
-                    const existingElement = document.getElementById(`process-${data.id}`);
-                    if (existingElement) {
-                        existingElement.remove();
-                    }
-
-                    // Check if running processes is now empty
-                    if (runningProcessesContainer.querySelectorAll('.process-card').length === 0) {
-                        runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
-                    }
-
-                    // Refresh the finished processes list
-                    if (finishedProcessesContainer) {
-                        const refreshTrigger = document.createElement('div');
-                        refreshTrigger.setAttribute('hx-get', `${basePath}/workspaces/${workspaceID}/hx-finished-processes?offset=0`);
-                        refreshTrigger.setAttribute('hx-trigger', 'load');
-                        refreshTrigger.setAttribute('hx-target', '#finished-processes');
-                        refreshTrigger.setAttribute('hx-swap', 'innerHTML');
-                        document.body.appendChild(refreshTrigger);
-                        if (window.htmx) {
-                            htmx.process(refreshTrigger);
-                        }
-                        setTimeout(() => refreshTrigger.remove(), 100);
-                    }
-                });
-
-                // Handle connection opened
-                eventSource.onopen = function() {
-                    console.log('SSE connection opened');
+                ws.onopen = function() {
+                    console.log('WebSocket connection opened');
                 };
 
-                // Handle errors and reconnect
-                eventSource.onerror = function(e) {
-                    console.error('SSE connection error:', e);
-                    eventSource.close();
+                ws.onmessage = function(event) {
+                    const msg = JSON.parse(event.data);
                     
+                    switch(msg.type) {
+                        case 'reconcile_running':
+                            console.log('Reconcile running process:', msg.data.id);
+                            // Check if process already exists
+                            const existingElement = document.getElementById(`process-${msg.data.id}`);
+                            if (!existingElement) {
+                                // Add new process
+                                const tempDiv = document.createElement('div');
+                                tempDiv.innerHTML = msg.data.html;
+                                const newElement = tempDiv.firstElementChild;
+
+                                // Remove "No processes running" message if present
+                                const noProcessesMsg = runningProcessesContainer.querySelector('p.text-muted');
+                                if (noProcessesMsg) {
+                                    runningProcessesContainer.innerHTML = '';
+                                }
+
+                                runningProcessesContainer.appendChild(newElement);
+
+                                // Initialize HTMX for the new element
+                                if (window.htmx) {
+                                    htmx.process(newElement);
+                                }
+                            }
+                            break;
+
+                        case 'reconcile_done':
+                            console.log('Reconciliation done, running processes:', msg.data.count);
+                            // If no running processes, show message
+                            if (msg.data.count === 0) {
+                                runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
+                            }
+                            break;
+
+                        case 'process_started':
+                            console.log('Process started:', msg.data.id);
+                            // Check if process already exists
+                            const existingStarted = document.getElementById(`process-${msg.data.id}`);
+                            if (!existingStarted) {
+                                const tempDiv = document.createElement('div');
+                                tempDiv.innerHTML = msg.data.html;
+                                const newElement = tempDiv.firstElementChild;
+
+                                // Remove "No processes running" message if present
+                                const noProcessesMsg = runningProcessesContainer.querySelector('p.text-muted');
+                                if (noProcessesMsg) {
+                                    runningProcessesContainer.innerHTML = '';
+                                }
+
+                                runningProcessesContainer.appendChild(newElement);
+
+                                // Initialize HTMX for the new element
+                                if (window.htmx) {
+                                    htmx.process(newElement);
+                                }
+                            }
+                            break;
+
+                        case 'process_output':
+                            const outputDiv = document.getElementById(`output-${msg.data.id}`);
+                            if (outputDiv && msg.data.output_html) {
+                                outputDiv.innerHTML = msg.data.output_html;
+                                // Re-process HTMX attributes in case there's an expand button
+                                if (window.htmx) {
+                                    htmx.process(outputDiv);
+                                }
+                            }
+                            break;
+
+                        case 'process_finished':
+                            console.log('Process finished:', msg.data.id);
+                            // Remove from running list
+                            const existingFinished = document.getElementById(`process-${msg.data.id}`);
+                            if (existingFinished) {
+                                existingFinished.remove();
+                            }
+
+                            // Check if running processes is now empty
+                            if (runningProcessesContainer.querySelectorAll('.process-card').length === 0) {
+                                runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
+                            }
+
+                            // Refresh the finished processes list
+                            if (finishedProcessesContainer) {
+                                const refreshTrigger = document.createElement('div');
+                                refreshTrigger.setAttribute('hx-get', `${basePath}/workspaces/${workspaceID}/hx-finished-processes?offset=0`);
+                                refreshTrigger.setAttribute('hx-trigger', 'load');
+                                refreshTrigger.setAttribute('hx-target', '#finished-processes');
+                                refreshTrigger.setAttribute('hx-swap', 'innerHTML');
+                                document.body.appendChild(refreshTrigger);
+                                if (window.htmx) {
+                                    htmx.process(refreshTrigger);
+                                }
+                                setTimeout(() => refreshTrigger.remove(), 100);
+                            }
+                            break;
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                };
+
+                ws.onclose = function() {
+                    console.log('WebSocket connection closed');
                     // Reconnect after 3 seconds
                     console.log('Reconnecting in 3 seconds...');
-                    reconnectTimeout = setTimeout(connectSSE, 3000);
+                    reconnectTimeout = setTimeout(connectWS, 3000);
                 };
             }
 
-            // Start SSE connection
-            connectSSE();
+            // Start WebSocket connection
+            connectWS();
 
             // Reconnect when page becomes visible (e.g., after sleep)
             document.addEventListener('visibilitychange', function() {
-                if (!document.hidden && (!eventSource || eventSource.readyState === EventSource.CLOSED)) {
-                    console.log('Page visible, reconnecting SSE...');
-                    connectSSE();
+                if (!document.hidden && (!ws || ws.readyState === WebSocket.CLOSED)) {
+                    console.log('Page visible, reconnecting WebSocket...');
+                    connectWS();
                 }
             });
 
             // Cleanup on page unload
             window.addEventListener('beforeunload', function() {
-                if (eventSource) {
-                    eventSource.close();
+                if (ws) {
+                    ws.close();
                 }
             });
 
             // Expose function for triggering reconnect (e.g., after submitting a new command)
-            window.reconnectSSE = function() {
-                console.log('Manual SSE reconnect requested');
-                connectSSE();
+            window.reconnectWS = function() {
+                console.log('Manual WebSocket reconnect requested');
+                connectWS();
             };
         })();
         {{end}}

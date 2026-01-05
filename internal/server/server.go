@@ -24,9 +24,9 @@ import (
 	"github.com/gorilla/websocket"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
-	"mobileshell/internal/sse"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
+	"mobileshell/internal/wshub"
 )
 
 //go:embed templates/*
@@ -38,7 +38,7 @@ var staticFS embed.FS
 type Server struct {
 	stateDir string
 	tmpl     *template.Template
-	sseHub   *sse.Hub
+	wsHub    *wshub.Hub
 }
 
 func New(stateDir string) (*Server, error) {
@@ -53,7 +53,7 @@ func New(stateDir string) (*Server, error) {
 	s := &Server{
 		stateDir: stateDir,
 		tmpl:     tmpl,
-		sseHub:   sse.NewHub(),
+		wsHub:    wshub.NewHub(),
 	}
 
 	return s, nil
@@ -327,7 +327,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/json-process-updates", s.authMiddleware(s.wrapHandler(s.jsonHandleProcessUpdates)))
-	mux.HandleFunc("/workspaces/{id}/sse-process-updates", s.authMiddleware(s.handleSSEProcessUpdates))
+	mux.HandleFunc("/workspaces/{id}/ws-process-updates", s.authMiddleware(s.handleWSProcessUpdates))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}", s.authMiddleware(s.wrapHandler(s.handleProcessByID)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
@@ -833,12 +833,12 @@ func (s *Server) renderFinishedProcessSnippet(p *executor.Process, workspaceID s
 	return buf.String(), nil
 }
 
-// handleSSEProcessUpdates handles SSE connections for workspace process updates
-func (s *Server) handleSSEProcessUpdates(w http.ResponseWriter, r *http.Request) {
+// handleWSProcessUpdates handles WebSocket connections for workspace process updates
+func (s *Server) handleWSProcessUpdates(w http.ResponseWriter, r *http.Request) {
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
-		slog.Error("SSE: Workspace ID is required")
+		slog.Error("WebSocket: Workspace ID is required")
 		http.Error(w, "Workspace ID is required", http.StatusBadRequest)
 		return
 	}
@@ -846,43 +846,52 @@ func (s *Server) handleSSEProcessUpdates(w http.ResponseWriter, r *http.Request)
 	// Verify workspace exists
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		slog.Error("SSE: Workspace not found", "workspaceID", workspaceID, "error", err)
+		slog.Error("WebSocket: Workspace not found", "workspaceID", workspaceID, "error", err)
 		http.Error(w, "Workspace not found", http.StatusNotFound)
 		return
 	}
 
-	// Get flusher to support streaming (check before setting headers)
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		slog.Error("SSE: Streaming not supported")
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+	// Upgrade to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("Failed to upgrade to WebSocket", "error", err)
 		return
 	}
+	defer conn.Close()
 
-	// Set headers for SSE
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
-
-	// Create SSE client
+	// Create WebSocket client
 	clientID := fmt.Sprintf("%s-%d", workspaceID, time.Now().UnixNano())
-	client := &sse.Client{
+	client := &wshub.Client{
 		ID:          clientID,
 		WorkspaceID: workspaceID,
-		EventChan:   make(chan sse.Event, 100),
+		Conn:        conn,
+		SendChan:    make(chan wshub.Message, 100),
 		Done:        make(chan struct{}),
 	}
 
 	// Register client with hub
-	s.sseHub.RegisterClient(client)
-	defer s.sseHub.UnregisterClient(clientID)
+	s.wsHub.RegisterClient(client)
+	defer s.wsHub.UnregisterClient(clientID)
+	defer close(client.Done)
+
+	// Start goroutine to write messages to WebSocket
+	go func() {
+		for {
+			select {
+			case msg := <-client.SendChan:
+				if err := conn.WriteJSON(msg); err != nil {
+					slog.Error("Failed to write WebSocket message", "error", err)
+					return
+				}
+			case <-client.Done:
+				return
+			}
+		}
+	}()
 
 	// Send initial reconciliation: full current state
-	if err := s.sendReconciliationEvents(w, flusher, ws, r); err != nil {
+	if err := s.sendWSReconciliation(client, ws, r); err != nil {
 		slog.Error("Failed to send reconciliation", "error", err, "workspaceID", workspaceID)
-		// Can't use http.Error after headers are sent
-		close(client.Done)
 		return
 	}
 
@@ -893,32 +902,15 @@ func (s *Server) handleSSEProcessUpdates(w http.ResponseWriter, r *http.Request)
 	// Track known process IDs and their states
 	knownProcesses := make(map[string]bool) // processID -> completed status
 
-	// Listen for events and send to client
+	// Main loop for periodic checks
 	for {
 		select {
-		case <-r.Context().Done():
-			// Client disconnected
-			close(client.Done)
+		case <-client.Done:
 			return
-		case event := <-client.EventChan:
-			// Format and send SSE event
-			data, err := sse.FormatSSE(event)
-			if err != nil {
-				slog.Error("Failed to format SSE event", "error", err)
-				continue
-			}
-			_, err = w.Write(data)
-			if err != nil {
-				slog.Error("Failed to write SSE event", "error", err)
-				close(client.Done)
-				return
-			}
-			flusher.Flush()
 		case <-ticker.C:
 			// Periodic check for process state changes
-			if err := s.checkProcessUpdates(w, flusher, ws, r, knownProcesses); err != nil {
+			if err := s.checkWSProcessUpdates(client, ws, r, knownProcesses); err != nil {
 				slog.Error("Failed to check process updates", "error", err)
-				close(client.Done)
 				return
 			}
 		}
@@ -926,7 +918,8 @@ func (s *Server) handleSSEProcessUpdates(w http.ResponseWriter, r *http.Request)
 }
 
 // sendReconciliationEvents sends the full current state to a new SSE client
-func (s *Server) sendReconciliationEvents(w http.ResponseWriter, flusher http.Flusher, ws *workspace.Workspace, r *http.Request) error {
+// sendWSReconciliation sends the full current state to a new WebSocket client
+func (s *Server) sendWSReconciliation(client *wshub.Client, ws *workspace.Workspace, r *http.Request) error {
 	allProcesses, err := executor.ListWorkspaceProcesses(ws)
 	if err != nil {
 		return fmt.Errorf("failed to list processes: %w", err)
@@ -956,7 +949,7 @@ func (s *Server) sendReconciliationEvents(w http.ResponseWriter, flusher http.Fl
 		return runningProcesses[i].StartTime.Before(runningProcesses[j].StartTime)
 	})
 
-	// Send each running process as a reconcile event
+	// Send each running process as a reconcile message
 	for _, p := range runningProcesses {
 		html, err := s.renderRunningProcessSnippet(p, ws.ID, r)
 		if err != nil {
@@ -964,52 +957,40 @@ func (s *Server) sendReconciliationEvents(w http.ResponseWriter, flusher http.Fl
 			continue
 		}
 
-		event := sse.Event{
+		msg := wshub.Message{
 			Type: "reconcile_running",
 			Data: map[string]interface{}{
-				"id":     p.ID,
-				"html":   html,
+				"id":   p.ID,
+				"html": html,
 			},
 		}
 
-		data, err := sse.FormatSSE(event)
-		if err != nil {
-			slog.Error("Failed to format reconcile event", "error", err)
-			continue
-		}
-
-		_, err = w.Write(data)
-		if err != nil {
-			return fmt.Errorf("failed to write reconcile event: %w", err)
+		select {
+		case client.SendChan <- msg:
+		case <-client.Done:
+			return fmt.Errorf("client disconnected during reconciliation")
 		}
 	}
 
-	flusher.Flush()
-
-	// Send reconcile_done event
-	event := sse.Event{
+	// Send reconcile_done message
+	msg := wshub.Message{
 		Type: "reconcile_done",
 		Data: map[string]interface{}{
 			"count": len(runningProcesses),
 		},
 	}
 
-	data, err := sse.FormatSSE(event)
-	if err != nil {
-		return fmt.Errorf("failed to format reconcile_done event: %w", err)
+	select {
+	case client.SendChan <- msg:
+	case <-client.Done:
+		return fmt.Errorf("client disconnected during reconciliation")
 	}
 
-	_, err = w.Write(data)
-	if err != nil {
-		return fmt.Errorf("failed to write reconcile_done event: %w", err)
-	}
-
-	flusher.Flush()
 	return nil
 }
 
-// checkProcessUpdates checks for process state changes and sends updates
-func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher, ws *workspace.Workspace, r *http.Request, knownProcesses map[string]bool) error {
+// checkWSProcessUpdates checks for process state changes and sends updates via WebSocket
+func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Workspace, r *http.Request, knownProcesses map[string]bool) error {
 	allProcesses, err := executor.ListWorkspaceProcesses(ws)
 	if err != nil {
 		return fmt.Errorf("failed to list processes: %w", err)
@@ -1051,7 +1032,7 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 					continue
 				}
 
-				event := sse.Event{
+				msg := wshub.Message{
 					Type: "process_started",
 					Data: map[string]interface{}{
 						"id":   p.ID,
@@ -1059,51 +1040,39 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 					},
 				}
 
-				data, err := sse.FormatSSE(event)
-				if err != nil {
-					slog.Error("Failed to format process_started event", "error", err)
-					continue
+				select {
+				case client.SendChan <- msg:
+				case <-client.Done:
+					return fmt.Errorf("client disconnected")
 				}
-
-				_, err = w.Write(data)
-				if err != nil {
-					return fmt.Errorf("failed to write process_started event: %w", err)
-				}
-				flusher.Flush()
 			}
 			// If new and already completed, ignore (it finished before we started monitoring)
 		} else if !wasKnown && p.Completed {
 			// Process transition: was not completed before (!wasKnown means knownProcesses[p.ID]=false),
 			// now completed (p.Completed=true)
-			event := sse.Event{
+			msg := wshub.Message{
 				Type: "process_finished",
 				Data: map[string]interface{}{
 					"id": p.ID,
 				},
 			}
 
-			data, err := sse.FormatSSE(event)
-			if err != nil {
-				slog.Error("Failed to format process_finished event", "error", err)
-				continue
+			select {
+			case client.SendChan <- msg:
+			case <-client.Done:
+				return fmt.Errorf("client disconnected")
 			}
-
-			_, err = w.Write(data)
-			if err != nil {
-				return fmt.Errorf("failed to write process_finished event: %w", err)
-			}
-			flusher.Flush()
 		} else if !p.Completed {
 			// Running process - check if we should send update (rate limiting)
 			minInterval := 500 * time.Millisecond // 2 updates per second max per process
-			if s.sseHub.ShouldSendUpdate(p.ID, minInterval) {
+			if s.wsHub.ShouldSendUpdate(p.ID, minInterval) {
 				outputHTML, err := s.renderProcessOutputHTML(p, ws.ID, r)
 				if err != nil {
 					slog.Error("Failed to render process output", "error", err)
 					continue
 				}
 
-				event := sse.Event{
+				msg := wshub.Message{
 					Type: "process_output",
 					Data: map[string]interface{}{
 						"id":          p.ID,
@@ -1111,17 +1080,11 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 					},
 				}
 
-				data, err := sse.FormatSSE(event)
-				if err != nil {
-					slog.Error("Failed to format process_output event", "error", err)
-					continue
+				select {
+				case client.SendChan <- msg:
+				case <-client.Done:
+					return fmt.Errorf("client disconnected")
 				}
-
-				_, err = w.Write(data)
-				if err != nil {
-					return fmt.Errorf("failed to write process_output event: %w", err)
-				}
-				flusher.Flush()
 			}
 		}
 	}
@@ -1136,7 +1099,7 @@ func (s *Server) checkProcessUpdates(w http.ResponseWriter, flusher http.Flusher
 	for id := range currentProcesses {
 		activeIDs = append(activeIDs, id)
 	}
-	s.sseHub.CleanupRateLimiters(activeIDs)
+	s.wsHub.CleanupRateLimiters(activeIDs)
 
 	return nil
 }
