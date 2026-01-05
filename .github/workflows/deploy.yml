@@ -1,0 +1,138 @@
+name: Deploy to Production
+
+# This workflow deploys MobileShell to production on every push to main
+#
+# Required GitHub Secrets:
+# - SSH_PRIVATE_KEY: SSH private key for root access to production server
+# - PROD_HOST: Hostname or IP address of the production server
+# - PROD_USER: Username for the systemd service on production server
+# - MAILTO: Email address for deployment notifications
+# - MAIL_USERNAME: SMTP username for sending emails
+# - MAIL_PASSWORD: SMTP password or app password for sending emails
+# - MAIL_HOST: SMTP server address (e.g., smtp.gmail.com)
+
+'on':
+  push:
+    branches:
+      - main
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Tests
+        id: tests
+        uses: ./.github/actions/run-tests
+
+      # Send email notification if tests fail
+      # The failure() function returns true if any previous step failed
+      # We check steps.tests.outcome to ensure we only send email for test
+      # failures, not other types of failures
+      - name: Send test failure notification
+        if: failure() && steps.tests.outcome == 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_HOST }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "❌ MobileShell Production Deploy Failed - Tests"
+          to: ${{ secrets.MAILTO }}
+          from: GitHub Actions
+          body: >
+            The production deployment for MobileShell failed during
+            testing.
+
+
+            - Repository: [${{ github.repository }}](${{ github.server_url
+              }}/${{ github.repository }})
+
+            - Branch: ${{ github.ref }}
+
+            - Commit: [${{ github.sha }}](${{ github.server_url }}/${{
+              github.repository }}/commit/${{ github.sha }})
+
+            - Commit Message: ${{ github.event.head_commit.message }}
+
+            - Author: ${{ github.actor }}
+
+
+            Failed Job: ${{ github.server_url }}/${{ github.repository
+              }}/actions/runs/${{ github.run_id }}
+
+
+            Review the logs and fix the issues before the next deployment.
+
+      # Only proceed to deployment if tests passed
+      - name: Setup SSH
+        if: success()
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Note: ssh-keyscan trusts the first connection.
+          # For production, verify PROD_HOST fingerprint matches expected value
+          ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+
+          # Configure SSH to use the deploy key for production host
+          cat >> ~/.ssh/config <<EOF
+          Host ${{ secrets.PROD_HOST }}
+            HostName ${{ secrets.PROD_HOST }}
+            User root
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          EOF
+          chmod 600 ~/.ssh/config
+        shell: bash
+
+      - name: Build and Deploy to Production
+        if: success()
+        run: |
+          ./scripts/install.sh "${{ secrets.PROD_HOST }}" \
+            "${{ secrets.PROD_USER }}"
+        shell: bash
+
+      - name: Send deployment failure notification
+        if: failure() && steps.tests.outcome != 'failure'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_HOST }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "❌ MobileShell Production Deploy Failed - Deployment"
+          to: ${{ secrets.MAILTO }}
+          from: GitHub Actions
+          body: >
+            The production deployment for MobileShell failed during
+            deployment.
+
+
+            - Repository: [${{ github.repository }}](${{ github.server_url
+              }}/${{ github.repository }})
+
+            - Branch: ${{ github.ref }}
+
+            - Commit: [${{ github.sha }}](${{ github.server_url }}/${{
+              github.repository }}/commit/${{ github.sha }})
+
+            - Commit Message: ${{ github.event.head_commit.message }}
+
+            - Author: ${{ github.actor }}
+
+
+            Failed Job: ${{ github.server_url }}/${{ github.repository
+              }}/actions/runs/${{ github.run_id }}
+
+
+            Review the logs and investigate the deployment issue.
+
+      - name: Cleanup SSH
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+        shell: bash

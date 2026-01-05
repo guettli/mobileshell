@@ -111,6 +111,15 @@ The installation is idempotent and can be run multiple times safely.
 
 2. Copy to server and set up systemd service manually
 
+## CI/CD
+
+All pull requests to the `main` branch automatically run the full test suite
+via GitHub Actions.
+
+On every push to the `main` branch, tests are run and if they pass, the code
+is automatically deployed to production via SSH. Email notifications are sent
+on failure.
+
 ## Project Structure
 
 ```text

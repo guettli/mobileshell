@@ -1,0 +1,58 @@
+name: 'Run Tests'
+description: 'Runs the MobileShell test suite'
+runs:
+  using: "composite"
+  steps:
+    - name: Install Nix
+      uses: cachix/install-nix-action@v27
+      with:
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+
+    - name: Cache Nix store
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/nix
+        key: ${{ runner.os }}-nix-${{ hashFiles('flake.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-nix-
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Cache pnpm store
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/share/pnpm/store
+        key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-
+
+    - name: Install pnpm dependencies
+      run: pnpm install
+      shell: bash
+
+    - name: Run tests
+      run: ./scripts/test.sh
+      shell: bash
+
+    - name: Check git is clean
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "❌ Git is not clean"
+          git status
+          git diff HEAD
+          exit 1
+        fi
+        echo "✓ Git is clean"
+      shell: bash
