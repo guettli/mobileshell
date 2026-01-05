@@ -764,3 +764,88 @@ func TestBinaryDownload(t *testing.T) {
 
 	t.Logf("Successfully verified binary data message is shown on process page")
 }
+
+func TestNoDownloadButtonWithoutOutput(t *testing.T) {
+	// Create a temporary directory for state
+	stateDir := t.TempDir()
+
+	// Initialize auth
+	err := auth.InitAuth(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to init auth: %v", err)
+	}
+
+	// Initialize executor
+	err = executor.InitExecutor(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to initialize executor: %v", err)
+	}
+
+	// Create a workspace
+	ws, err := executor.CreateWorkspace(stateDir, "test-ws", stateDir, "")
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+
+	// Create a test process with no output
+	hash, err := workspace.CreateProcess(ws, "test no output command")
+	if err != nil {
+		t.Fatalf("Failed to create process: %v", err)
+	}
+
+	processDir := workspace.GetProcessDir(ws, hash)
+
+	// Create empty output.log file
+	outputFile := filepath.Join(processDir, "output.log")
+	if err := os.WriteFile(outputFile, []byte(""), 0600); err != nil {
+		t.Fatalf("Failed to write output.log: %v", err)
+	}
+
+	// Mark process as completed
+	if err := workspace.UpdateProcessExit(ws, hash, 0, ""); err != nil {
+		t.Fatalf("Failed to update process exit: %v", err)
+	}
+
+	// Create server instance
+	srv, err := New(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Add a test password and create session
+	password := "a-very-long-password-that-meets-minimum-length-requirements"
+	err = auth.AddPassword(stateDir, password)
+	if err != nil {
+		t.Fatalf("Failed to add password: %v", err)
+	}
+
+	token, success := auth.Authenticate(context.Background(), stateDir, password)
+	if !success {
+		t.Fatal("Failed to authenticate")
+	}
+
+	// Test that the process page does NOT show Download Output button when there's no output
+	processPageReq := httptest.NewRequest("GET", "/workspaces/"+ws.ID+"/processes/"+hash, nil)
+	processPageReq.AddCookie(&http.Cookie{
+		Name:  "session",
+		Value: token,
+	})
+
+	processPageW := httptest.NewRecorder()
+	handler := srv.SetupRoutes()
+	handler.ServeHTTP(processPageW, processPageReq)
+
+	if processPageW.Code != http.StatusOK {
+		t.Errorf("Expected status code %d for process page, got %d", http.StatusOK, processPageW.Code)
+	}
+
+	processPageBody := processPageW.Body.String()
+	if strings.Contains(processPageBody, "Download Output") {
+		t.Error("Process page should NOT contain 'Download Output' button when there's no output")
+	}
+	if !strings.Contains(processPageBody, "No output yet") {
+		t.Error("Process page should contain 'No output yet' message")
+	}
+
+	t.Logf("Successfully verified that Download Output button is hidden when there's no output")
+}
