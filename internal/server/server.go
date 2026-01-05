@@ -857,7 +857,11 @@ func (s *Server) handleWSProcessUpdates(w http.ResponseWriter, r *http.Request) 
 		slog.Error("Failed to upgrade to WebSocket", "error", err)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.Error("Failed to close WebSocket connection", "error", err)
+		}
+	}()
 
 	// Create WebSocket client
 	clientID := fmt.Sprintf("%s-%d", workspaceID, time.Now().UnixNano())
