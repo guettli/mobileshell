@@ -135,4 +135,3 @@ After writing a file, the content is checked:
 
 File operations require valid authentication session. File access is controlled by Unix file
 permissions.
-
