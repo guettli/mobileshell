@@ -11,15 +11,10 @@ fi
 
 # Check for SVG elements in HTML files
 # This linter fails if there are any <svg> tags in HTML files
-HTML_FILES=$(git ls-files '*.html')
-
-if [[ -z "$HTML_FILES" ]]; then
-    echo "No HTML files found"
-    exit 0
-fi
 
 # Search for SVG tags (case-insensitive)
-if echo "$HTML_FILES" | xargs grep -i '<svg' 2>/dev/null; then
+# Use pattern that matches actual SVG tag openings (followed by space, > or other tag characters)
+if git ls-files -z '*.html' | xargs -0 grep -iE '<svg[[:space:]>]' 2>/dev/null; then
     echo ""
     echo "Error: SVG elements found in HTML files!"
     echo "Please remove SVG elements from the HTML files."
