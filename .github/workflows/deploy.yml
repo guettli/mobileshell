@@ -15,6 +15,7 @@ name: Deploy to Production
   push:
     branches:
       - main
+  workflow_dispatch: # Allows manual triggering from GitHub UI: Actions tab → Deploy to Production → Run workflow
 
 jobs:
   test-and-deploy:
