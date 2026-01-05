@@ -82,7 +82,7 @@
                 <h5 class="card-title">Execute Command</h5>
                 <form hx-post="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute"
                     hx-target="#running-processes" hx-swap="beforeend"
-                    hx-on::after-request="this.reset(); if (window.pollProcessUpdates) window.pollProcessUpdates();">
+                    hx-on::after-request="this.reset();">
                     <div class="mb-3">
                         <input type="text" class="form-control" name="command" placeholder="Enter command..." required
                             autofocus>
@@ -221,138 +221,167 @@
         });
 
         {{if .CurrentWorkspace}}
-        // Process polling using plain JavaScript
+        // Process updates using WebSocket
         (function() {
             const workspaceID = '{{.CurrentWorkspace.ID}}';
             const basePath = '{{.BasePath}}';
             const runningProcessesContainer = document.getElementById('running-processes');
             const finishedProcessesContainer = document.getElementById('finished-processes');
-            let fastPollCount = 0;
-            const FAST_POLL_INTERVAL = 500; // 0.5 seconds
-            const NORMAL_POLL_INTERVAL = 3000; // 3 seconds
-            const FAST_POLL_ITERATIONS = 20;
+            let ws = null;
+            let reconnectTimeout = null;
 
-            function getCurrentProcessIDs() {
-                const processCards = runningProcessesContainer.querySelectorAll('.process-card[id^="process-"]');
-                return Array.from(processCards).map(card => card.id.replace('process-', ''));
-            }
+            function connectWS() {
+                // Close existing connection if any
+                if (ws) {
+                    ws.close();
+                }
 
-            async function pollProcessUpdates() {
-                try {
-                    // Check if we should decrement fast poll counter
-                    if (fastPollCount > 0) {
-                        fastPollCount--;
-                    }
+                // Clear any pending reconnect
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = null;
+                }
 
-                    const processIDs = getCurrentProcessIDs();
-                    const queryParams = processIDs.length > 0 ? `?process_ids=${processIDs.join(',')}` : '';
+                // Build WebSocket URL (ws:// or wss:// based on current protocol)
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${wsProtocol}//${window.location.host}${basePath}/workspaces/${workspaceID}/ws-process-updates`;
+                
+                console.log('Connecting to WebSocket for process updates...');
+                ws = new WebSocket(wsUrl);
 
-                    const response = await fetch(`${basePath}/workspaces/${workspaceID}/json-process-updates${queryParams}`);
+                ws.onopen = function() {
+                    console.log('WebSocket connection opened');
+                };
 
-                    if (!response.ok) {
-                        console.error('Failed to fetch process updates:', response.status);
-                        return;
-                    }
-
-                    const data = await response.json();
-
-                    if (data.updates && data.updates.length > 0) {
-                        let hasFinishedProcesses = false;
-
-                        data.updates.forEach(update => {
-                            if (update.status === 'finished') {
-                                // Process finished - remove from running list
-                                const existingElement = document.getElementById(`process-${update.id}`);
-                                if (existingElement) {
-                                    existingElement.remove();
-                                    hasFinishedProcesses = true;
-                                }
-                            } else if (update.status === 'running' && update.output_html) {
-                                // Update output for running process
-                                const outputDiv = document.getElementById(`output-${update.id}`);
-                                if (outputDiv) {
-                                    outputDiv.innerHTML = update.output_html;
-                                    // Re-process HTMX attributes in case there's an expand button
-                                    if (window.htmx) {
-                                        htmx.process(outputDiv);
-                                    }
-                                }
-                            } else if (update.status === 'new') {
-                                // New running process - append to running processes
+                ws.onmessage = function(event) {
+                    const msg = JSON.parse(event.data);
+                    
+                    switch(msg.type) {
+                        case 'reconcile_running':
+                            console.log('Reconcile running process:', msg.data.id);
+                            // Check if process already exists
+                            const existingElement = document.getElementById(`process-${msg.data.id}`);
+                            if (!existingElement) {
+                                // Add new process
                                 const tempDiv = document.createElement('div');
-                                tempDiv.innerHTML = update.html;
+                                tempDiv.innerHTML = msg.data.html;
                                 const newElement = tempDiv.firstElementChild;
 
-                                // Insert in order by creation date
-                                const existingCards = Array.from(runningProcessesContainer.querySelectorAll('.process-card'));
-                                if (existingCards.length === 0) {
-                                    // Remove "No processes running" message if present
+                                // Remove "No processes running" message if present
+                                const noProcessesMsg = runningProcessesContainer.querySelector('p.text-muted');
+                                if (noProcessesMsg) {
                                     runningProcessesContainer.innerHTML = '';
-                                    runningProcessesContainer.appendChild(newElement);
-                                } else {
-                                    // Append at the end (sorted by creation date on server)
-                                    runningProcessesContainer.appendChild(newElement);
                                 }
+
+                                runningProcessesContainer.appendChild(newElement);
 
                                 // Initialize HTMX for the new element
-                                if (window.htmx) {
-                                    htmx.process(newElement);
-                                }
-                            } else if (update.status === 'unknown') {
-                                // Process no longer exists - remove it
-                                const existingElement = document.getElementById(`process-${update.id}`);
-                                if (existingElement) {
-                                    existingElement.remove();
-                                }
+                                htmx.process(newElement);
                             }
-                        });
+                            break;
 
-                        // If any processes finished, refresh the finished processes list
-                        if (hasFinishedProcesses && finishedProcessesContainer) {
-                            const refreshTrigger = document.createElement('div');
-                            refreshTrigger.setAttribute('hx-get', `${basePath}/workspaces/${workspaceID}/hx-finished-processes?offset=0`);
-                            refreshTrigger.setAttribute('hx-trigger', 'load');
-                            refreshTrigger.setAttribute('hx-target', '#finished-processes');
-                            refreshTrigger.setAttribute('hx-swap', 'innerHTML');
-                            document.body.appendChild(refreshTrigger);
-                            if (window.htmx) {
+                        case 'reconcile_done':
+                            console.log('Reconciliation done, running processes:', msg.data.count);
+                            // If no running processes, show message
+                            if (msg.data.count === 0) {
+                                runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
+                            }
+                            break;
+
+                        case 'process_started':
+                            console.log('Process started:', msg.data.id);
+                            // Check if process already exists
+                            const existingStarted = document.getElementById(`process-${msg.data.id}`);
+                            if (!existingStarted) {
+                                const tempDiv = document.createElement('div');
+                                tempDiv.innerHTML = msg.data.html;
+                                const newElement = tempDiv.firstElementChild;
+
+                                // Remove "No processes running" message if present
+                                const noProcessesMsg = runningProcessesContainer.querySelector('p.text-muted');
+                                if (noProcessesMsg) {
+                                    runningProcessesContainer.innerHTML = '';
+                                }
+
+                                runningProcessesContainer.appendChild(newElement);
+
+                                // Initialize HTMX for the new element
+                                htmx.process(newElement);
+                            }
+                            break;
+
+                        case 'process_output':
+                            const outputDiv = document.getElementById(`output-${msg.data.id}`);
+                            if (outputDiv && msg.data.output_html) {
+                                outputDiv.innerHTML = msg.data.output_html;
+                                // Re-process HTMX attributes in case there's an expand button
+                                htmx.process(outputDiv);
+                            }
+                            break;
+
+                        case 'process_finished':
+                            console.log('Process finished:', msg.data.id);
+                            // Remove from running list
+                            const existingFinished = document.getElementById(`process-${msg.data.id}`);
+                            if (existingFinished) {
+                                existingFinished.remove();
+                            }
+
+                            // Check if running processes is now empty
+                            if (runningProcessesContainer.querySelectorAll('.process-card').length === 0) {
+                                runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
+                            }
+
+                            // Refresh the finished processes list
+                            if (finishedProcessesContainer) {
+                                const refreshTrigger = document.createElement('div');
+                                refreshTrigger.setAttribute('hx-get', `${basePath}/workspaces/${workspaceID}/hx-finished-processes?offset=0`);
+                                refreshTrigger.setAttribute('hx-trigger', 'load');
+                                refreshTrigger.setAttribute('hx-target', '#finished-processes');
+                                refreshTrigger.setAttribute('hx-swap', 'innerHTML');
+                                document.body.appendChild(refreshTrigger);
                                 htmx.process(refreshTrigger);
+                                setTimeout(() => refreshTrigger.remove(), 100);
                             }
-                            setTimeout(() => refreshTrigger.remove(), 100);
-                        }
-
-                        // Check if running processes is now empty
-                        if (runningProcessesContainer.querySelectorAll('.process-card').length === 0) {
-                            runningProcessesContainer.innerHTML = '<p class="text-muted">No processes running</p>';
-                        }
+                            break;
                     }
-                } catch (error) {
-                    console.error('Error polling process updates:', error);
-                }
+                };
 
-                // Schedule next poll based on whether we're in fast poll mode
-                const delay = fastPollCount > 0 ? FAST_POLL_INTERVAL : NORMAL_POLL_INTERVAL;
-                setTimeout(pollProcessUpdates, delay);
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                };
+
+                ws.onclose = function() {
+                    console.log('WebSocket connection closed');
+                    // Reconnect after 3 seconds
+                    console.log('Reconnecting in 3 seconds...');
+                    reconnectTimeout = setTimeout(connectWS, 3000);
+                };
             }
 
-            function startFastPolling() {
-                fastPollCount = FAST_POLL_ITERATIONS;
-                console.log('Started fast polling (0.5s for 20 iterations)');
-            }
+            // Start WebSocket connection
+            connectWS();
 
-            // Expose functions to window for external triggering
-            window.pollProcessUpdates = pollProcessUpdates;
-            window.startFastPolling = startFastPolling;
-
-            // Initial poll on page load
-            pollProcessUpdates();
-
-            // Also poll when page becomes visible
+            // Reconnect when page becomes visible (e.g., after sleep)
             document.addEventListener('visibilitychange', function() {
-                if (!document.hidden) {
-                    pollProcessUpdates();
+                if (!document.hidden && (!ws || ws.readyState === WebSocket.CLOSED)) {
+                    console.log('Page visible, reconnecting WebSocket...');
+                    connectWS();
                 }
             });
+
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', function() {
+                if (ws) {
+                    ws.close();
+                }
+            });
+
+            // Expose function for triggering reconnect (e.g., after submitting a new command)
+            window.reconnectWS = function() {
+                console.log('Manual WebSocket reconnect requested');
+                connectWS();
+            };
         })();
         {{end}}
     </script>
