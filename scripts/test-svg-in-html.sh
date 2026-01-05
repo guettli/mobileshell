@@ -9,11 +9,16 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     exec nix develop --command "$0" "$@"
 fi
 
-# Exclude internal/wshub since mutex is required for thread-safe WebSocket connection management
-go_mutex=$(git ls-files '*.go' | grep -v 'internal/wshub/' | { xargs rg -n 'Mutex' || true; })
-if [[ -n $go_mutex ]]; then
-    echo "Found 'Mutex' in Go source code. Please avoid mutexes. This is stateless http. There should be a way to avoid mutexes"
-    echo
-    echo "$go_mutex"
+# Check for SVG elements in HTML files
+# This linter fails if there are any <svg> tags in HTML files
+
+# Search for SVG tags (case-insensitive)
+# Pattern matches actual SVG tag openings: <svg followed by space, /, >, or end of line
+if git ls-files -z '*.html' | xargs -0 grep -iE '<svg([[:space:]/>]|$)' 2>/dev/null; then
+    echo ""
+    echo "Error: SVG elements found in HTML files!"
+    echo "Please remove SVG elements from the HTML files."
     exit 1
 fi
+
+echo "No SVG elements found in HTML files"

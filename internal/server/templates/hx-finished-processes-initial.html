@@ -15,7 +15,7 @@
                     </p>
                 </div>
                 <div>
-                    <form hx-post="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/hx-execute" hx-target="#running-processes" hx-swap="beforeend" hx-on::after-request="this.reset(); if (window.pollProcessUpdates) window.pollProcessUpdates();" style="display: inline;">
+                    <form hx-post="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/hx-execute" hx-target="#running-processes" hx-swap="beforeend" hx-on::after-request="this.reset();" style="display: inline;">
                         <input type="hidden" name="command" value="{{.Command}}">
                         <button type="submit" class="btn btn-sm btn-outline-primary" title="Rerun this command">Rerun</button>
                     </form>

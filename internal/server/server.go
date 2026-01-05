@@ -24,8 +24,10 @@ import (
 	"github.com/gorilla/websocket"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
+	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
+	"mobileshell/internal/wshub"
 )
 
 //go:embed templates/*
@@ -37,6 +39,7 @@ var staticFS embed.FS
 type Server struct {
 	stateDir string
 	tmpl     *template.Template
+	wsHub    *wshub.Hub
 }
 
 func New(stateDir string) (*Server, error) {
@@ -51,6 +54,7 @@ func New(stateDir string) (*Server, error) {
 	s := &Server{
 		stateDir: stateDir,
 		tmpl:     tmpl,
+		wsHub:    wshub.NewHub(),
 	}
 
 	return s, nil
@@ -299,6 +303,13 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
 }
 
+// Flush implements http.Flusher to support streaming
+func (rw *responseWriter) Flush() {
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
 func (s *Server) SetupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -317,6 +328,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/json-process-updates", s.authMiddleware(s.wrapHandler(s.jsonHandleProcessUpdates)))
+	mux.HandleFunc("/workspaces/{id}/ws-process-updates", s.authMiddleware(s.handleWSProcessUpdates))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}", s.authMiddleware(s.wrapHandler(s.handleProcessByID)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
@@ -327,6 +339,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/terminal", s.authMiddleware(s.wrapHandler(s.handleTerminal)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/ws-terminal", s.authMiddleware(s.handleWebSocketTerminal))
 	mux.HandleFunc("/workspaces/{id}/terminal-execute", s.authMiddleware(s.wrapHandler(s.handleTerminalExecute)))
+
+	// File editor routes
+	mux.HandleFunc("/workspaces/{id}/files", s.authMiddleware(s.wrapHandler(s.handleFileEditor)))
+	mux.HandleFunc("/workspaces/{id}/files/read", s.authMiddleware(s.wrapHandler(s.handleFileRead)))
+	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -820,6 +837,281 @@ func (s *Server) renderFinishedProcessSnippet(p *executor.Process, workspaceID s
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// handleWSProcessUpdates handles WebSocket connections for workspace process updates
+func (s *Server) handleWSProcessUpdates(w http.ResponseWriter, r *http.Request) {
+	// Get workspace ID from path parameter
+	workspaceID := r.PathValue("id")
+	if workspaceID == "" {
+		slog.Error("WebSocket: Workspace ID is required")
+		http.Error(w, "Workspace ID is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify workspace exists
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		slog.Error("WebSocket: Workspace not found", "workspaceID", workspaceID, "error", err)
+		http.Error(w, "Workspace not found", http.StatusNotFound)
+		return
+	}
+
+	// Upgrade to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("Failed to upgrade to WebSocket", "error", err)
+		return
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.Error("Failed to close WebSocket connection", "error", err)
+		}
+	}()
+
+	// Create WebSocket client
+	clientID := fmt.Sprintf("%s-%d", workspaceID, time.Now().UnixNano())
+	client := &wshub.Client{
+		ID:          clientID,
+		WorkspaceID: workspaceID,
+		Conn:        conn,
+		SendChan:    make(chan wshub.Message, 100),
+		Done:        make(chan struct{}),
+	}
+
+	// Register client with hub
+	s.wsHub.RegisterClient(client)
+	defer s.wsHub.UnregisterClient(clientID)
+	defer close(client.Done)
+
+	// Start goroutine to write messages to WebSocket
+	go func() {
+		for {
+			select {
+			case msg := <-client.SendChan:
+				if err := conn.WriteJSON(msg); err != nil {
+					slog.Error("Failed to write WebSocket message", "error", err)
+					return
+				}
+			case <-client.Done:
+				return
+			}
+		}
+	}()
+
+	// Send initial reconciliation: full current state
+	if err := s.sendWSReconciliation(client, ws, r); err != nil {
+		slog.Error("Failed to send reconciliation", "error", err, "workspaceID", workspaceID)
+		return
+	}
+
+	// Create a ticker for periodic process checks (for detecting finished processes)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	// Track known process IDs and their states
+	knownProcesses := make(map[string]bool) // processID -> completed status
+
+	// Main loop for periodic checks
+	for {
+		select {
+		case <-client.Done:
+			return
+		case <-ticker.C:
+			// Periodic check for process state changes
+			if err := s.checkWSProcessUpdates(client, ws, r, knownProcesses); err != nil {
+				slog.Error("Failed to check process updates", "error", err)
+				return
+			}
+		}
+	}
+}
+
+// sendReconciliationEvents sends the full current state to a new SSE client
+// sendWSReconciliation sends the full current state to a new WebSocket client
+func (s *Server) sendWSReconciliation(client *wshub.Client, ws *workspace.Workspace, r *http.Request) error {
+	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	if err != nil {
+		return fmt.Errorf("failed to list processes: %w", err)
+	}
+
+	// Send running processes
+	var runningProcesses []*executor.Process
+	for _, p := range allProcesses {
+		if !p.Completed {
+			// Check if actually running
+			if p.PID > 0 {
+				process, err := os.FindProcess(p.PID)
+				if err == nil {
+					err = process.Signal(syscall.Signal(0))
+					if err != nil {
+						// Dead process, skip
+						continue
+					}
+				}
+			}
+			runningProcesses = append(runningProcesses, p)
+		}
+	}
+
+	// Sort by start time
+	sort.Slice(runningProcesses, func(i, j int) bool {
+		return runningProcesses[i].StartTime.Before(runningProcesses[j].StartTime)
+	})
+
+	// Send each running process as a reconcile message
+	for _, p := range runningProcesses {
+		html, err := s.renderRunningProcessSnippet(p, ws.ID, r)
+		if err != nil {
+			slog.Error("Failed to render running process", "error", err)
+			continue
+		}
+
+		msg := wshub.Message{
+			Type: "reconcile_running",
+			Data: map[string]interface{}{
+				"id":   p.ID,
+				"html": html,
+			},
+		}
+
+		select {
+		case client.SendChan <- msg:
+		case <-client.Done:
+			return fmt.Errorf("client disconnected during reconciliation")
+		}
+	}
+
+	// Send reconcile_done message
+	msg := wshub.Message{
+		Type: "reconcile_done",
+		Data: map[string]interface{}{
+			"count": len(runningProcesses),
+		},
+	}
+
+	select {
+	case client.SendChan <- msg:
+	case <-client.Done:
+		return fmt.Errorf("client disconnected during reconciliation")
+	}
+
+	return nil
+}
+
+// checkWSProcessUpdates checks for process state changes and sends updates via WebSocket
+func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Workspace, r *http.Request, knownProcesses map[string]bool) error {
+	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	if err != nil {
+		return fmt.Errorf("failed to list processes: %w", err)
+	}
+
+	// Build map of current process states
+	currentProcesses := make(map[string]bool) // processID -> completed status
+
+	for _, p := range allProcesses {
+		if !p.Completed {
+			// Check if actually running
+			if p.PID > 0 {
+				process, err := os.FindProcess(p.PID)
+				if err == nil {
+					err = process.Signal(syscall.Signal(0))
+					if err != nil {
+						// Process died, mark as completed and log any update errors
+						slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
+						if err := workspace.UpdateProcessExit(ws, p.Hash, -1, ""); err != nil {
+							slog.Error("Failed to update dead process status", "error", err, "pid", p.PID, "id", p.ID)
+						}
+						p.Completed = true
+					}
+				}
+			}
+		}
+
+		currentProcesses[p.ID] = p.Completed
+
+		wasKnown, existed := knownProcesses[p.ID]
+		
+		if !existed {
+			// New process - we haven't seen it before
+			if !p.Completed {
+				// New running process
+				html, err := s.renderRunningProcessSnippet(p, ws.ID, r)
+				if err != nil {
+					slog.Error("Failed to render new process", "error", err)
+					continue
+				}
+
+				msg := wshub.Message{
+					Type: "process_started",
+					Data: map[string]interface{}{
+						"id":   p.ID,
+						"html": html,
+					},
+				}
+
+				select {
+				case client.SendChan <- msg:
+				case <-client.Done:
+					return fmt.Errorf("client disconnected")
+				}
+			}
+			// If new and already completed, ignore (it finished before we started monitoring)
+		} else if !wasKnown && p.Completed {
+			// Process transition: was not completed before (!wasKnown means knownProcesses[p.ID]=false),
+			// now completed (p.Completed=true)
+			msg := wshub.Message{
+				Type: "process_finished",
+				Data: map[string]interface{}{
+					"id": p.ID,
+				},
+			}
+
+			select {
+			case client.SendChan <- msg:
+			case <-client.Done:
+				return fmt.Errorf("client disconnected")
+			}
+		} else if !p.Completed {
+			// Running process - check if we should send update (rate limiting)
+			minInterval := 500 * time.Millisecond // 2 updates per second max per process
+			if s.wsHub.ShouldSendUpdate(p.ID, minInterval) {
+				outputHTML, err := s.renderProcessOutputHTML(p, ws.ID, r)
+				if err != nil {
+					slog.Error("Failed to render process output", "error", err)
+					continue
+				}
+
+				msg := wshub.Message{
+					Type: "process_output",
+					Data: map[string]interface{}{
+						"id":          p.ID,
+						"output_html": outputHTML,
+					},
+				}
+
+				select {
+				case client.SendChan <- msg:
+				case <-client.Done:
+					return fmt.Errorf("client disconnected")
+				}
+			}
+		}
+	}
+
+	// Update known processes
+	for id, completed := range currentProcesses {
+		knownProcesses[id] = completed
+	}
+
+	// Clean up rate limiters for processes that no longer exist
+	var activeIDs []string
+	for id := range currentProcesses {
+		activeIDs = append(activeIDs, id)
+	}
+	s.wsHub.CleanupRateLimiters(activeIDs)
+
+	return nil
 }
 
 func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
@@ -1538,3 +1830,213 @@ session.Wait()
 // Clean up
 _ = session.Close()
 }
+
+// handleFileEditor shows the file editor page
+func (s *Server) handleFileEditor(ctx context.Context, r *http.Request) ([]byte, error) {
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath      string
+		WorkspaceID   string
+		WorkspaceName string
+		Directory     string
+	}{
+		BasePath:      basePath,
+		WorkspaceID:   workspaceID,
+		WorkspaceName: ws.Name,
+		Directory:     ws.Directory,
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "file-editor.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// handleFileRead reads a file and returns its content with session info
+func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	relativePath := r.FormValue("file_path")
+	if relativePath == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+	}
+
+	// Resolve file path relative to workspace directory
+	filePath := filepath.Join(ws.Directory, relativePath)
+
+	// Read file
+	session, err := fileeditor.ReadFile(filePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath         string
+		WorkspaceID      string
+		FilePath         string
+		Content          string
+		OriginalChecksum string
+		IsNewFile        bool
+	}{
+		BasePath:         basePath,
+		WorkspaceID:      workspaceID,
+		FilePath:         relativePath,
+		Content:          session.OriginalContent,
+		OriginalChecksum: session.OriginalChecksum,
+		IsNewFile:        session.OriginalContent == "",
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-content.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// handleFileSave saves a file with conflict detection
+func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	relativePath := r.FormValue("file_path")
+	newContent := r.FormValue("content")
+	originalChecksum := r.FormValue("original_checksum")
+
+	if relativePath == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+	}
+
+	// Resolve file path relative to workspace directory
+	filePath := filepath.Join(ws.Directory, relativePath)
+
+	// Read current file state
+	currentSession, err := fileeditor.ReadFile(filePath)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+	}
+
+	// Check if file has been modified since the user loaded it
+	if currentSession.OriginalChecksum != originalChecksum {
+		// File has been modified externally - create a conflict response
+		result := &fileeditor.FileEditResult{
+			Success:          false,
+			ConflictDetected: true,
+			Message:          "File has been modified externally. Please review the current content and try again.",
+			// We can only show the diff between current and proposed since we don't have the original
+			ProposedDiff:     fileeditor.GenerateDiff(currentSession.OriginalContent, newContent),
+		}
+
+		basePath := s.getBasePath(r)
+		data := struct {
+			BasePath         string
+			WorkspaceID      string
+			FilePath         string
+			Success          bool
+			Message          string
+			ConflictDetected bool
+			ExternalDiff     string
+			ProposedDiff     string
+			NewChecksum      string
+			CurrentContent   string
+		}{
+			BasePath:         basePath,
+			WorkspaceID:      workspaceID,
+			FilePath:         relativePath,
+			Success:          result.Success,
+			Message:          result.Message,
+			ConflictDetected: result.ConflictDetected,
+			ProposedDiff:     result.ProposedDiff,
+			CurrentContent:   currentSession.OriginalContent,
+		}
+
+		var buf bytes.Buffer
+		if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+
+	// No conflict - proceed with saving
+	session := currentSession
+
+	// Try to write the file
+	result, err := fileeditor.WriteFile(session, newContent)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to write file: %v", err))
+	}
+
+	basePath := s.getBasePath(r)
+
+	data := struct {
+		BasePath         string
+		WorkspaceID      string
+		FilePath         string
+		Success          bool
+		Message          string
+		ConflictDetected bool
+		ExternalDiff     string
+		ProposedDiff     string
+		NewChecksum      string
+	}{
+		BasePath:         basePath,
+		WorkspaceID:      workspaceID,
+		FilePath:         relativePath,
+		Success:          result.Success,
+		Message:          result.Message,
+		ConflictDetected: result.ConflictDetected,
+		ExternalDiff:     result.ExternalDiff,
+		ProposedDiff:     result.ProposedDiff,
+		NewChecksum:      result.NewChecksum,
+	}
+
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
