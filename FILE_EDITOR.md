@@ -1,6 +1,7 @@
 # File Editor Feature
 
-The File Editor in MobileShell allows you to create and edit files directly within your workspaces through a web interface.
+The File Editor in MobileShell allows you to create and edit files directly within your
+workspaces through a web interface.
 
 ## Features
 
@@ -120,5 +121,6 @@ After writing a file, the content is checked:
 
 ### Security Measures
 
-File operations require valid authentication session. File access is controlled by Unix file permissions.
+File operations require valid authentication session. File access is controlled by Unix file
+permissions.
 
