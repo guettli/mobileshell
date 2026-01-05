@@ -6,17 +6,20 @@ workspaces through a web interface.
 ## Features
 
 ### 1. Create and Edit Files
+
 - Open any file within your workspace directory
 - Create new files if they don't exist
 - Parent directories are automatically created when saving
 
 ### 2. Conflict Detection
+
 - Detects if a file has been modified externally since you started editing
 - Shows current file content on disk
 - Displays a diff of your proposed changes vs. current content
 - Prevents accidental overwrites
 
 ### 3. Auto-chmod for Scripts
+
 - Automatically makes files executable (`chmod +x`) if they start with a shebang (`#!/`)
 - Useful for shell scripts, Python scripts, etc.
 
@@ -60,33 +63,40 @@ If someone (or some process) modifies the file while you're editing:
 ## API Endpoints
 
 ### GET `/workspaces/{id}/files`
+
 Shows the file editor page for a workspace.
 
 ### POST `/workspaces/{id}/files/read`
+
 Reads a file and returns its content with metadata.
 
 **Request:**
-```
+
+```text
 file_path=relative/path/to/file.txt
 ```
 
 **Response:**
+
 - File content
 - Original checksum (for conflict detection)
 - Session ID
 - Whether it's a new file
 
 ### POST `/workspaces/{id}/files/save`
+
 Saves a file with conflict detection.
 
 **Request:**
-```
+
+```text
 file_path=relative/path/to/file.txt
 content=<file content>
 original_checksum=<checksum from read>
 ```
 
 **Response:**
+
 - Success/failure status
 - Message
 - Conflict information (if detected)
@@ -108,7 +118,8 @@ original_checksum=<checksum from read>
 Parent directories are created automatically using `os.MkdirAll()` with permissions `0755`.
 
 Example:
-```
+
+```text
 File path: scripts/deploy/production.sh
 Creates: workspace/scripts/ and workspace/scripts/deploy/
 ```
@@ -116,6 +127,7 @@ Creates: workspace/scripts/ and workspace/scripts/deploy/
 ### Auto-chmod Logic
 
 After writing a file, the content is checked:
+
 - If it starts with `#!`: `chmod 0755` (rwxr-xr-x)
 - Otherwise: `chmod 0644` (rw-r--r--)
 
