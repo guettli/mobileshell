@@ -13,7 +13,7 @@ import (
 // FileSession represents an editing session for a file
 type FileSession struct {
 	FilePath         string    `json:"file_path"`
-	OriginalContent  string    `json:"-"` // Not exposed in JSON for security
+	OriginalContent  string    `json:"-"` // Not exposed in JSON to avoid large payloads
 	OriginalChecksum string    `json:"original_checksum"`
 	LastModified     time.Time `json:"last_modified"`
 }

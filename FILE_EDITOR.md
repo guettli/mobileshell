@@ -19,11 +19,6 @@ The File Editor in MobileShell allows you to create and edit files directly with
 - Automatically makes files executable (`chmod +x`) if they start with a shebang (`#!/`)
 - Useful for shell scripts, Python scripts, etc.
 
-### 4. Security
-- All file paths are relative to the workspace directory
-- Directory traversal attacks are prevented
-- Files outside the workspace cannot be accessed
-
 ## Usage
 
 ### Accessing the File Editor
@@ -40,12 +35,7 @@ The File Editor in MobileShell allows you to create and edit files directly with
 3. Enter your content
 4. Click "Save File"
 
-If the file starts with `#!/`, it will automatically be made executable:
-
-```bash
-#!/bin/bash
-echo "This file will be executable after saving"
-```
+If the file starts with `#!/`, it will automatically be made executable.
 
 ### Editing an Existing File
 
@@ -130,78 +120,5 @@ After writing a file, the content is checked:
 
 ### Security Measures
 
-1. **Path Sanitization**: All paths are resolved to absolute paths
-2. **Directory Validation**: Ensures file path is within workspace directory
-3. **No Directory Traversal**: Paths like `../../../etc/passwd` are rejected
-4. **Session-based Auth**: File operations require valid authentication session
+File operations require valid authentication session. File access is controlled by Unix file permissions.
 
-## Examples
-
-### Creating a Shell Script
-
-1. Path: `deploy.sh`
-2. Content:
-```bash
-#!/bin/bash
-set -e
-
-echo "Deploying application..."
-git pull origin main
-npm install
-npm run build
-pm2 restart app
-echo "Deployment complete!"
-```
-3. Result: File created at `workspace/deploy.sh` with executable permissions
-
-### Creating a Configuration File
-
-1. Path: `config/app.conf`
-2. Content:
-```ini
-[database]
-host = localhost
-port = 5432
-name = myapp
-
-[server]
-port = 8080
-host = 0.0.0.0
-```
-3. Result: File created at `workspace/config/app.conf` (directories created automatically)
-
-### Handling a Conflict
-
-**Scenario:**
-1. User A opens `config.yaml` for editing
-2. Meanwhile, a deployment script updates `config.yaml`
-3. User A tries to save their changes
-
-**Result:**
-- Save is rejected
-- User A sees:
-  - Current content (from deployment script)
-  - Their proposed changes as a diff
-- User A can reload and merge their changes with the new content
-
-## Technical Stack
-
-- **Backend**: Go with `internal/fileeditor` package
-- **Frontend**: HTMX for dynamic updates, Bootstrap for styling
-- **File Operations**: Standard Go `os` and `filepath` packages
-- **Diff Generation**: Custom unified diff implementation
-- **Checksum**: SHA256 for content verification
-
-## Future Enhancements
-
-Potential improvements for the file editor:
-
-- Syntax highlighting for different file types
-- Integration with CodeMirror or Monaco Editor
-- Multi-file editing tabs
-- File tree browser
-- Git integration (show git status, diff against HEAD)
-- Auto-save drafts
-- Collaborative editing (WebSocket-based)
-- File search and replace
-- Backup/restore functionality

@@ -1604,23 +1604,8 @@ func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, e
 	// Resolve file path relative to workspace directory
 	filePath := filepath.Join(ws.Directory, relativePath)
 
-	// Security check: ensure the file is within the workspace directory
-	absFilePath, err := filepath.Abs(filePath)
-	if err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, "Invalid file path")
-	}
-
-	absWorkspaceDir, err := filepath.Abs(ws.Directory)
-	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, "Failed to resolve workspace directory")
-	}
-
-	if !strings.HasPrefix(absFilePath, absWorkspaceDir) {
-		return nil, newHTTPError(http.StatusForbidden, "Access denied: file is outside workspace directory")
-	}
-
 	// Read file
-	session, err := fileeditor.ReadFile(absFilePath)
+	session, err := fileeditor.ReadFile(filePath)
 	if err != nil {
 		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
 	}
@@ -1681,23 +1666,8 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	// Resolve file path relative to workspace directory
 	filePath := filepath.Join(ws.Directory, relativePath)
 
-	// Security check: ensure the file is within the workspace directory
-	absFilePath, err := filepath.Abs(filePath)
-	if err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, "Invalid file path")
-	}
-
-	absWorkspaceDir, err := filepath.Abs(ws.Directory)
-	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, "Failed to resolve workspace directory")
-	}
-
-	if !strings.HasPrefix(absFilePath, absWorkspaceDir) {
-		return nil, newHTTPError(http.StatusForbidden, "Access denied: file is outside workspace directory")
-	}
-
 	// Read current file state
-	currentSession, err := fileeditor.ReadFile(absFilePath)
+	currentSession, err := fileeditor.ReadFile(filePath)
 	if err != nil {
 		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
 	}
