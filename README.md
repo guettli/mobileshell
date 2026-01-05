@@ -67,6 +67,12 @@ go build -o mobileshell ./cmd/mobileshell
   programs (see [TTY_SUPPORT.md](TTY_SUPPORT.md) for details)
 - **Process Management**: View running and completed processes
 - **Output Viewing**: View stdout and stderr for each process
+- **File Editor**: Create and edit files directly in the workspace with conflict detection
+  - Auto-creates parent directories
+  - Detects external file modifications
+  - Shows diffs for changes and conflicts
+  - Auto-chmod +x for scripts starting with shebang (`#!/`)
+  - Security: Files restricted to workspace directory
 - **Auto-refresh**: Process list updates automatically every 3 seconds
 - **Mobile-friendly**: Built with Bootstrap for responsive design
 - **HTMX Integration**: Dynamic updates without page reloads
