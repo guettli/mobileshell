@@ -3,9 +3,9 @@
 Provide a shell like experience via web - Build to access your Linux system with a mobile device.
 
 - Single binary created with Go and `go:embed`
-- Install as systemd service on your Linux PC or server.
 - Authenticate with strong password.
 - Build with htmx and bootstrap.
+- Optional: Install as systemd service on your Linux PC or server.
 
 ## Usage
 
