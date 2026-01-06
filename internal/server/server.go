@@ -344,6 +344,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files", s.authMiddleware(s.wrapHandler(s.handleFileEditor)))
 	mux.HandleFunc("/workspaces/{id}/files/read", s.authMiddleware(s.wrapHandler(s.handleFileRead)))
 	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
+	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -2038,5 +2039,55 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	return buf.Bytes(), nil
+}
+
+// handleFileAutocomplete provides autocomplete suggestions for file paths
+func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodGet {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	workspaceID := r.PathValue("id")
+
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	// Get the pattern from query parameter
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		// Return empty results for empty pattern
+		result := &fileeditor.AutocompleteResult{
+			Matches:      []fileeditor.FileMatch{},
+			TotalMatches: 0,
+			HasMore:      false,
+			TimedOut:     false,
+		}
+		jsonBytes, err := json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
+		return jsonBytes, nil
+	}
+
+	// Create a context with timeout for the search (5 seconds)
+	searchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Perform the search
+	result, err := fileeditor.SearchFiles(searchCtx, ws.Directory, pattern, 10)
+	if err != nil {
+		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to search files: %v", err))
+	}
+
+	// Return JSON response
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonBytes, nil
 }
 

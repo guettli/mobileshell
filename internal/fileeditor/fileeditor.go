@@ -1,11 +1,13 @@
 package fileeditor
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -225,4 +227,229 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// FileMatch represents a file that matches the autocomplete pattern
+type FileMatch struct {
+	Path         string    `json:"path"`
+	RelativePath string    `json:"relative_path"`
+	ModTime      time.Time `json:"mod_time"`
+}
+
+// AutocompleteResult represents the result of an autocomplete search
+type AutocompleteResult struct {
+	Matches      []FileMatch `json:"matches"`
+	TotalMatches int         `json:"total_matches"`
+	HasMore      bool        `json:"has_more"`
+	TimedOut     bool        `json:"timed_out"`
+}
+
+// SearchFiles searches for files matching a glob pattern with timeout support
+// Supports **, *, ?, and ~ for home directory
+func SearchFiles(ctx context.Context, rootDir, pattern string, maxResults int) (*AutocompleteResult, error) {
+	// Default max results to 10
+	if maxResults <= 0 {
+		maxResults = 10
+	}
+
+	// Expand ~ to home directory
+	if strings.HasPrefix(pattern, "~") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			pattern = strings.Replace(pattern, "~", homeDir, 1)
+		}
+	}
+
+	// If pattern is absolute, use it as-is; otherwise join with rootDir
+	searchPattern := pattern
+	if !filepath.IsAbs(pattern) {
+		searchPattern = filepath.Join(rootDir, pattern)
+	}
+
+	var matches []FileMatch
+	timedOut := false
+
+	// Check if pattern contains **
+	if strings.Contains(searchPattern, "**") {
+		// Recursive search
+		matches, timedOut = recursiveSearch(ctx, rootDir, searchPattern)
+	} else {
+		// Simple glob search
+		matches, timedOut = simpleGlobSearch(ctx, rootDir, searchPattern)
+	}
+
+	// Sort by modification time, most recent first
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].ModTime.After(matches[j].ModTime)
+	})
+
+	totalMatches := len(matches)
+	hasMore := totalMatches > maxResults
+
+	// Limit to maxResults
+	if hasMore {
+		matches = matches[:maxResults]
+	}
+
+	return &AutocompleteResult{
+		Matches:      matches,
+		TotalMatches: totalMatches,
+		HasMore:      hasMore,
+		TimedOut:     timedOut,
+	}, nil
+}
+
+// simpleGlobSearch performs a simple glob match (no **)
+func simpleGlobSearch(ctx context.Context, rootDir, pattern string) ([]FileMatch, bool) {
+	var matches []FileMatch
+	timedOut := false
+
+	// Check for timeout
+	select {
+	case <-ctx.Done():
+		return matches, true
+	default:
+	}
+
+	globMatches, err := filepath.Glob(pattern)
+	if err != nil {
+		return matches, false
+	}
+
+	for _, path := range globMatches {
+		// Check for timeout in loop
+		select {
+		case <-ctx.Done():
+			timedOut = true
+			return matches, timedOut
+		default:
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+
+		// Skip directories (only show files)
+		if info.IsDir() {
+			continue
+		}
+
+		relPath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			relPath = path
+		}
+
+		matches = append(matches, FileMatch{
+			Path:         path,
+			RelativePath: relPath,
+			ModTime:      info.ModTime(),
+		})
+	}
+
+	return matches, timedOut
+}
+
+// recursiveSearch performs a recursive search for ** patterns
+func recursiveSearch(ctx context.Context, rootDir, pattern string) ([]FileMatch, bool) {
+	var matches []FileMatch
+	timedOut := false
+
+	// Convert ** pattern to a function that can match paths
+	// For example: "**/*.go" should match all .go files recursively
+	patternParts := strings.Split(pattern, "**")
+	if len(patternParts) != 2 {
+		// Invalid ** pattern, fallback to simple glob
+		return simpleGlobSearch(ctx, rootDir, pattern)
+	}
+
+	prefix := patternParts[0]
+	suffix := patternParts[1]
+
+	// Start directory is the prefix (or rootDir if prefix is empty or ends with /)
+	startDir := prefix
+	if startDir == "" {
+		startDir = rootDir
+	} else if strings.HasSuffix(startDir, string(filepath.Separator)) {
+		startDir = strings.TrimSuffix(startDir, string(filepath.Separator))
+	} else {
+		// If prefix doesn't end with /, use its directory
+		startDir = filepath.Dir(startDir)
+	}
+
+	// Walk the directory tree
+	err := filepath.WalkDir(startDir, func(path string, d os.DirEntry, err error) error {
+		// Check for timeout
+		select {
+		case <-ctx.Done():
+			timedOut = true
+			return filepath.SkipAll
+		default:
+		}
+
+		if err != nil {
+			return nil // Skip errors, continue walking
+		}
+
+		// Skip directories
+		if d.IsDir() {
+			return nil
+		}
+
+		// Check if the path matches the suffix pattern
+		if suffix != "" {
+			// Build the pattern to match against
+			matchPattern := path
+			if prefix != "" {
+				// If there was a prefix, only match the part after the prefix
+				if strings.HasPrefix(path, prefix) {
+					remainingPath := strings.TrimPrefix(path, prefix)
+					matchPattern = remainingPath
+				} else {
+					return nil
+				}
+			}
+
+			// Match against the suffix pattern
+			matched, err := filepath.Match(strings.TrimPrefix(suffix, string(filepath.Separator)), filepath.Base(matchPattern))
+			if err != nil || !matched {
+				// If simple base match fails, try matching the full remaining path
+				if suffix != "" && strings.Contains(suffix, string(filepath.Separator)) {
+					// Full path pattern matching
+					matched, err = filepath.Match(strings.TrimPrefix(suffix, string(filepath.Separator)), strings.TrimPrefix(matchPattern, string(filepath.Separator)))
+					if err != nil || !matched {
+						return nil
+					}
+				} else {
+					return nil
+				}
+			}
+		}
+
+		// Get file info for modification time
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			relPath = path
+		}
+
+		matches = append(matches, FileMatch{
+			Path:         path,
+			RelativePath: relPath,
+			ModTime:      info.ModTime(),
+		})
+
+		return nil
+	})
+
+	if err != nil && !timedOut {
+		// Error during walk, but not due to timeout
+		return matches, false
+	}
+
+	return matches, timedOut
 }
