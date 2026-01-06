@@ -468,13 +468,115 @@ async function testWorkspaceEditing() {
   console.log(`✓ ${testName} passed`);
 }
 
-// Test 7: Interactive Terminal with bash prompt
-async function testInteractiveTerminal() {
-  const testName = 'Test 7: Interactive Terminal';
+// Test 7: File autocomplete
+async function testFileAutocomplete() {
+  const testName = 'Test 7: File autocomplete';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-7`;
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  console.log(`✓ Workspace created: ${workspaceName}`);
+
+  // Create some test files in the workspace directory
+  const createFileCommands = [
+    'touch test-file1.go',
+    'touch test-file2.go',
+    'mkdir -p subdir',
+    'touch subdir/nested.go',
+    'touch readme.md',
+    'mkdir -p deep/nested/path',
+    'touch deep/nested/path/deep-file.txt',
+  ];
+
+  for (const cmd of createFileCommands) {
+    await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+      body: `command=${encodeURIComponent(cmd)}`,
+    });
+  }
+
+  // Wait for files to be created
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Test 1: Simple wildcard pattern
+  const simplePatternResponse = await request('GET', `/workspaces/${workspaceId}/files/autocomplete?pattern=${encodeURIComponent('*.go')}`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  });
+
+  assert.equal(simplePatternResponse.status, 200, 'Should get autocomplete results');
+  const simpleData = JSON.parse(simplePatternResponse.text);
+  assert.ok(simpleData.matches, 'Should have matches array');
+  assert.ok(simpleData.matches.length >= 2, 'Should find at least 2 .go files');
+  assert.ok(simpleData.matches.some(m => m.relative_path.includes('test-file1.go')), 'Should include test-file1.go');
+  assert.ok(simpleData.matches.some(m => m.relative_path.includes('test-file2.go')), 'Should include test-file2.go');
+  console.log(`✓ Simple wildcard pattern found ${simpleData.matches.length} files`);
+
+  // Test 2: Recursive pattern with **
+  const recursivePatternResponse = await request('GET', `/workspaces/${workspaceId}/files/autocomplete?pattern=${encodeURIComponent('**/*.go')}`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  });
+
+  assert.equal(recursivePatternResponse.status, 200, 'Should get recursive autocomplete results');
+  const recursiveData = JSON.parse(recursivePatternResponse.text);
+  assert.ok(recursiveData.matches.length >= 3, 'Should find at least 3 .go files recursively');
+  assert.ok(recursiveData.matches.some(m => m.relative_path.includes('subdir/nested.go')), 'Should include nested .go file');
+  console.log(`✓ Recursive pattern found ${recursiveData.matches.length} files`);
+
+  // Test 3: Verify JSON structure
+  const firstMatch = recursiveData.matches[0];
+  assert.ok(firstMatch.path, 'Match should have path');
+  assert.ok(firstMatch.relative_path, 'Match should have relative_path');
+  assert.ok(firstMatch.mod_time, 'Match should have mod_time');
+  console.log('✓ JSON structure validated');
+
+  // Test 4: Verify has_more and total_matches
+  assert.ok(typeof recursiveData.has_more === 'boolean', 'Should have has_more boolean');
+  assert.ok(typeof recursiveData.total_matches === 'number', 'Should have total_matches number');
+  assert.ok(typeof recursiveData.timed_out === 'boolean', 'Should have timed_out boolean');
+  console.log('✓ Response metadata validated');
+
+  // Test 5: Empty pattern returns empty results
+  const emptyPatternResponse = await request('GET', `/workspaces/${workspaceId}/files/autocomplete?pattern=`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  });
+
+  const emptyData = JSON.parse(emptyPatternResponse.text);
+  assert.equal(emptyData.matches.length, 0, 'Empty pattern should return no matches');
+  console.log('✓ Empty pattern handled correctly');
+
+  // Test 6: Pattern with subdirectory - use simpler pattern
+  const subdirPatternResponse = await request('GET', `/workspaces/${workspaceId}/files/autocomplete?pattern=${encodeURIComponent('**/*.txt')}`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  });
+
+  const subdirData = JSON.parse(subdirPatternResponse.text);
+  assert.ok(subdirData.matches, 'Should have matches array');
+  assert.ok(subdirData.matches.length >= 1, `Should find .txt files, got ${subdirData.matches.length} matches`);
+  assert.ok(subdirData.matches.some(m => m.relative_path.includes('.txt')), 'Should find txt files');
+  console.log(`✓ Found ${subdirData.matches.length} .txt files recursively`);
+
+  console.log(`✓ ${testName} passed`);
+}
+
+// Test 8: Interactive Terminal with bash prompt
+async function testInteractiveTerminal() {
+  const testName = 'Test 8: Interactive Terminal';
+  console.log(`\n=== ${testName} ===`);
+
+  const sessionCookie = await login();
+  const workspaceName = `test-workspace-${Date.now()}-8`;
   const workspaceId = await createWorkspace(sessionCookie, workspaceName);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
@@ -650,6 +752,7 @@ async function runTests() {
       testPerProcessPages(),
       testStdinInput(),
       testWorkspaceEditing(),
+      testFileAutocomplete(),
       testInteractiveTerminal(),
     ]);
 
