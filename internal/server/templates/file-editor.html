@@ -63,6 +63,57 @@
             border-color: #ffeaa7;
             color: #856404;
         }
+
+        .autocomplete-dropdown {
+            position: absolute;
+            z-index: 1000;
+            background: white;
+            border: 1px solid #ced4da;
+            border-radius: 0.25rem;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .autocomplete-dropdown.show {
+            display: block;
+        }
+
+        .autocomplete-item {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .autocomplete-item:hover,
+        .autocomplete-item.active {
+            background-color: #e9ecef;
+        }
+
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+
+        .autocomplete-more {
+            padding: 0.5rem 1rem;
+            text-align: center;
+            color: #6c757d;
+            font-size: 0.875rem;
+            font-style: italic;
+        }
+
+        .autocomplete-timeout {
+            padding: 0.5rem 1rem;
+            text-align: center;
+            color: #856404;
+            background-color: #fff3cd;
+            font-size: 0.875rem;
+        }
+
+        .file-path-wrapper {
+            position: relative;
+        }
     </style>
 </head>
 
@@ -103,13 +154,17 @@
                             <div class="row">
                                 <div class="col-md-10">
                                     <label for="file_path" class="form-label">File Path (relative to workspace directory)</label>
-                                    <input type="text" 
-                                           class="form-control" 
-                                           id="file_path" 
-                                           name="file_path" 
-                                           placeholder="e.g., src/main.go or scripts/deploy.sh"
-                                           required>
-                                    <div class="form-text">Path relative to: {{.Directory}}</div>
+                                    <div class="file-path-wrapper">
+                                        <input type="text"
+                                               class="form-control"
+                                               id="file_path"
+                                               name="file_path"
+                                               placeholder="e.g., src/main.go or **/*.go (supports *, ?, **, ~)"
+                                               autocomplete="off"
+                                               required>
+                                        <div id="autocomplete-dropdown" class="autocomplete-dropdown"></div>
+                                    </div>
+                                    <div class="form-text">Path relative to: {{.Directory}}. Use * for wildcards, ** for recursive search, ~ for home.</div>
                                 </div>
                                 <div class="col-md-2 d-flex align-items-end">
                                     <button type="submit" class="btn btn-primary w-100">Open File</button>
@@ -130,6 +185,161 @@
     </div>
 
     <script src="{{.BasePath}}/static/static/bootstrap.bundle.min.js"></script>
+    <script>
+        (function() {
+            const filePathInput = document.getElementById('file_path');
+            const autocompleteDropdown = document.getElementById('autocomplete-dropdown');
+            const basePath = '{{.BasePath}}';
+            const workspaceID = '{{.WorkspaceID}}';
+
+            let autocompleteTimer = null;
+            let currentSelectedIndex = -1;
+            let currentMatches = [];
+
+            // Debounced autocomplete function
+            function triggerAutocomplete() {
+                clearTimeout(autocompleteTimer);
+                const pattern = filePathInput.value.trim();
+
+                // Hide dropdown if pattern is empty
+                if (!pattern) {
+                    hideDropdown();
+                    return;
+                }
+
+                // Wait 300ms after user stops typing
+                autocompleteTimer = setTimeout(() => {
+                    fetchAutocomplete(pattern);
+                }, 300);
+            }
+
+            // Fetch autocomplete suggestions
+            function fetchAutocomplete(pattern) {
+                const url = `${basePath}/workspaces/${workspaceID}/files/autocomplete?pattern=${encodeURIComponent(pattern)}`;
+
+                fetch(url)
+                    .then(response => response.json())
+                    .then(data => {
+                        displayResults(data);
+                    })
+                    .catch(error => {
+                        console.error('Autocomplete error:', error);
+                        hideDropdown();
+                    });
+            }
+
+            // Display autocomplete results
+            function displayResults(data) {
+                autocompleteDropdown.innerHTML = '';
+                currentMatches = data.matches || [];
+                currentSelectedIndex = -1;
+
+                if (currentMatches.length === 0 && !data.timed_out) {
+                    hideDropdown();
+                    return;
+                }
+
+                // Add timeout warning if search timed out
+                if (data.timed_out) {
+                    const timeoutDiv = document.createElement('div');
+                    timeoutDiv.className = 'autocomplete-timeout';
+                    timeoutDiv.textContent = 'Search timed out - showing partial results';
+                    autocompleteDropdown.appendChild(timeoutDiv);
+                }
+
+                // Add matches
+                currentMatches.forEach((match, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'autocomplete-item';
+                    item.textContent = match.relative_path;
+                    item.dataset.index = index;
+
+                    item.addEventListener('click', () => {
+                        selectItem(match.relative_path);
+                    });
+
+                    autocompleteDropdown.appendChild(item);
+                });
+
+                // Add "... N more" message if there are more results
+                if (data.has_more) {
+                    const moreDiv = document.createElement('div');
+                    moreDiv.className = 'autocomplete-more';
+                    const remaining = data.total_matches - currentMatches.length;
+                    moreDiv.textContent = `... ${remaining} more match${remaining !== 1 ? 'es' : ''}`;
+                    autocompleteDropdown.appendChild(moreDiv);
+                }
+
+                showDropdown();
+            }
+
+            // Select an item from autocomplete
+            function selectItem(path) {
+                filePathInput.value = path;
+                hideDropdown();
+                filePathInput.focus();
+            }
+
+            // Show dropdown
+            function showDropdown() {
+                autocompleteDropdown.classList.add('show');
+            }
+
+            // Hide dropdown
+            function hideDropdown() {
+                autocompleteDropdown.classList.remove('show');
+                currentSelectedIndex = -1;
+            }
+
+            // Highlight item at index
+            function highlightItem(index) {
+                const items = autocompleteDropdown.querySelectorAll('.autocomplete-item');
+                items.forEach((item, i) => {
+                    if (i === index) {
+                        item.classList.add('active');
+                    } else {
+                        item.classList.remove('active');
+                    }
+                });
+            }
+
+            // Keyboard navigation
+            filePathInput.addEventListener('keydown', (e) => {
+                const items = autocompleteDropdown.querySelectorAll('.autocomplete-item');
+
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (currentSelectedIndex < items.length - 1) {
+                        currentSelectedIndex++;
+                        highlightItem(currentSelectedIndex);
+                    }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (currentSelectedIndex > 0) {
+                        currentSelectedIndex--;
+                        highlightItem(currentSelectedIndex);
+                    }
+                } else if (e.key === 'Enter') {
+                    if (currentSelectedIndex >= 0 && currentSelectedIndex < currentMatches.length) {
+                        e.preventDefault();
+                        selectItem(currentMatches[currentSelectedIndex].relative_path);
+                    }
+                } else if (e.key === 'Escape') {
+                    hideDropdown();
+                }
+            });
+
+            // Trigger autocomplete on input
+            filePathInput.addEventListener('input', triggerAutocomplete);
+
+            // Hide dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!filePathInput.contains(e.target) && !autocompleteDropdown.contains(e.target)) {
+                    hideDropdown();
+                }
+            });
+        })();
+    </script>
 </body>
 
 </html>
