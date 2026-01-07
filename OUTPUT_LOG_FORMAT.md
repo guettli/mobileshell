@@ -20,8 +20,11 @@ directory. The format is designed to:
 Each line in `output.log` follows this format:
 
 ```text
-> stream timestamp length: content\n
+> stream timestamp length: content
 ```
+
+Where a separator `\n` is added after content only if content doesn't
+already end with `\n`.
 
 ### Fields
 
@@ -30,11 +33,12 @@ Each line in `output.log` follows this format:
   `stdin`
 - **`timestamp`**: UTC timestamp in ISO 8601 format:
   `2006-01-02T15:04:05.000Z`
-- **`length`**: Integer representing the byte length of the content
-  (may include a trailing newline if present in original output)
+- **`length`**: Integer byte length of the content (may include a
+  trailing newline if present in original output)
 - **`:`**: Literal separator between length and content
-- **`content`**: The actual output bytes (length is `length` bytes)
-- **`\n`**: Log line separator (NOT counted in the length field)
+- **`content`**: The actual output bytes (exactly `length` bytes)
+- **separator `\n`**: Added only if content doesn't already end with
+  `\n`
 
 ### Examples
 
@@ -42,32 +46,27 @@ Each line in `output.log` follows this format:
 
 ```text
 > stdout 2025-01-07T12:34:56.789Z 12: Hello world\n
-\n
 ```
 
 - Content is `Hello world\n` (12 bytes, including the newline)
-- The second `\n` is the log line separator
+- No separator is added because content already ends with `\n`
 
 #### Example 2: Line without trailing newline
 
 ```text
-> stdout 2025-01-07T12:34:56.789Z 8: prompt> \n
+> stdout 2025-01-07T12:34:56.789Z 7: prompt>\n
 ```
 
-- Content is `prompt>` (8 bytes, no trailing newline)
-- The `\n` at the end is the log line separator
+- Content is `prompt>` (7 bytes, no trailing newline)
+- Separator `\n` is added after the content
 
 #### Example 3: Multiple lines
 
 ```text
 > stdout 2025-01-07T12:00:00.000Z 4: foo\n
-\n
 > stdout 2025-01-07T12:00:01.000Z 4: bar\n
-\n
 > stderr 2025-01-07T12:00:02.000Z 14: error message\n
-\n
 > stdin 2025-01-07T12:00:03.000Z 11: user input\n
-\n
 ```
 
 ## Newline Preservation
@@ -114,19 +113,21 @@ To correctly parse this format:
 
 ## Signal Events
 
-Signal events use a slightly different format:
+Signal events use the same length-based format:
 
 ```text
-signal-sent timestamp: signal_number signal_name
+> signal-sent timestamp length: signal_number signal_name
 ```
 
 Example:
 
 ```text
-signal-sent 2025-01-07T12:34:56.789Z: 15 SIGTERM
+> signal-sent 2025-01-07T12:34:56.789Z 10: 15 SIGTERM
 ```
 
-These are displayed in the stdin section of the output for visibility.
+The content is the signal number and name (e.g., "15 SIGTERM" is 10
+bytes). These are displayed in the stdin section of the output for
+visibility.
 
 ## Implementation
 

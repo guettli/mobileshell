@@ -209,10 +209,18 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 								stderrParts = append(stderrParts, content)
 							case "stdin":
 								stdinParts = append(stdinParts, content)
+							case "signal-sent":
+								// Signal events are prefixed and shown in stdin
+								stdinParts = append(stdinParts, "Signal sent: "+content)
+								stdinParts = append(stdinParts, "\n")
 							}
 
-							// Move past content and the line separator '\n'
-							i = separatorIdx + length + 1
+							// Move past content
+							i = separatorIdx + length
+							// Skip separator \n if present (only if content doesn't end with \n)
+							if i < len(data) && data[i] == '\n' {
+								i++
+							}
 							continue
 						}
 					}
@@ -224,38 +232,6 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 				i++
 			}
 			i++ // Skip the newline
-		} else if i+12 <= len(data) && string(data[i:i+12]) == "signal-sent " {
-			// Signal-sent format: "signal-sent timestamp: signal info\n"
-			// Find the ": " separator
-			separatorIdx := -1
-			for j := i + 12; j < len(data)-1; j++ {
-				if data[j] == ':' && data[j+1] == ' ' {
-					separatorIdx = j + 2
-					break
-				}
-				if data[j] == '\n' {
-					break
-				}
-			}
-
-			if separatorIdx != -1 {
-				// Find the end of the line
-				lineEnd := separatorIdx
-				for lineEnd < len(data) && data[lineEnd] != '\n' {
-					lineEnd++
-				}
-				content := "Signal sent: " + string(data[separatorIdx:lineEnd])
-				stdinParts = append(stdinParts, content)
-				stdinParts = append(stdinParts, "\n")
-				i = lineEnd + 1
-				continue
-			}
-
-			// If parsing failed, skip to next line
-			for i < len(data) && data[i] != '\n' {
-				i++
-			}
-			i++
 		} else {
 			// Skip to next line if not a recognized format
 			for i < len(data) && data[i] != '\n' {
@@ -316,8 +292,12 @@ func ReadRawStdout(filename string) ([]byte, error) {
 							content := data[separatorIdx : separatorIdx+length]
 							stdoutBytes = append(stdoutBytes, content...)
 
-							// Move past content and the line separator '\n'
-							i = separatorIdx + length + 1
+							// Move past content
+							i = separatorIdx + length
+							// Skip separator \n if present (only if content doesn't end with \n)
+							if i < len(data) && data[i] == '\n' {
+								i++
+							}
 							continue
 						}
 					}

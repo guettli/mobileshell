@@ -307,14 +307,10 @@ func TestReadCombinedOutput(t *testing.T) {
 	// Create a test combined output file with new format
 	var testContent strings.Builder
 	testContent.WriteString("> stdout 2025-12-31T12:00:00.000Z 7: line 1\n")
-	testContent.WriteByte('\n')
 	testContent.WriteString("> stderr 2025-12-31T12:00:01.000Z 14: error message\n")
-	testContent.WriteByte('\n')
 	testContent.WriteString("> stdout 2025-12-31T12:00:02.000Z 7: line 2\n")
-	testContent.WriteByte('\n')
 	testContent.WriteString("> stdin 2025-12-31T12:00:03.000Z 11: input text\n")
-	testContent.WriteByte('\n')
-	testContent.WriteString("signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM\n")
+	testContent.WriteString("> signal-sent 2025-12-31T12:00:04.000Z 10: 15 SIGTERM\n")
 	testFile := filepath.Join(tmpDir, "combined-output.txt")
 	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
 	if err != nil {
@@ -377,21 +373,17 @@ func TestNewlinePreservation(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create test content with new format that preserves newlines
-	// Format: "> stream timestamp length: content\n"
+	// Format: "> stream timestamp length: content" + separator \n if content doesn't end with \n
 	// where content may include a trailing newline (counted in length)
 	var testContent strings.Builder
-	// Line 1: content is "foo\n" (4 bytes) - has newline
+	// Line 1: content is "foo\n" (4 bytes) - has newline, no extra separator
 	testContent.WriteString("> stdout 2025-12-31T12:00:00.000Z 4: foo\n")
-	testContent.WriteByte('\n') // log line separator
-	// Line 2: content is "bar\n" (4 bytes) - has newline
+	// Line 2: content is "bar\n" (4 bytes) - has newline, no extra separator
 	testContent.WriteString("> stdout 2025-12-31T12:00:01.000Z 4: bar\n")
-	testContent.WriteByte('\n') // log line separator
-	// Line 3: content is "baz\n" (4 bytes) - has newline
+	// Line 3: content is "baz\n" (4 bytes) - has newline, no extra separator
 	testContent.WriteString("> stdout 2025-12-31T12:00:02.000Z 4: baz\n")
-	testContent.WriteByte('\n') // log line separator
-	// Line 4: content is "prompt> " (8 bytes) - NO newline
-	testContent.WriteString("> stdout 2025-12-31T12:00:03.000Z 8: prompt> ")
-	testContent.WriteByte('\n') // log line separator
+	// Line 4: content is "prompt> " (8 bytes) - NO newline, add separator
+	testContent.WriteString("> stdout 2025-12-31T12:00:03.000Z 8: prompt> \n")
 
 	testFile := filepath.Join(tmpDir, "newline-test.txt")
 	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
@@ -443,14 +435,10 @@ func TestReadCombinedOutputNewFormat(t *testing.T) {
 	// Create test content using the new format
 	var testContent strings.Builder
 	testContent.WriteString("> stdout 2025-12-31T12:00:00.000Z 7: line 1\n")
-	testContent.WriteByte('\n')
 	testContent.WriteString("> stderr 2025-12-31T12:00:01.000Z 14: error message\n")
-	testContent.WriteByte('\n')
 	testContent.WriteString("> stdout 2025-12-31T12:00:02.000Z 7: line 2\n")
-	testContent.WriteByte('\n')
 	testContent.WriteString("> stdin 2025-12-31T12:00:03.000Z 11: input text\n")
-	testContent.WriteByte('\n')
-	testContent.WriteString("signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM\n")
+	testContent.WriteString("> signal-sent 2025-12-31T12:00:04.000Z 10: 15 SIGTERM\n")
 
 	testFile := filepath.Join(tmpDir, "combined-output-new.txt")
 	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)

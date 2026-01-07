@@ -564,8 +564,12 @@ func readRawStdoutBytes(filename string) ([]byte, error) {
 							content := data[separatorIdx : separatorIdx+length]
 							stdoutBytes = append(stdoutBytes, content...)
 
-							// Move past content and the line separator '\n'
-							i = separatorIdx + length + 1
+							// Move past content
+							i = separatorIdx + length
+							// Skip separator \n if present (only if content doesn't end with \n)
+							if i < len(data) && data[i] == '\n' {
+								i++
+							}
 							continue
 						}
 					}

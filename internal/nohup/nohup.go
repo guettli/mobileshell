@@ -24,11 +24,15 @@ type OutputLine struct {
 }
 
 // FormatOutputLine formats an OutputLine into the output.log format
-// Format: "> stream timestamp length: content\n"
+// Format: "> stream timestamp length: content" (with separator \n only if content doesn't end with \n)
 // where length is the byte length of content (which may include a trailing newline)
 func FormatOutputLine(line OutputLine) string {
 	timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
 	length := len(line.Line)
+	// Add separator newline only if content doesn't already end with one
+	if len(line.Line) > 0 && line.Line[len(line.Line)-1] == '\n' {
+		return fmt.Sprintf("> %s %s %d: %s", line.Stream, timestamp, length, line.Line)
+	}
 	return fmt.Sprintf("> %s %s %d: %s\n", line.Stream, timestamp, length, line.Line)
 }
 

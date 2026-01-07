@@ -1470,7 +1470,8 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 	outputFile := filepath.Join(processDir, "output.log")
 
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	logLine := fmt.Sprintf("signal-sent %s: %d %s\n", timestamp, signalNum, signalName)
+	content := fmt.Sprintf("%d %s", signalNum, signalName)
+	logLine := fmt.Sprintf("> signal-sent %s %d: %s\n", timestamp, len(content), content)
 
 	// Append to output.log
 	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0o600)
