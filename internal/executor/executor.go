@@ -1,11 +1,15 @@
 package executor
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -154,101 +158,125 @@ func GetProcess(stateDir, id string) (*Process, bool) {
 // ReadCombinedOutput reads and parses the combined output.log file
 // Returns stdout, stderr, and stdin lines separately
 func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin string, err error) {
-	data, err := os.ReadFile(filename)
+	file, err := os.Open(filename)
 	if err != nil {
 		return "", "", "", err
 	}
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			slog.Error("Failed to close file in ReadCombinedOutput", "error", cerr)
+		}
+	}()
 
-	lines := strings.Split(string(data), "\n")
-	var stdoutLines, stderrLines, stdinLines []string
+	var stdoutContent, stderrContent, stdinContent strings.Builder
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
 
-	for _, line := range lines {
-		if line == "" {
+		// Handle signal-sent lines first, as they don't follow the length-prefixed format
+		if strings.HasPrefix(line, "signal-sent ") {
+			if idx := strings.Index(line, ": "); idx != -1 {
+				content := "Signal sent: " + line[idx+2:]
+				stdinContent.WriteString(content + "\n")
+			}
+			continue // Handled, move to next line
+		}
+
+		// Now process lines in the new format: stream time length: content
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) < 3 {
+			continue // Malformed line, skip
+		}
+
+		stream := parts[0]
+		rest := parts[2]
+
+		colonIndex := strings.Index(rest, ": ")
+		if colonIndex == -1 {
 			continue
 		}
 
-		// Parse format: "stdout 2025-01-01T12:34:56.789Z: content"
-		// or: "stderr 2025-01-01T12:34:56.789Z: content"
-		// or: "stdin 2025-01-01T12:34:56.789Z: content"
-		// or: "signal-sent 2025-01-01T12:34:56.789Z: 15 SIGTERM"
-		// Content after ": " can be empty or incomplete (e.g., if process terminates without newline)
-		if strings.HasPrefix(line, "stdout ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stdoutLines = append(stdoutLines, content)
-			}
-		} else if strings.HasPrefix(line, "stderr ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stderrLines = append(stderrLines, content)
-			}
-		} else if strings.HasPrefix(line, "stdin ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[6:], ": "); idx != -1 {
-				content := line[6+idx+2:]
-				stdinLines = append(stdinLines, content)
-			}
-		} else if strings.HasPrefix(line, "signal-sent ") {
-			// Extract signal info after ": " and show in stdin (for visibility)
-			if idx := strings.Index(line[12:], ": "); idx != -1 {
-				content := "Signal sent: " + line[12+idx+2:]
-				stdinLines = append(stdinLines, content)
-			}
+		lengthStr := rest[:colonIndex]
+		length, err := strconv.Atoi(lengthStr)
+		if err != nil {
+			continue
+		}
+
+		contentFromFile := rest[colonIndex+2:]
+
+		finalContent := contentFromFile
+		if len(finalContent) < length {
+			finalContent += "\n"
+		}
+
+		switch stream {
+		case "stdout":
+			stdoutContent.WriteString(finalContent)
+		case "stderr":
+			stderrContent.WriteString(finalContent)
+		case "stdin":
+			stdinContent.WriteString(finalContent)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return "", "", "", err
+	}
 
-	stdout = strings.Join(stdoutLines, "\n")
-	stderr = strings.Join(stderrLines, "\n")
-	stdin = strings.Join(stdinLines, "\n")
-
-	return stdout, stderr, stdin, nil
+	return stdoutContent.String(), stderrContent.String(), stdinContent.String(), nil
 }
 
 // ReadRawStdout extracts raw stdout bytes from the combined output log file
 // This function preserves binary data including newlines and null bytes
 func ReadRawStdout(filename string) ([]byte, error) {
-	data, err := os.ReadFile(filename)
+	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			slog.Error("Failed to close file in ReadRawStdout", "error", cerr)
+		}
+	}()
 
 	var stdoutBytes []byte
-	i := 0
-	for i < len(data) {
-		// Find the next newline
-		lineEnd := i
-		for lineEnd < len(data) && data[lineEnd] != '\n' {
-			lineEnd++
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		lineBytes := scanner.Bytes()
+
+		if !bytes.HasPrefix(lineBytes, []byte("stdout ")) {
+			continue
 		}
 
-		line := data[i:lineEnd]
+		parts := bytes.SplitN(lineBytes, []byte(" "), 3)
+		if len(parts) < 3 {
+			continue
+		}
+		rest := parts[2]
 
-		// Check if this is a stdout line
-		if len(line) > 7 && string(line[:7]) == "stdout " {
-			// Find the ": " separator after the timestamp
-			// Format: "stdout 2025-01-01T12:34:56.789Z: content"
-			// The timestamp is fixed length: 24 chars (excluding "stdout ")
-			// So ": " should be around position 7 + 24 = 31
-			separatorIdx := -1
-			for j := 7; j < len(line)-1; j++ {
-				if line[j] == ':' && line[j+1] == ' ' {
-					separatorIdx = j + 2 // Skip ": "
-					break
-				}
-			}
-
-			if separatorIdx != -1 {
-				content := line[separatorIdx:]
-				stdoutBytes = append(stdoutBytes, content...)
-				// Add newline to separate lines (matching original output format)
-				stdoutBytes = append(stdoutBytes, '\n')
-			}
+		colonIndex := bytes.Index(rest, []byte(": "))
+		if colonIndex == -1 {
+			continue
 		}
 
-		// Move to the next line
-		i = lineEnd + 1
+		lengthStr := string(rest[:colonIndex])
+		length, err := strconv.Atoi(lengthStr)
+		if err != nil {
+			continue
+		}
+
+		contentFromFile := rest[colonIndex+2:]
+
+		finalContent := contentFromFile
+		if len(finalContent) < length {
+			finalContent = append(finalContent, '\n')
+		}
+
+		stdoutBytes = append(stdoutBytes, finalContent...)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
 	return stdoutBytes, nil

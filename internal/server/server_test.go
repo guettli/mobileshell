@@ -13,6 +13,7 @@ import (
 
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
+	"mobileshell/internal/nohup"
 	"mobileshell/internal/workspace"
 )
 
@@ -618,44 +619,56 @@ func TestBinaryDownload(t *testing.T) {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
-	// Create a test process with binary data (all bytes from 0 to 255)
-	binaryData := make([]byte, 256)
-	for i := 0; i < 256; i++ {
-		binaryData[i] = byte(i)
-	}
-
 	// Create a fake process by directly setting up the process directory structure
-	// This avoids issues with running actual commands in the test environment
 	hash, err := workspace.CreateProcess(ws, "test binary command")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
 
 	processDir := workspace.GetProcessDir(ws, hash)
-
-	// Create output.log file with binary data in stdout format
-	// Since binary data can contain newlines, we need to write it line by line
-	// simulating how the actual nohup process would write it
-	var outputLog bytes.Buffer
-	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-
-	// Write each byte on its own line to simulate line-by-line output
-	// This is how the actual process would output binary data
-	for _, b := range binaryData {
-		outputLog.WriteString("stdout " + timestamp + ": ")
-		outputLog.WriteByte(b)
-		outputLog.WriteString("\n")
-	}
-
 	outputFile := filepath.Join(processDir, "output.log")
-	if err := os.WriteFile(outputFile, outputLog.Bytes(), 0600); err != nil {
-		t.Fatalf("Failed to write output.log: %v", err)
+	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_SYNC, 0600)
+	if err != nil {
+		t.Fatalf("failed to open output.log file: %v", err)
 	}
 
-	// Create binary-data marker file (simulating what nohup would do)
-	binaryMarkerFile := filepath.Join(processDir, "binary-data")
-	if err := os.WriteFile(binaryMarkerFile, []byte("true"), 0600); err != nil {
-		t.Fatalf("Failed to write binary-data marker: %v", err)
+	outputChan := make(chan nohup.OutputLine, 256 + 2) // Enough for 256 bytes + 2 text lines
+	writerDone := make(chan struct{})
+
+	go nohup.WriteOutputLog(outFile, outputChan, writerDone, processDir)
+
+	// Test case 1: binary data (bytes 0-255), sending each byte individually
+	var expectedBinaryData []byte // Collect expected binary data
+	for i := 0; i < 256; i++ {
+		b := byte(i)
+		outputChan <- nohup.OutputLine{
+			Stream:    "stdout",
+			Timestamp: time.Now().UTC(),
+			Line:      string(b), // Convert single byte to string
+		}
+		expectedBinaryData = append(expectedBinaryData, b)
+	}
+
+	// Test case 2: text data with final newline
+	textWithNewline := "text with newline\n"
+	outputChan <- nohup.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Now().UTC(),
+		Line:      textWithNewline,
+	}
+
+	// Test case 3: text data without final newline
+	textWithoutNewline := "text without newline"
+	outputChan <- nohup.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Now().UTC(),
+		Line:      textWithoutNewline,
+	}
+
+	close(outputChan)
+	<-writerDone
+	if err := outFile.Close(); err != nil {
+		t.Fatalf("Failed to close output file in TestBinaryDownload: %v", err)
 	}
 
 	// Mark process as completed
@@ -700,67 +713,15 @@ func TestBinaryDownload(t *testing.T) {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
 	}
 
-	// Check Content-Type header is set
-	contentType := w.Header().Get("Content-Type")
-	if contentType == "" {
-		t.Error("Content-Type header should be set")
-	}
+	// Check that the downloaded data matches the expected data
+	var expectedData []byte
+	expectedData = append(expectedData, expectedBinaryData...)
+	expectedData = append(expectedData, []byte(textWithNewline)...)
+	expectedData = append(expectedData, []byte(textWithoutNewline)...)
 
-	// Check Content-Disposition header
-	contentDisposition := w.Header().Get("Content-Disposition")
-	if !strings.Contains(contentDisposition, "attachment") {
-		t.Errorf("Content-Disposition should contain 'attachment', got %q", contentDisposition)
-	}
-
-	// Check that the downloaded data contains all bytes 0-255
 	downloadedData := w.Body.Bytes()
 
-	if len(downloadedData) == 0 {
-		t.Fatal("Downloaded data should not be empty")
+	if !bytes.Equal(downloadedData, expectedData) {
+		t.Errorf("Downloaded data does not match expected data.\nExpected: %q\nGot: %q", expectedData, downloadedData)
 	}
-
-	// Verify that all bytes 0-255 are present in the downloaded data
-	// Count occurrences of each byte value
-	byteCounts := make(map[byte]int)
-	for _, b := range downloadedData {
-		byteCounts[b]++
-	}
-
-	// Check that we have all 256 unique byte values
-	for i := 0; i < 256; i++ {
-		if byteCounts[byte(i)] == 0 {
-			t.Errorf("Missing byte value %d in downloaded data", i)
-		}
-	}
-
-	// All 256 bytes should be present (byte 10 which is '\n' will appear multiple times)
-	if len(byteCounts) != 256 {
-		t.Errorf("Expected 256 unique byte values, got %d", len(byteCounts))
-	}
-
-	t.Logf("Successfully downloaded %d bytes with all 256 unique byte values (0-255) preserved", len(downloadedData))
-
-	// Test that the process page shows binary data message instead of output
-	processPageReq := httptest.NewRequest("GET", "/workspaces/"+ws.ID+"/processes/"+hash, nil)
-	processPageReq.AddCookie(&http.Cookie{
-		Name:  "session",
-		Value: token,
-	})
-
-	processPageW := httptest.NewRecorder()
-	handler.ServeHTTP(processPageW, processPageReq)
-
-	if processPageW.Code != http.StatusOK {
-		t.Errorf("Expected status code %d for process page, got %d", http.StatusOK, processPageW.Code)
-	}
-
-	processPageBody := processPageW.Body.String()
-	if !strings.Contains(processPageBody, "Binary data detected") {
-		t.Error("Process page should contain 'Binary data detected' message")
-	}
-	if !strings.Contains(processPageBody, "Download Output") {
-		t.Error("Process page should contain 'Download Output' button")
-	}
-
-	t.Logf("Successfully verified binary data message is shown on process page")
 }

@@ -305,10 +305,10 @@ func TestReadCombinedOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a test combined output file with proper format
-	testContent := `stdout 2025-12-31T12:00:00.000Z: line 1
-stderr 2025-12-31T12:00:01.000Z: error message
-stdout 2025-12-31T12:00:02.000Z: line 2
-stdin 2025-12-31T12:00:03.000Z: input text
+	testContent := `stdout 2025-12-31T12:00:00.000Z 6: line 1
+stderr 2025-12-31T12:00:01.000Z 13: error message
+stdout 2025-12-31T12:00:02.000Z 6: line 2
+stdin 2025-12-31T12:00:03.000Z 10: input text
 signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM
 `
 	testFile := filepath.Join(tmpDir, "combined-output.txt")

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,29 +52,9 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Create channel for output lines
 	outputChan := make(chan OutputLine, 100)
 	writerDone := make(chan struct{})
-	binaryDetected := false
 
 	// Start goroutine to write output lines to file
-	go func() {
-		defer close(writerDone)
-		for line := range outputChan {
-			// Check if this line contains binary data
-			if !binaryDetected && (line.Stream == "stdout" || line.Stream == "stderr") {
-				if isBinaryData(line.Line) {
-					binaryDetected = true
-					// Create binary-data marker file
-					binaryMarkerFile := filepath.Join(processDir, "binary-data")
-					_ = os.WriteFile(binaryMarkerFile, []byte("true"), 0600)
-				}
-			}
-
-			// Format: "stdout 2025-01-01T12:34:56.789Z: line"
-			timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
-			formattedLine := fmt.Sprintf("%s %s: %s\n", line.Stream, timestamp, line.Line)
-			_, _ = outFile.WriteString(formattedLine)
-			// No need to sync since file was opened with O_SYNC
-		}
-	}()
+	go WriteOutputLog(outFile, outputChan, writerDone, processDir)
 
 	// Build the full command with pre-command if specified
 	var fullCommand string
@@ -169,10 +150,37 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	return nil
 }
 
-// isBinaryData checks if a line contains binary data
+// WriteOutputLog is a helper function to write output lines to a file in the format expected by the executor.
+func WriteOutputLog(outFile *os.File, outputChan <-chan OutputLine, done chan<- struct{}, processDir string) {
+	defer close(done)
+	binaryDetected := false
+	for line := range outputChan {
+		// Check if this line contains binary data
+		if !binaryDetected && (line.Stream == "stdout" || line.Stream == "stderr") {
+			if IsBinaryData(line.Line) {
+				binaryDetected = true
+				// Create binary-data marker file
+				binaryMarkerFile := filepath.Join(processDir, "binary-data")
+				_ = os.WriteFile(binaryMarkerFile, []byte("true"), 0600)
+			}
+		}
+
+		// Format: "stdout 2025-01-01T12:34:56.789Z 4: foo\n"
+		timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
+		lineStr := line.Line
+		formattedLine := fmt.Sprintf("%s %s %d: %s", line.Stream, timestamp, len(lineStr), lineStr)
+		if !strings.HasSuffix(lineStr, "\n") {
+			formattedLine += "\n"
+		}
+		_, _ = outFile.WriteString(formattedLine)
+		// No need to sync since file was opened with O_SYNC
+	}
+}
+
+// IsBinaryData checks if a line contains binary data
 // A line is considered binary if it contains null bytes or has a high proportion
 // of non-printable characters (excluding common whitespace)
-func isBinaryData(line string) bool {
+func IsBinaryData(line string) bool {
 	if len(line) == 0 {
 		return false
 	}
@@ -239,12 +247,8 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 		}
 
 		if shouldFlush {
-			// Remove trailing newline if present
+			// We don't remove the trailing newline. The length in output.log will tell us if it was present.
 			line := string(buffer)
-			if len(line) > 0 && line[len(line)-1] == '\n' {
-				line = line[:len(line)-1]
-			}
-
 			outputChan <- OutputLine{
 				Stream:    stream,
 				Timestamp: time.Now().UTC(),
@@ -288,10 +292,11 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 			}
 
 			// Also log to output.log
+			// scanner.Text() removes the trailing newline. The original line from the user had a newline.
 			outputChan <- OutputLine{
 				Stream:    "stdin",
 				Timestamp: time.Now().UTC(),
-				Line:      line,
+				Line:      line + "\n",
 			}
 		}
 
