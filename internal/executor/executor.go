@@ -159,49 +159,116 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 		return "", "", "", err
 	}
 
-	lines := strings.Split(string(data), "\n")
-	var stdoutLines, stderrLines, stdinLines []string
+	var stdoutParts, stderrParts, stdinParts []string
+	i := 0
 
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
+	for i < len(data) {
+		// Check for new format: "> stream ..."
+		if i+2 < len(data) && data[i] == '>' && data[i+1] == ' ' {
+			// New format: "> stream timestamp length: content\n"
+			// Find the ": " separator
+			separatorIdx := -1
+			for j := i + 2; j < len(data)-1; j++ {
+				if data[j] == ':' && data[j+1] == ' ' {
+					separatorIdx = j + 2
+					break
+				}
+			}
 
-		// Parse format: "stdout 2025-01-01T12:34:56.789Z: content"
-		// or: "stderr 2025-01-01T12:34:56.789Z: content"
-		// or: "stdin 2025-01-01T12:34:56.789Z: content"
-		// or: "signal-sent 2025-01-01T12:34:56.789Z: 15 SIGTERM"
-		// Content after ": " can be empty or incomplete (e.g., if process terminates without newline)
-		if strings.HasPrefix(line, "stdout ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stdoutLines = append(stdoutLines, content)
+			if separatorIdx != -1 {
+				// Extract the stream type from between "> " and the first space after it
+				streamStart := i + 2
+				streamEnd := streamStart
+				for streamEnd < len(data) && data[streamEnd] != ' ' {
+					streamEnd++
+				}
+				stream := string(data[streamStart:streamEnd])
+
+				// Extract length from the format
+				// Find the space before the colon to get the length field
+				lengthStart := -1
+				for j := separatorIdx - 3; j >= i+2; j-- {
+					if data[j] == ' ' {
+						lengthStart = j + 1
+						break
+					}
+				}
+
+				if lengthStart != -1 {
+					lengthStr := string(data[lengthStart : separatorIdx-2])
+					var length int
+					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
+						// Read exactly 'length' bytes of content
+						if separatorIdx+length <= len(data) {
+							content := string(data[separatorIdx : separatorIdx+length])
+
+							switch stream {
+							case "stdout":
+								stdoutParts = append(stdoutParts, content)
+							case "stderr":
+								stderrParts = append(stderrParts, content)
+							case "stdin":
+								stdinParts = append(stdinParts, content)
+							}
+
+							// Move past content and the line separator '\n'
+							i = separatorIdx + length + 1
+							continue
+						}
+					}
+				}
 			}
-		} else if strings.HasPrefix(line, "stderr ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stderrLines = append(stderrLines, content)
+
+			// If parsing failed, skip to next line
+			for i < len(data) && data[i] != '\n' {
+				i++
 			}
-		} else if strings.HasPrefix(line, "stdin ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[6:], ": "); idx != -1 {
-				content := line[6+idx+2:]
-				stdinLines = append(stdinLines, content)
+			i++ // Skip the newline
+		} else if i+12 <= len(data) && string(data[i:i+12]) == "signal-sent " {
+			// Signal-sent format: "signal-sent timestamp: signal info\n"
+			// Find the ": " separator
+			separatorIdx := -1
+			for j := i + 12; j < len(data)-1; j++ {
+				if data[j] == ':' && data[j+1] == ' ' {
+					separatorIdx = j + 2
+					break
+				}
+				if data[j] == '\n' {
+					break
+				}
 			}
-		} else if strings.HasPrefix(line, "signal-sent ") {
-			// Extract signal info after ": " and show in stdin (for visibility)
-			if idx := strings.Index(line[12:], ": "); idx != -1 {
-				content := "Signal sent: " + line[12+idx+2:]
-				stdinLines = append(stdinLines, content)
+
+			if separatorIdx != -1 {
+				// Find the end of the line
+				lineEnd := separatorIdx
+				for lineEnd < len(data) && data[lineEnd] != '\n' {
+					lineEnd++
+				}
+				content := "Signal sent: " + string(data[separatorIdx:lineEnd])
+				stdinParts = append(stdinParts, content)
+				stdinParts = append(stdinParts, "\n")
+				i = lineEnd + 1
+				continue
 			}
+
+			// If parsing failed, skip to next line
+			for i < len(data) && data[i] != '\n' {
+				i++
+			}
+			i++
+		} else {
+			// Skip to next line if not a recognized format
+			for i < len(data) && data[i] != '\n' {
+				i++
+			}
+			i++
 		}
 	}
 
-	stdout = strings.Join(stdoutLines, "\n")
-	stderr = strings.Join(stderrLines, "\n")
-	stdin = strings.Join(stdinLines, "\n")
+	// Concatenate parts as-is (they already include newlines where appropriate)
+	stdout = strings.Join(stdoutParts, "")
+	stderr = strings.Join(stderrParts, "")
+	stdin = strings.Join(stdinParts, "")
 
 	return stdout, stderr, stdin, nil
 }
@@ -217,38 +284,53 @@ func ReadRawStdout(filename string) ([]byte, error) {
 	var stdoutBytes []byte
 	i := 0
 	for i < len(data) {
-		// Find the next newline
-		lineEnd := i
-		for lineEnd < len(data) && data[lineEnd] != '\n' {
-			lineEnd++
-		}
-
-		line := data[i:lineEnd]
-
-		// Check if this is a stdout line
-		if len(line) > 7 && string(line[:7]) == "stdout " {
-			// Find the ": " separator after the timestamp
-			// Format: "stdout 2025-01-01T12:34:56.789Z: content"
-			// The timestamp is fixed length: 24 chars (excluding "stdout ")
-			// So ": " should be around position 7 + 24 = 31
+		// Check for new format: "> stdout ..."
+		if i+9 <= len(data) && string(data[i:i+9]) == "> stdout " {
+			// New format: "> stdout timestamp length: content\n"
+			// Find the ": " separator
 			separatorIdx := -1
-			for j := 7; j < len(line)-1; j++ {
-				if line[j] == ':' && line[j+1] == ' ' {
-					separatorIdx = j + 2 // Skip ": "
+			for j := i + 9; j < len(data)-1; j++ {
+				if data[j] == ':' && data[j+1] == ' ' {
+					separatorIdx = j + 2
 					break
 				}
 			}
 
 			if separatorIdx != -1 {
-				content := line[separatorIdx:]
-				stdoutBytes = append(stdoutBytes, content...)
-				// Add newline to separate lines (matching original output format)
-				stdoutBytes = append(stdoutBytes, '\n')
+				// Extract length from the format
+				// Find the space before the colon to get the length field
+				lengthStart := -1
+				for j := separatorIdx - 3; j >= i+9; j-- {
+					if data[j] == ' ' {
+						lengthStart = j + 1
+						break
+					}
+				}
+
+				if lengthStart != -1 {
+					lengthStr := string(data[lengthStart : separatorIdx-2])
+					var length int
+					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
+						// Read exactly 'length' bytes of content
+						if separatorIdx+length <= len(data) {
+							content := data[separatorIdx : separatorIdx+length]
+							stdoutBytes = append(stdoutBytes, content...)
+
+							// Move past content and the line separator '\n'
+							i = separatorIdx + length + 1
+							continue
+						}
+					}
+				}
 			}
 		}
 
-		// Move to the next line
-		i = lineEnd + 1
+		// Skip to next line if parsing failed or not a stdout line
+		nextLine := i
+		for nextLine < len(data) && data[nextLine] != '\n' {
+			nextLine++
+		}
+		i = nextLine + 1
 	}
 
 	return stdoutBytes, nil

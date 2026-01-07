@@ -530,22 +530,55 @@ func readRawStdoutBytes(filename string) ([]byte, error) {
 	}
 
 	var stdoutBytes []byte
-	lines := strings.Split(string(data), "\n")
+	i := 0
+	for i < len(data) {
+		// Check for new format: "> stdout ..."
+		if i+9 <= len(data) && string(data[i:i+9]) == "> stdout " {
+			// New format: "> stdout timestamp length: content\n"
+			// Find the ": " separator
+			separatorIdx := -1
+			for j := i + 9; j < len(data)-1; j++ {
+				if data[j] == ':' && data[j+1] == ' ' {
+					separatorIdx = j + 2
+					break
+				}
+			}
 
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
+			if separatorIdx != -1 {
+				// Extract length from the format
+				// Find the space before the colon to get the length field
+				lengthStart := -1
+				for j := separatorIdx - 3; j >= i+9; j-- {
+					if data[j] == ' ' {
+						lengthStart = j + 1
+						break
+					}
+				}
 
-		// Only extract stdout lines (not stderr or stdin)
-		if strings.HasPrefix(line, "stdout ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stdoutBytes = append(stdoutBytes, []byte(content)...)
-				stdoutBytes = append(stdoutBytes, '\n')
+				if lengthStart != -1 {
+					lengthStr := string(data[lengthStart : separatorIdx-2])
+					var length int
+					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
+						// Read exactly 'length' bytes of content
+						if separatorIdx+length <= len(data) {
+							content := data[separatorIdx : separatorIdx+length]
+							stdoutBytes = append(stdoutBytes, content...)
+
+							// Move past content and the line separator '\n'
+							i = separatorIdx + length + 1
+							continue
+						}
+					}
+				}
 			}
 		}
+
+		// Skip to next line if parsing failed or not a stdout line
+		nextLine := i
+		for nextLine < len(data) && data[nextLine] != '\n' {
+			nextLine++
+		}
+		i = nextLine + 1
 	}
 
 	return stdoutBytes, nil

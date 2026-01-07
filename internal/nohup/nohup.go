@@ -20,7 +20,16 @@ import (
 type OutputLine struct {
 	Stream    string    // "stdout", "stderr", or "stdin"
 	Timestamp time.Time // UTC timestamp
-	Line      string    // The actual line content
+	Line      string    // The actual line content (may include trailing newline)
+}
+
+// FormatOutputLine formats an OutputLine into the output.log format
+// Format: "> stream timestamp length: content\n"
+// where length is the byte length of content (which may include a trailing newline)
+func FormatOutputLine(line OutputLine) string {
+	timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
+	length := len(line.Line)
+	return fmt.Sprintf("> %s %s %d: %s\n", line.Stream, timestamp, length, line.Line)
 }
 
 // Run executes a command in nohup mode within a workspace
@@ -67,9 +76,8 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 				}
 			}
 
-			// Format: "stdout 2025-01-01T12:34:56.789Z: line"
-			timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
-			formattedLine := fmt.Sprintf("%s %s: %s\n", line.Stream, timestamp, line.Line)
+			// Format the output line using the shared formatting function
+			formattedLine := FormatOutputLine(line)
 			_, _ = outFile.WriteString(formattedLine)
 			// No need to sync since file was opened with O_SYNC
 		}
@@ -239,11 +247,9 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 		}
 
 		if shouldFlush {
-			// Remove trailing newline if present
+			// Keep the line as-is, including newline if present
+			// The length field in the output format will indicate if newline is included
 			line := string(buffer)
-			if len(line) > 0 && line[len(line)-1] == '\n' {
-				line = line[:len(line)-1]
-			}
 
 			outputChan <- OutputLine{
 				Stream:    stream,
