@@ -562,6 +562,11 @@ async function testFileAutocomplete() {
   });
 
   const subdirData = JSON.parse(subdirPatternResponse.text);
+  if (!subdirData || !subdirData.matches) {
+    console.error('Response status:', subdirPatternResponse.status);
+    console.error('Response text:', subdirPatternResponse.text);
+    console.error('Parsed data:', subdirData);
+  }
   assert.ok(subdirData.matches, 'Should have matches array');
   assert.ok(subdirData.matches.length >= 1, `Should find .txt files, got ${subdirData.matches.length} matches`);
   assert.ok(subdirData.matches.some(m => m.relative_path.includes('.txt')), 'Should find txt files');
