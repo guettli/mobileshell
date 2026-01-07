@@ -118,23 +118,12 @@
 </head>
 
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{.BasePath}}/">MobileShell</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="btn btn-outline-light btn-sm" href="{{.BasePath}}/workspaces/{{.WorkspaceID}}">← Back to Workspace</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{.BasePath}}/logout">Logout</a>
-                    </li>
-                </ul>
+            <div class="d-flex gap-2">
+                <a class="btn btn-outline-light btn-sm" href="{{.BasePath}}/workspaces/{{.WorkspaceID}}">← Back to Workspace</a>
+                <a class="btn btn-outline-light btn-sm" href="{{.BasePath}}/logout">Logout</a>
             </div>
         </div>
     </nav>
@@ -184,7 +173,6 @@
         </div>
     </div>
 
-    <script src="{{.BasePath}}/static/static/bootstrap.bundle.min.js"></script>
     <script>
         (function() {
             const filePathInput = document.getElementById('file_path');
