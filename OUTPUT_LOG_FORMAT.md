@@ -131,12 +131,10 @@ visibility.
 
 ## Implementation
 
-The format is written by the `nohup.FormatOutputLine()` function in
-`internal/nohup/nohup.go` and parsed by:
+The format is written by `outputlog.FormatOutputLine()` and parsed by
+`outputlog.ReadCombinedOutput()` and `outputlog.ReadRawStdout()`.
 
-- `executor.ReadCombinedOutput()` for text display
-- `executor.ReadRawStdout()` for binary data extraction
-- `workspace.readRawStdoutBytes()` for internal processing
+All implementation is in the `internal/outputlog` package.
 
 ## Why This Format?
 
