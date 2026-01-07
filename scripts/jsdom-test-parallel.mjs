@@ -478,29 +478,43 @@ async function testFileAutocomplete() {
   const workspaceId = await createWorkspace(sessionCookie, workspaceName);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
-  // Create some test files in the workspace directory
-  const createFileCommands = [
-    'touch test-file1.go',
-    'touch test-file2.go',
-    'mkdir -p subdir',
-    'touch subdir/nested.go',
-    'touch readme.md',
-    'mkdir -p deep/nested/path',
-    'touch deep/nested/path/deep-file.txt',
-  ];
+  // Create test files with a single command to ensure they all exist
+  const setupCommand = 'touch test-file1.go test-file2.go readme.md && mkdir -p subdir && touch subdir/nested.go && mkdir -p deep/nested/path && touch deep/nested/path/deep-file.txt';
 
-  for (const cmd of createFileCommands) {
-    await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
-      headers: {
-        Cookie: sessionCookie,
-        'HX-Request': 'true',
-      },
-      body: `command=${encodeURIComponent(cmd)}`,
-    });
+  const setupResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `command=${encodeURIComponent(setupCommand)}`,
+  });
+
+  // Extract process ID to wait for command completion
+  const processMatch = setupResponse.text.match(/processes\/([^\/]+)\/hx-output/);
+  if (processMatch) {
+    const processId = processMatch[1];
+
+    // Wait for the setup command to complete
+    for (let i = 0; i < 20; i++) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      const statusResponse = await request('GET', `/workspaces/${workspaceId}/json-process-updates?process_ids=${processId}`, {
+        headers: {
+          Cookie: sessionCookie,
+        },
+      });
+
+      const statusData = JSON.parse(statusResponse.text);
+      const processUpdate = statusData.updates && statusData.updates.find(u => u.id === processId);
+
+      if (processUpdate && processUpdate.status === 'finished') {
+        break;
+      }
+    }
   }
 
-  // Wait for files to be created (longer wait to avoid race conditions in CI)
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // Additional wait to ensure filesystem is synced
+  await new Promise(resolve => setTimeout(resolve, 500));
 
   // Test 1: Simple wildcard pattern
   const simplePatternResponse = await request('GET', `/workspaces/${workspaceId}/files/autocomplete?pattern=${encodeURIComponent('*.go')}`, {
