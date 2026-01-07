@@ -52,3 +52,5 @@ signal-sent <timestamp>: <signal_number> <signal_name>
 ```
 
 This does not follow the standard length-prefixed format.
+
+```

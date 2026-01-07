@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -169,57 +170,96 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 	}()
 
 	var stdoutContent, stderrContent, stdinContent strings.Builder
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lineBytes := scanner.Bytes()
+	reader := bufio.NewReader(file)
+	for {
+		lineBytes, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				if len(lineBytes) == 0 {
+					break
+				}
+				// Process the last line if it doesn't end in newline
+			} else {
+				return "", "", "", err
+			}
+		}
 
 		// Handle signal-sent lines first, as they don't follow the length-prefixed format
 		if bytes.HasPrefix(lineBytes, []byte("signal-sent ")) {
 			if idx := bytes.Index(lineBytes, []byte(": ")); idx != -1 {
 				content := "Signal sent: " + string(lineBytes[idx+2:])
-				stdinContent.WriteString(content + "\n")
+				// ReadBytes includes the delimiter, so content likely has \n at end
+				// We want to ensure it ends with exactly one \n for display
+				if !strings.HasSuffix(content, "\n") {
+					content += "\n"
+				}
+				stdinContent.WriteString(content)
 			}
-			continue // Handled, move to next line
+			if err == io.EOF {
+				break
+			}
+			continue
 		}
 
 		// Now process lines in the new format: stream time length: content
+		// We expect at least 3 parts separated by spaces
 		parts := bytes.SplitN(lineBytes, []byte(" "), 3)
 		if len(parts) < 3 {
+			if err == io.EOF {
+				break
+			}
 			continue // Malformed line, skip
 		}
 
 		stream := parts[0]
+		// parts[1] is timestamp
 		rest := parts[2]
 
 		colonIndex := bytes.Index(rest, []byte(": "))
 		if colonIndex == -1 {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
 		lengthStr := string(rest[:colonIndex])
-		length, err := strconv.Atoi(lengthStr)
-		if err != nil {
+		length, parseErr := strconv.Atoi(lengthStr)
+		if parseErr != nil {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
 		contentFromFile := rest[colonIndex+2:]
 
-		finalContent := contentFromFile
-		if len(finalContent) < length {
-			finalContent = append(finalContent, '\n')
+		// contentFromFile includes the log's newline if ReadBytes found one.
+		// We rely on 'length' to determine what the original content was.
+		// If len(contentFromFile) > length, the extra bytes are the log framing (usually \n or \r\n)
+		// We truncate to 'length'.
+		if len(contentFromFile) > length {
+			contentFromFile = contentFromFile[:length]
+		} else if len(contentFromFile) < length {
+			// This theoretically shouldn't happen if the log was written correctly and not truncated
+			// But if it does, we might want to append a newline if that was the intent,
+			// or just accept we have partial data.
+			// The original logic appended \n if len < length.
+			contentFromFile = append(contentFromFile, '\n')
 		}
 
 		switch string(stream) {
 		case "stdout":
-			stdoutContent.Write(finalContent)
+			stdoutContent.Write(contentFromFile)
 		case "stderr":
-			stderrContent.Write(finalContent)
+			stderrContent.Write(contentFromFile)
 		case "stdin":
-			stdinContent.Write(finalContent)
+			stdinContent.Write(contentFromFile)
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return "", "", "", err
+
+		if err == io.EOF {
+			break
+		}
 	}
 
 	return stdoutContent.String(), stderrContent.String(), stdinContent.String(), nil
@@ -239,44 +279,67 @@ func ReadRawStdout(filename string) ([]byte, error) {
 	}()
 
 	var stdoutBytes []byte
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	reader := bufio.NewReader(file)
 
-	for scanner.Scan() {
-		lineBytes := scanner.Bytes()
+	for {
+		lineBytes, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				if len(lineBytes) == 0 {
+					break
+				}
+			} else {
+				return nil, err
+			}
+		}
 
 		if !bytes.HasPrefix(lineBytes, []byte("stdout ")) {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
 		parts := bytes.SplitN(lineBytes, []byte(" "), 3)
 		if len(parts) < 3 {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 		rest := parts[2]
 
 		colonIndex := bytes.Index(rest, []byte(": "))
 		if colonIndex == -1 {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
 		lengthStr := string(rest[:colonIndex])
-		length, err := strconv.Atoi(lengthStr)
-		if err != nil {
+		length, parseErr := strconv.Atoi(lengthStr)
+		if parseErr != nil {
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
 		contentFromFile := rest[colonIndex+2:]
 
-		finalContent := contentFromFile
-		if len(finalContent) < length {
-			finalContent = append(finalContent, '\n')
+		// Exact same logic as ReadCombinedOutput
+		if len(contentFromFile) > length {
+			contentFromFile = contentFromFile[:length]
+		} else if len(contentFromFile) < length {
+			contentFromFile = append(contentFromFile, '\n')
 		}
 
-		stdoutBytes = append(stdoutBytes, finalContent...)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
+		stdoutBytes = append(stdoutBytes, contentFromFile...)
+
+		if err == io.EOF {
+			break
+		}
 	}
 
 	return stdoutBytes, nil
