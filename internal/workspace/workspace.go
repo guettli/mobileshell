@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"mobileshell/internal/outputlog"
 )
 
 // Workspace represents a workspace with a name, directory, and pre-command
@@ -260,7 +262,7 @@ func UpdateProcessExit(ws *Workspace, hash string, exitCode int, signal string) 
 
 	// Detect and write content type
 	outputFile := filepath.Join(processDir, "output.log")
-	if data, err := readRawStdoutBytes(outputFile); err == nil && len(data) > 0 {
+	if data, err := outputlog.ReadRawStdout(outputFile); err == nil && len(data) > 0 {
 		contentType := detectContentType(data)
 		if err := os.WriteFile(filepath.Join(processDir, "content-type"), []byte(contentType), 0600); err != nil {
 			return fmt.Errorf("failed to write content-type file: %w", err)
@@ -520,35 +522,6 @@ func generateWorkspaceID(name string) (string, error) {
 	}
 
 	return id, nil
-}
-
-// readRawStdoutBytes extracts raw stdout bytes from the combined output log file
-func readRawStdoutBytes(filename string) ([]byte, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	var stdoutBytes []byte
-	lines := strings.Split(string(data), "\n")
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		// Only extract stdout lines (not stderr or stdin)
-		if strings.HasPrefix(line, "stdout ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stdoutBytes = append(stdoutBytes, []byte(content)...)
-				stdoutBytes = append(stdoutBytes, '\n')
-			}
-		}
-	}
-
-	return stdoutBytes, nil
 }
 
 // detectContentType detects the MIME type of stdout data

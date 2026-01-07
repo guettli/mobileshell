@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"mobileshell/internal/workspace"
@@ -151,108 +150,6 @@ func GetProcess(stateDir, id string) (*Process, bool) {
 	return nil, false
 }
 
-// ReadCombinedOutput reads and parses the combined output.log file
-// Returns stdout, stderr, and stdin lines separately
-func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin string, err error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return "", "", "", err
-	}
-
-	lines := strings.Split(string(data), "\n")
-	var stdoutLines, stderrLines, stdinLines []string
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		// Parse format: "stdout 2025-01-01T12:34:56.789Z: content"
-		// or: "stderr 2025-01-01T12:34:56.789Z: content"
-		// or: "stdin 2025-01-01T12:34:56.789Z: content"
-		// or: "signal-sent 2025-01-01T12:34:56.789Z: 15 SIGTERM"
-		// Content after ": " can be empty or incomplete (e.g., if process terminates without newline)
-		if strings.HasPrefix(line, "stdout ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stdoutLines = append(stdoutLines, content)
-			}
-		} else if strings.HasPrefix(line, "stderr ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[7:], ": "); idx != -1 {
-				content := line[7+idx+2:]
-				stderrLines = append(stderrLines, content)
-			}
-		} else if strings.HasPrefix(line, "stdin ") {
-			// Extract content after ": "
-			if idx := strings.Index(line[6:], ": "); idx != -1 {
-				content := line[6+idx+2:]
-				stdinLines = append(stdinLines, content)
-			}
-		} else if strings.HasPrefix(line, "signal-sent ") {
-			// Extract signal info after ": " and show in stdin (for visibility)
-			if idx := strings.Index(line[12:], ": "); idx != -1 {
-				content := "Signal sent: " + line[12+idx+2:]
-				stdinLines = append(stdinLines, content)
-			}
-		}
-	}
-
-	stdout = strings.Join(stdoutLines, "\n")
-	stderr = strings.Join(stderrLines, "\n")
-	stdin = strings.Join(stdinLines, "\n")
-
-	return stdout, stderr, stdin, nil
-}
-
-// ReadRawStdout extracts raw stdout bytes from the combined output log file
-// This function preserves binary data including newlines and null bytes
-func ReadRawStdout(filename string) ([]byte, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	var stdoutBytes []byte
-	i := 0
-	for i < len(data) {
-		// Find the next newline
-		lineEnd := i
-		for lineEnd < len(data) && data[lineEnd] != '\n' {
-			lineEnd++
-		}
-
-		line := data[i:lineEnd]
-
-		// Check if this is a stdout line
-		if len(line) > 7 && string(line[:7]) == "stdout " {
-			// Find the ": " separator after the timestamp
-			// Format: "stdout 2025-01-01T12:34:56.789Z: content"
-			// The timestamp is fixed length: 24 chars (excluding "stdout ")
-			// So ": " should be around position 7 + 24 = 31
-			separatorIdx := -1
-			for j := 7; j < len(line)-1; j++ {
-				if line[j] == ':' && line[j+1] == ' ' {
-					separatorIdx = j + 2 // Skip ": "
-					break
-				}
-			}
-
-			if separatorIdx != -1 {
-				content := line[separatorIdx:]
-				stdoutBytes = append(stdoutBytes, content...)
-				// Add newline to separate lines (matching original output format)
-				stdoutBytes = append(stdoutBytes, '\n')
-			}
-		}
-
-		// Move to the next line
-		i = lineEnd + 1
-	}
-
-	return stdoutBytes, nil
-}
 
 // DetectContentType detects the MIME type of stdout data
 func DetectContentType(data []byte) string {

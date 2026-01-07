@@ -13,15 +13,9 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
 )
-
-// OutputLine represents a single line of output from either stdout or stderr
-type OutputLine struct {
-	Stream    string    // "stdout", "stderr", or "stdin"
-	Timestamp time.Time // UTC timestamp
-	Line      string    // The actual line content
-}
 
 // Run executes a command in nohup mode within a workspace
 // This function is called by the `mobileshell nohup` command
@@ -49,7 +43,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	defer func() { _ = outFile.Close() }()
 
 	// Create channel for output lines
-	outputChan := make(chan OutputLine, 100)
+	outputChan := make(chan outputlog.OutputLine, 100)
 	writerDone := make(chan struct{})
 	binaryDetected := false
 
@@ -67,9 +61,8 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 				}
 			}
 
-			// Format: "stdout 2025-01-01T12:34:56.789Z: line"
-			timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
-			formattedLine := fmt.Sprintf("%s %s: %s\n", line.Stream, timestamp, line.Line)
+			// Format the output line using the shared formatting function
+			formattedLine := outputlog.FormatOutputLine(line)
 			_, _ = outFile.WriteString(formattedLine)
 			// No need to sync since file was opened with O_SYNC
 		}
@@ -200,7 +193,7 @@ func isBinaryData(line string) bool {
 // readLines reads lines from a reader and sends them to the output channel
 // This function flushes partial lines (without newlines) after a timeout to support
 // interactive programs that output prompts without trailing newlines (e.g., "Enter filename: ")
-func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, done chan<- struct{}) {
+func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}) {
 	defer func() {
 		done <- struct{}{}
 	}()
@@ -215,7 +208,7 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 		if err != nil {
 			// EOF or error - flush any remaining buffer
 			if len(buffer) > 0 {
-				outputChan <- OutputLine{
+				outputChan <- outputlog.OutputLine{
 					Stream:    stream,
 					Timestamp: time.Now().UTC(),
 					Line:      string(buffer),
@@ -239,13 +232,11 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 		}
 
 		if shouldFlush {
-			// Remove trailing newline if present
+			// Keep the line as-is, including newline if present
+			// The length field in the output format will indicate if newline is included
 			line := string(buffer)
-			if len(line) > 0 && line[len(line)-1] == '\n' {
-				line = line[:len(line)-1]
-			}
 
-			outputChan <- OutputLine{
+			outputChan <- outputlog.OutputLine{
 				Stream:    stream,
 				Timestamp: time.Now().UTC(),
 				Line:      line,
@@ -258,7 +249,7 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 // readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
 // This runs in the background and exits when the process ends or stdin write fails
 // It continuously reopens the pipe to handle multiple writers (each HTTP request opens/closes)
-func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- OutputLine, done chan<- struct{}) {
+func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- outputlog.OutputLine, done chan<- struct{}) {
 	defer func() {
 		close(done)
 		_ = stdinWriter.Close()
@@ -288,7 +279,7 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 			}
 
 			// Also log to output.log
-			outputChan <- OutputLine{
+			outputChan <- outputlog.OutputLine{
 				Stream:    "stdin",
 				Timestamp: time.Now().UTC(),
 				Line:      line,

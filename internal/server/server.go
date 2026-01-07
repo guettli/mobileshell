@@ -25,6 +25,7 @@ import (
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
+	"mobileshell/internal/outputlog"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 	"mobileshell/internal/wshub"
@@ -1224,7 +1225,7 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 	}
 
 	// Read full output
-	stdout, stderr, stdin, err := executor.ReadCombinedOutput(proc.OutputFile)
+	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(proc.OutputFile)
 	if err != nil {
 		stdout = ""
 		stderr = ""
@@ -1287,7 +1288,7 @@ func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOu
 	}
 
 	// Read combined output from single file
-	stdout, stderr, stdin, err := executor.ReadCombinedOutput(outputFile)
+	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(outputFile)
 	if err != nil {
 		stdout = ""
 		stderr = ""
@@ -1470,7 +1471,8 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 	outputFile := filepath.Join(processDir, "output.log")
 
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	logLine := fmt.Sprintf("signal-sent %s: %d %s\n", timestamp, signalNum, signalName)
+	content := fmt.Sprintf("%d %s", signalNum, signalName)
+	logLine := fmt.Sprintf("signal-sent %s %d: %s\n", timestamp, len(content), content)
 
 	// Append to output.log
 	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0o600)
@@ -1509,7 +1511,7 @@ func (s *Server) handleDownloadOutput(ctx context.Context, r *http.Request) ([]b
 	outputFile := filepath.Join(processDir, "output.log")
 
 	// Read raw stdout bytes
-	stdoutBytes, err := executor.ReadRawStdout(outputFile)
+	stdoutBytes, err := outputlog.ReadRawStdout(outputFile)
 	if err != nil {
 		return nil, newHTTPError(http.StatusInternalServerError, "Failed to read output")
 	}

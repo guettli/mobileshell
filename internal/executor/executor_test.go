@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mobileshell/internal/outputlog"
 )
 
 func TestInitExecutor(t *testing.T) {
@@ -304,21 +306,41 @@ func TestListWorkspaces(t *testing.T) {
 func TestReadCombinedOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create a test combined output file with proper format
-	testContent := `stdout 2025-12-31T12:00:00.000Z: line 1
-stderr 2025-12-31T12:00:01.000Z: error message
-stdout 2025-12-31T12:00:02.000Z: line 2
-stdin 2025-12-31T12:00:03.000Z: input text
-signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM
-`
+	// Create a test combined output file with new format
+	var testContent strings.Builder
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
+		Line:      "line 1\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stderr",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
+		Line:      "error message\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
+		Line:      "line 2\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdin",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
+		Line:      "input text\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "signal-sent",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 4, 0, time.UTC),
+		Line:      "15 SIGTERM\n",
+	}))
 	testFile := filepath.Join(tmpDir, "combined-output.txt")
-	err := os.WriteFile(testFile, []byte(testContent), 0o600)
+	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
 	// Read the combined output
-	stdout, stderr, stdin, err := ReadCombinedOutput(testFile)
+	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(testFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}
@@ -345,7 +367,7 @@ signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM
 	}
 
 	// Test with non-existent file
-	_, _, _, err = ReadCombinedOutput(filepath.Join(tmpDir, "non-existent.txt"))
+	_, _, _, err = outputlog.ReadCombinedOutput(filepath.Join(tmpDir, "non-existent.txt"))
 	if err == nil {
 		t.Error("ReadCombinedOutput should fail for non-existent file")
 	}
@@ -358,7 +380,7 @@ signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM
 		t.Fatalf("Failed to create malformed test file: %v", err)
 	}
 
-	stdout, stderr, stdin, err = ReadCombinedOutput(malformedFile)
+	stdout, stderr, stdin, err = outputlog.ReadCombinedOutput(malformedFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput should handle malformed content: %v", err)
 	}
@@ -366,5 +388,146 @@ signal-sent 2025-12-31T12:00:04.000Z: 15 SIGTERM
 	// Should return empty strings for malformed content
 	if stdout != "" || stderr != "" || stdin != "" {
 		t.Error("Malformed content should result in empty outputs")
+	}
+}
+
+func TestNewlinePreservation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test content with new format that preserves newlines
+	// Format: "> stream timestamp length: content" + separator \n if content doesn't end with \n
+	// where content may include a trailing newline (counted in length)
+	var testContent strings.Builder
+	// Line 1: content is "foo\n" (4 bytes) - has newline, no extra separator
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
+		Line:      "foo\n",
+	}))
+	// Line 2: content is "bar\n" (4 bytes) - has newline, no extra separator
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
+		Line:      "bar\n",
+	}))
+	// Line 3: content is "baz\n" (4 bytes) - has newline, no extra separator
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
+		Line:      "baz\n",
+	}))
+	// Line 4: content is "prompt> " (8 bytes) - NO newline, add separator
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
+		Line:      "prompt> ",
+	}))
+
+	testFile := filepath.Join(tmpDir, "newline-test.txt")
+	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Read using ReadCombinedOutput
+	stdout, _, _, err := outputlog.ReadCombinedOutput(testFile)
+	if err != nil {
+		t.Fatalf("ReadCombinedOutput failed: %v", err)
+	}
+
+	// Expected output: "foo\nbar\nbaz\nprompt> "
+	// - First line: "foo\n" (has newline)
+	// - Second line: "bar\n" (has newline)
+	// - Third line: "baz\n" (has newline)
+	// - Fourth line: "prompt> " (no newline)
+	expected := "foo\nbar\nbaz\nprompt> "
+	if stdout != expected {
+		t.Errorf("Expected stdout:\n%q\nGot:\n%q", expected, stdout)
+	}
+
+	// Verify exact byte content
+	if len(stdout) != len(expected) {
+		t.Errorf("Expected length %d, got %d", len(expected), len(stdout))
+	}
+
+	// Verify no trailing newline after "prompt> "
+	if strings.HasSuffix(stdout, "prompt> \n") {
+		t.Error("Should not have trailing newline after 'prompt> '")
+	}
+
+	// Test with ReadRawStdout for binary data preservation
+	rawBytes, err := outputlog.ReadRawStdout(testFile)
+	if err != nil {
+		t.Fatalf("ReadRawStdout failed: %v", err)
+	}
+
+	// Should be exactly the same as the string
+	if string(rawBytes) != expected {
+		t.Errorf("ReadRawStdout expected:\n%q\nGot:\n%q", expected, string(rawBytes))
+	}
+}
+
+func TestReadCombinedOutputNewFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test content using the new format
+	var testContent strings.Builder
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
+		Line:      "line 1\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stderr",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
+		Line:      "error message\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdout",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
+		Line:      "line 2\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "stdin",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
+		Line:      "input text\n",
+	}))
+	testContent.WriteString(outputlog.FormatOutputLine(outputlog.OutputLine{
+		Stream:    "signal-sent",
+		Timestamp: time.Date(2025, 12, 31, 12, 0, 4, 0, time.UTC),
+		Line:      "15 SIGTERM\n",
+	}))
+
+	testFile := filepath.Join(tmpDir, "combined-output-new.txt")
+	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Read the combined output
+	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(testFile)
+	if err != nil {
+		t.Fatalf("ReadCombinedOutput failed: %v", err)
+	}
+
+	// Verify stdout
+	if !strings.Contains(stdout, "line 1") {
+		t.Errorf("stdout should contain 'line 1', got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "line 2") {
+		t.Errorf("stdout should contain 'line 2', got: %s", stdout)
+	}
+
+	// Verify stderr
+	if !strings.Contains(stderr, "error message") {
+		t.Errorf("stderr should contain 'error message', got: %s", stderr)
+	}
+
+	// Verify stdin
+	if !strings.Contains(stdin, "input text") {
+		t.Errorf("stdin should contain 'input text', got: %s", stdin)
+	}
+	if !strings.Contains(stdin, "Signal sent: 15 SIGTERM") {
+		t.Errorf("stdin should contain signal info, got: %s", stdin)
 	}
 }
