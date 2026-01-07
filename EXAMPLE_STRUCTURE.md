@@ -24,8 +24,7 @@ After running a few commands in different workspaces, the state directory will l
     │       │   ├── completed            # Plain text: "true"
     │       │   ├── pid                  # Plain text: "12345"
     │       │   ├── exit-status          # Plain text: "0"
-    │       │   ├── stdout               # Raw output: "Build complete..."
-    │       │   └── stderr               # Raw errors: "warning: deprecated..."
+    │       │   └── output.log           # Combined stdout/stderr/stdin (see OUTPUT_LOG_FORMAT.md)
     │       └── b2c3d4e5f6g7h8i9/        # Second process
     │           ├── cmd                  # "npm test"
     │           ├── starttime            # "2025-12-30T14:25:00Z"
@@ -33,8 +32,7 @@ After running a few commands in different workspaces, the state directory will l
     │           ├── completed            # "true"
     │           ├── pid                  # "12346"
     │           ├── exit-status          # "1"
-    │           ├── stdout               # Test output
-    │           └── stderr               # Test failures
+    │           └── output.log           # Combined output
     └── 2025-12-30_15:30:00.456/         # Second workspace (different time)
         ├── name                         # "backend"
         ├── directory                    # "/home/user/project/backend"
@@ -45,8 +43,7 @@ After running a few commands in different workspaces, the state directory will l
                 ├── starttime            # "2025-12-30T15:30:15Z"
                 ├── completed            # "false"
                 ├── pid                  # "12347"
-                ├── stdout               # Test output (growing)
-                └── stderr               # Error output
+                └── output.log           # Combined output (growing)
 ```
 
 ## File Descriptions
@@ -71,8 +68,9 @@ All metadata is stored as **individual plain text files**. No JSON.
 - **`completed`**: Plain text file: "true" or "false"
 - **`pid`**: Plain text file with process ID (written when process starts)
 - **`exit-status`**: Plain text file with exit code (written when process completes, empty if still running)
-- **`stdout`**: Raw standard output stream (can be large, read incrementally)
-- **`stderr`**: Raw standard error stream (can be large, read incrementally)
+- **`output.log`**: Combined output file containing stdout, stderr, and
+  stdin streams with timestamps (see OUTPUT_LOG_FORMAT.md for format
+  details)
 
 ## Benefits of This Structure
 
@@ -116,7 +114,7 @@ ls -1 .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/
 cat .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/a1b2c3d4e5f6g7h8/completed
 
 # View process output
-tail -f .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/a1b2c3d4e5f6g7h8/stdout
+tail -f .mobileshell/workspaces/2025-12-30_14:23:45.123/processes/a1b2c3d4e5f6g7h8/output.log
 
 # Find all running processes
 find .mobileshell/workspaces -name completed -exec grep -l "false" {} \;

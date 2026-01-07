@@ -66,8 +66,8 @@ All metadata is stored as **individual files** (no JSON files).
 - **`completed`**: Plain text: "true" or "false"
 - **`pid`**: Plain text file with process ID (written when process starts)
 - **`exit-status`**: Plain text file with exit code (written when process completes, empty if still running)
-- **`stdout`**: Raw standard output stream
-- **`stderr`**: Raw standard error stream
+- **`output.log`**: Combined output file containing stdout, stderr, and
+  stdin streams with timestamps (see OUTPUT_LOG_FORMAT.md)
 
 ## Implementation Details
 
