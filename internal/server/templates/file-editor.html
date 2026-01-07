@@ -222,30 +222,9 @@
                 }, 300);
             }
 
-            // Transform pattern to add wildcards for better UX
-            function transformPattern(pattern) {
-                // Don't transform if pattern already contains wildcards or special chars
-                if (pattern.includes('*') || pattern.includes('?') || pattern.includes('~')) {
-                    return pattern;
-                }
-
-                // If pattern starts with **, add /*pattern* for recursive search
-                if (pattern.startsWith('**')) {
-                    const rest = pattern.substring(2);
-                    if (rest.length > 0) {
-                        return '**/*' + rest + '*';
-                    }
-                    return pattern;
-                }
-
-                // Otherwise, add *pattern* for simple wildcard match
-                return '*' + pattern + '*';
-            }
-
             // Fetch autocomplete suggestions
             function fetchAutocomplete(pattern) {
-                const transformedPattern = transformPattern(pattern);
-                const url = `${basePath}/workspaces/${workspaceID}/files/autocomplete?pattern=${encodeURIComponent(transformedPattern)}`;
+                const url = `${basePath}/workspaces/${workspaceID}/files/autocomplete?pattern=${encodeURIComponent(pattern)}`;
 
                 fetch(url)
                     .then(response => response.json())
