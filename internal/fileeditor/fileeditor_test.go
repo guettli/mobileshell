@@ -1,6 +1,7 @@
 package fileeditor
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -271,5 +272,176 @@ func TestCalculateChecksum(t *testing.T) {
 
 	if checksum1 == checksum3 {
 		t.Errorf("Expected different checksums for different content")
+	}
+}
+
+func TestSearchFilesSimplePattern(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test files
+	testFiles := []string{
+		"test1.go",
+		"test2.go",
+		"readme.md",
+		"script.sh",
+	}
+
+	for _, name := range testFiles {
+		path := filepath.Join(tmpDir, name)
+		if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", name, err)
+		}
+	}
+
+	// Test simple wildcard pattern
+	result, err := SearchFiles(context.Background(), tmpDir, "*.go", 10)
+	if err != nil {
+		t.Fatalf("SearchFiles failed: %v", err)
+	}
+
+	if len(result.Matches) != 2 {
+		t.Errorf("Expected 2 .go files, got %d", len(result.Matches))
+	}
+
+	if result.TotalMatches != 2 {
+		t.Errorf("Expected TotalMatches=2, got %d", result.TotalMatches)
+	}
+
+	if result.HasMore {
+		t.Errorf("Expected HasMore=false, got true")
+	}
+
+	// Verify matches contain .go files
+	for _, match := range result.Matches {
+		if !strings.HasSuffix(match.RelativePath, ".go") {
+			t.Errorf("Expected .go file, got: %s", match.RelativePath)
+		}
+	}
+}
+
+func TestSearchFilesRecursivePattern(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create nested directory structure
+	subdir := filepath.Join(tmpDir, "subdir")
+	if err := os.MkdirAll(subdir, 0755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+
+	deepDir := filepath.Join(tmpDir, "deep", "nested")
+	if err := os.MkdirAll(deepDir, 0755); err != nil {
+		t.Fatalf("Failed to create deep dir: %v", err)
+	}
+
+	// Create test files at different levels
+	testFiles := map[string]string{
+		"root.txt":                 tmpDir,
+		"subdir/nested.txt":        "",
+		"deep/nested/deepfile.txt": "",
+	}
+
+	for name, dir := range testFiles {
+		var path string
+		if dir == "" {
+			path = filepath.Join(tmpDir, name)
+		} else {
+			path = filepath.Join(dir, name)
+		}
+
+		// Create parent directory if needed
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("Failed to create parent dir: %v", err)
+		}
+
+		if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create file %s: %v", path, err)
+		}
+	}
+
+	// Test recursive pattern
+	result, err := SearchFiles(context.Background(), tmpDir, "**/*.txt", 10)
+	if err != nil {
+		t.Fatalf("SearchFiles failed: %v", err)
+	}
+
+	if len(result.Matches) != 3 {
+		t.Errorf("Expected 3 .txt files recursively, got %d", len(result.Matches))
+	}
+
+	// Verify all matches are .txt files
+	for _, match := range result.Matches {
+		if !strings.HasSuffix(match.RelativePath, ".txt") {
+			t.Errorf("Expected .txt file, got: %s", match.RelativePath)
+		}
+	}
+}
+
+func TestSearchFilesMaxResults(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create more files than maxResults
+	for i := 0; i < 15; i++ {
+		path := filepath.Join(tmpDir, strings.Repeat("file", i)+".txt")
+		if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+	}
+
+	// Request only 10 results
+	result, err := SearchFiles(context.Background(), tmpDir, "*.txt", 10)
+	if err != nil {
+		t.Fatalf("SearchFiles failed: %v", err)
+	}
+
+	if len(result.Matches) != 10 {
+		t.Errorf("Expected 10 matches (limited), got %d", len(result.Matches))
+	}
+
+	if result.TotalMatches != 15 {
+		t.Errorf("Expected TotalMatches=15, got %d", result.TotalMatches)
+	}
+
+	if !result.HasMore {
+		t.Errorf("Expected HasMore=true, got false")
+	}
+}
+
+func TestSearchFilesEmptyPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	result, err := SearchFiles(context.Background(), tmpDir, "", 10)
+	if err != nil {
+		t.Fatalf("SearchFiles failed: %v", err)
+	}
+
+	if len(result.Matches) != 0 {
+		t.Errorf("Expected 0 matches for empty pattern, got %d", len(result.Matches))
+	}
+}
+
+func TestSearchFilesNoMatches(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create some files
+	if err := os.WriteFile(filepath.Join(tmpDir, "test.go"), []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Search for pattern that doesn't match
+	result, err := SearchFiles(context.Background(), tmpDir, "*.xyz", 10)
+	if err != nil {
+		t.Fatalf("SearchFiles failed: %v", err)
+	}
+
+	if len(result.Matches) != 0 {
+		t.Errorf("Expected 0 matches, got %d", len(result.Matches))
+	}
+
+	if result.TotalMatches != 0 {
+		t.Errorf("Expected TotalMatches=0, got %d", result.TotalMatches)
+	}
+
+	if result.HasMore {
+		t.Errorf("Expected HasMore=false, got true")
 	}
 }
