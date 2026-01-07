@@ -1,6 +1,7 @@
 package nohup
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,9 +154,10 @@ func TestIssue20_BufferedReading(t *testing.T) {
 	// Check if the line is read (with the fix, it should be after timeout)
 	select {
 	case line := <-outputChan:
-		t.Logf("Successfully read line without newline: %q", line.Line)
-		if line.Line != "Prompt without newline: " {
-			t.Errorf("Expected 'Prompt without newline: ', got %q", line.Line)
+		t.Logf("Successfully read line without newline: %q", string(line.Line))
+		expectedLine := []byte("Prompt without newline: ")
+		if !bytes.Equal(line.Line, expectedLine) {
+			t.Errorf("Expected %q, got %q", expectedLine, line.Line)
 		}
 		t.Log("Issue #20 is fixed! Partial lines are now flushed after timeout.")
 	case <-time.After(500 * time.Millisecond):

@@ -2,6 +2,7 @@ package nohup
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -21,7 +21,7 @@ import (
 type OutputLine struct {
 	Stream    string    // "stdout", "stderr", or "stdin"
 	Timestamp time.Time // UTC timestamp
-	Line      string    // The actual line content
+	Line      []byte    // The actual line content
 }
 
 // Run executes a command in nohup mode within a workspace
@@ -157,7 +157,7 @@ func WriteOutputLog(outFile *os.File, outputChan <-chan OutputLine, done chan<- 
 	for line := range outputChan {
 		// Check if this line contains binary data
 		if !binaryDetected && (line.Stream == "stdout" || line.Stream == "stderr") {
-			if IsBinaryData(line.Line) {
+			if IsBinaryData(string(line.Line)) {
 				binaryDetected = true
 				// Create binary-data marker file
 				binaryMarkerFile := filepath.Join(processDir, "binary-data")
@@ -167,12 +167,13 @@ func WriteOutputLog(outFile *os.File, outputChan <-chan OutputLine, done chan<- 
 
 		// Format: "stdout 2025-01-01T12:34:56.789Z 4: foo\n"
 		timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
-		lineStr := line.Line
-		formattedLine := fmt.Sprintf("%s %s %d: %s", line.Stream, timestamp, len(lineStr), lineStr)
-		if !strings.HasSuffix(lineStr, "\n") {
-			formattedLine += "\n"
+		lineBytes := line.Line
+		prefix := fmt.Sprintf("%s %s %d: ", line.Stream, timestamp, len(lineBytes))
+		_, _ = outFile.WriteString(prefix)
+		_, _ = outFile.Write(lineBytes)
+		if !bytes.HasSuffix(lineBytes, []byte("\n")) {
+			_, _ = outFile.WriteString("\n")
 		}
-		_, _ = outFile.WriteString(formattedLine)
 		// No need to sync since file was opened with O_SYNC
 	}
 }
@@ -223,10 +224,12 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 		if err != nil {
 			// EOF or error - flush any remaining buffer
 			if len(buffer) > 0 {
+				// Normalize line endings before sending
+				buffer = bytes.ReplaceAll(buffer, []byte("\r\n"), []byte("\n"))
 				outputChan <- OutputLine{
 					Stream:    stream,
 					Timestamp: time.Now().UTC(),
-					Line:      string(buffer),
+					Line:      buffer,
 				}
 			}
 			break
@@ -248,13 +251,14 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 
 		if shouldFlush {
 			// We don't remove the trailing newline. The length in output.log will tell us if it was present.
-			line := string(buffer)
+			// Normalize line endings before sending
+			buffer = bytes.ReplaceAll(buffer, []byte("\r\n"), []byte("\n"))
 			outputChan <- OutputLine{
 				Stream:    stream,
 				Timestamp: time.Now().UTC(),
-				Line:      line,
+				Line:      buffer,
 			}
-			buffer = buffer[:0] // Reset buffer
+			buffer = nil // Reset buffer by creating a new slice
 		}
 	}
 }
@@ -296,7 +300,7 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 			outputChan <- OutputLine{
 				Stream:    "stdin",
 				Timestamp: time.Now().UTC(),
-				Line:      line + "\n",
+				Line:      []byte(line + "\n"),
 			}
 		}
 

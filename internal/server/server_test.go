@@ -632,25 +632,26 @@ func TestBinaryDownload(t *testing.T) {
 		t.Fatalf("failed to open output.log file: %v", err)
 	}
 
-	outputChan := make(chan nohup.OutputLine, 256 + 2) // Enough for 256 bytes + 2 text lines
+	outputChan := make(chan nohup.OutputLine, 514) // 256 bytes + 2 lines + buffer
 	writerDone := make(chan struct{})
 
 	go nohup.WriteOutputLog(outFile, outputChan, writerDone, processDir)
 
 	// Test case 1: binary data (bytes 0-255), sending each byte individually
-	var expectedBinaryData []byte // Collect expected binary data
+	// to simulate a more realistic I/O scenario
+	var expectedBinaryData []byte
 	for i := 0; i < 256; i++ {
 		b := byte(i)
 		outputChan <- nohup.OutputLine{
 			Stream:    "stdout",
 			Timestamp: time.Now().UTC(),
-			Line:      string(b), // Convert single byte to string
+			Line:      []byte{b},
 		}
 		expectedBinaryData = append(expectedBinaryData, b)
 	}
 
 	// Test case 2: text data with final newline
-	textWithNewline := "text with newline\n"
+	textWithNewline := []byte("text with newline\n")
 	outputChan <- nohup.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Now().UTC(),
@@ -658,7 +659,7 @@ func TestBinaryDownload(t *testing.T) {
 	}
 
 	// Test case 3: text data without final newline
-	textWithoutNewline := "text without newline"
+	textWithoutNewline := []byte("text without newline")
 	outputChan <- nohup.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Now().UTC(),
@@ -716,8 +717,8 @@ func TestBinaryDownload(t *testing.T) {
 	// Check that the downloaded data matches the expected data
 	var expectedData []byte
 	expectedData = append(expectedData, expectedBinaryData...)
-	expectedData = append(expectedData, []byte(textWithNewline)...)
-	expectedData = append(expectedData, []byte(textWithoutNewline)...)
+	expectedData = append(expectedData, textWithNewline...)
+	expectedData = append(expectedData, textWithoutNewline...)
 
 	downloadedData := w.Body.Bytes()
 

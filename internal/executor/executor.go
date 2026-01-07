@@ -171,19 +171,19 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 	var stdoutContent, stderrContent, stdinContent strings.Builder
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := scanner.Text()
+		lineBytes := scanner.Bytes()
 
 		// Handle signal-sent lines first, as they don't follow the length-prefixed format
-		if strings.HasPrefix(line, "signal-sent ") {
-			if idx := strings.Index(line, ": "); idx != -1 {
-				content := "Signal sent: " + line[idx+2:]
+		if bytes.HasPrefix(lineBytes, []byte("signal-sent ")) {
+			if idx := bytes.Index(lineBytes, []byte(": ")); idx != -1 {
+				content := "Signal sent: " + string(lineBytes[idx+2:])
 				stdinContent.WriteString(content + "\n")
 			}
 			continue // Handled, move to next line
 		}
 
 		// Now process lines in the new format: stream time length: content
-		parts := strings.SplitN(line, " ", 3)
+		parts := bytes.SplitN(lineBytes, []byte(" "), 3)
 		if len(parts) < 3 {
 			continue // Malformed line, skip
 		}
@@ -191,12 +191,12 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 		stream := parts[0]
 		rest := parts[2]
 
-		colonIndex := strings.Index(rest, ": ")
+		colonIndex := bytes.Index(rest, []byte(": "))
 		if colonIndex == -1 {
 			continue
 		}
 
-		lengthStr := rest[:colonIndex]
+		lengthStr := string(rest[:colonIndex])
 		length, err := strconv.Atoi(lengthStr)
 		if err != nil {
 			continue
@@ -206,16 +206,16 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 
 		finalContent := contentFromFile
 		if len(finalContent) < length {
-			finalContent += "\n"
+			finalContent = append(finalContent, '\n')
 		}
 
-		switch stream {
+		switch string(stream) {
 		case "stdout":
-			stdoutContent.WriteString(finalContent)
+			stdoutContent.Write(finalContent)
 		case "stderr":
-			stderrContent.WriteString(finalContent)
+			stderrContent.Write(finalContent)
 		case "stdin":
-			stdinContent.WriteString(finalContent)
+			stdinContent.Write(finalContent)
 		}
 	}
 	if err := scanner.Err(); err != nil {
