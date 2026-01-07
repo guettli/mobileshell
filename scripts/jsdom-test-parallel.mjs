@@ -751,6 +751,91 @@ async function testInteractiveTerminal() {
   console.log(`✓ ${testName} passed`);
 }
 
+// Test 9: File editor double save (issue #60)
+async function testFileEditorDoubleSave() {
+  const testName = 'Test 9: File editor double save';
+  console.log(`\n=== ${testName} ===`);
+
+  const sessionCookie = await login();
+  const workspaceName = `test-workspace-${Date.now()}-9`;
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  console.log(`✓ Workspace created: ${workspaceName}`);
+
+  // Create a test file
+  const testFilePath = `/tmp/test-double-save-${Date.now()}.txt`;
+  const createFileResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `command=echo "initial content" > ${testFilePath}`,
+  });
+
+  // Wait for file creation
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  // Read the file for editing
+  const readResponse = await request('POST', `/workspaces/${workspaceId}/files/read`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `file_path=${encodeURIComponent(testFilePath)}`,
+  });
+
+  assert.equal(readResponse.status, 200, 'Should read file for editing');
+  const readDoc = parseHTML(readResponse.text);
+  const originalChecksumInput = readDoc.querySelector('#original_checksum');
+  assert.ok(originalChecksumInput, 'Should have original_checksum hidden field');
+  const originalChecksum = originalChecksumInput.value;
+  console.log(`✓ File read with checksum: ${originalChecksum.substring(0, 8)}...`);
+
+  // First save: modify the file
+  const firstSaveResponse = await request('POST', `/workspaces/${workspaceId}/files/save`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `file_path=${encodeURIComponent(testFilePath)}&content=${encodeURIComponent('first save content')}&original_checksum=${encodeURIComponent(originalChecksum)}`,
+  });
+
+  assert.equal(firstSaveResponse.status, 200, 'First save should succeed');
+  assert.ok(firstSaveResponse.text.includes('Success'), 'First save should show success message');
+
+  // Extract the new checksum from the success response
+  // The response should include the new checksum in an out-of-band swap element
+  const firstSaveDoc = parseHTML(firstSaveResponse.text);
+  const updatedChecksumInput = firstSaveDoc.querySelector('#original_checksum');
+  assert.ok(updatedChecksumInput, 'Should have updated checksum in response');
+  const newChecksum = updatedChecksumInput.value;
+  console.log(`✓ First save succeeded, new checksum: ${newChecksum.substring(0, 8)}...`);
+
+  // Second save: modify the file again WITHOUT reloading
+  // Use the new checksum from the first save (simulating what htmx would do with the out-of-band swap)
+  const secondSaveResponse = await request('POST', `/workspaces/${workspaceId}/files/save`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `file_path=${encodeURIComponent(testFilePath)}&content=${encodeURIComponent('second save content')}&original_checksum=${encodeURIComponent(newChecksum)}`,
+  });
+
+  assert.equal(secondSaveResponse.status, 200, 'Second save should return 200');
+
+  // This is the bug: the second save should succeed, but currently it will show a conflict
+  // After the fix, this should succeed
+  if (secondSaveResponse.text.includes('Conflict Detected')) {
+    console.log('✗ Bug reproduced: Second save shows false conflict');
+    assert.fail('Second save should succeed but shows conflict (bug #60)');
+  } else if (secondSaveResponse.text.includes('Success')) {
+    console.log('✓ Second save succeeded (bug is fixed)');
+  } else {
+    assert.fail('Unexpected response from second save');
+  }
+
+  console.log(`✓ ${testName} passed`);
+}
+
 // Main test runner
 async function runTests() {
   try {
@@ -768,6 +853,7 @@ async function runTests() {
       testWorkspaceEditing(),
       testFileAutocomplete(),
       testInteractiveTerminal(),
+      testFileEditorDoubleSave(),
     ]);
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
