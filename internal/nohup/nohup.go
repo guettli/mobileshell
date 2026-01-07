@@ -13,28 +13,9 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
 )
-
-// OutputLine represents a single line of output from either stdout or stderr
-type OutputLine struct {
-	Stream    string    // "stdout", "stderr", or "stdin"
-	Timestamp time.Time // UTC timestamp
-	Line      string    // The actual line content (may include trailing newline)
-}
-
-// FormatOutputLine formats an OutputLine into the output.log format
-// Format: "> stream timestamp length: content" (with separator \n only if content doesn't end with \n)
-// where length is the byte length of content (which may include a trailing newline)
-func FormatOutputLine(line OutputLine) string {
-	timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
-	length := len(line.Line)
-	// Add separator newline only if content doesn't already end with one
-	if len(line.Line) > 0 && line.Line[len(line.Line)-1] == '\n' {
-		return fmt.Sprintf("> %s %s %d: %s", line.Stream, timestamp, length, line.Line)
-	}
-	return fmt.Sprintf("> %s %s %d: %s\n", line.Stream, timestamp, length, line.Line)
-}
 
 // Run executes a command in nohup mode within a workspace
 // This function is called by the `mobileshell nohup` command
@@ -62,7 +43,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	defer func() { _ = outFile.Close() }()
 
 	// Create channel for output lines
-	outputChan := make(chan OutputLine, 100)
+	outputChan := make(chan outputlog.OutputLine, 100)
 	writerDone := make(chan struct{})
 	binaryDetected := false
 
@@ -81,7 +62,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 			}
 
 			// Format the output line using the shared formatting function
-			formattedLine := FormatOutputLine(line)
+			formattedLine := outputlog.FormatOutputLine(line)
 			_, _ = outFile.WriteString(formattedLine)
 			// No need to sync since file was opened with O_SYNC
 		}
@@ -212,7 +193,7 @@ func isBinaryData(line string) bool {
 // readLines reads lines from a reader and sends them to the output channel
 // This function flushes partial lines (without newlines) after a timeout to support
 // interactive programs that output prompts without trailing newlines (e.g., "Enter filename: ")
-func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, done chan<- struct{}) {
+func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}) {
 	defer func() {
 		done <- struct{}{}
 	}()
@@ -227,7 +208,7 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 		if err != nil {
 			// EOF or error - flush any remaining buffer
 			if len(buffer) > 0 {
-				outputChan <- OutputLine{
+				outputChan <- outputlog.OutputLine{
 					Stream:    stream,
 					Timestamp: time.Now().UTC(),
 					Line:      string(buffer),
@@ -255,7 +236,7 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 			// The length field in the output format will indicate if newline is included
 			line := string(buffer)
 
-			outputChan <- OutputLine{
+			outputChan <- outputlog.OutputLine{
 				Stream:    stream,
 				Timestamp: time.Now().UTC(),
 				Line:      line,
@@ -268,7 +249,7 @@ func readLines(reader io.Reader, stream string, outputChan chan<- OutputLine, do
 // readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
 // This runs in the background and exits when the process ends or stdin write fails
 // It continuously reopens the pipe to handle multiple writers (each HTTP request opens/closes)
-func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- OutputLine, done chan<- struct{}) {
+func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- outputlog.OutputLine, done chan<- struct{}) {
 	defer func() {
 		close(done)
 		_ = stdinWriter.Close()
@@ -298,7 +279,7 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 			}
 
 			// Also log to output.log
-			outputChan <- OutputLine{
+			outputChan <- outputlog.OutputLine{
 				Stream:    "stdin",
 				Timestamp: time.Now().UTC(),
 				Line:      line,

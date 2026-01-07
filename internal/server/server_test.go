@@ -13,7 +13,7 @@ import (
 
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
-	"mobileshell/internal/nohup"
+	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
 )
 
@@ -642,12 +642,12 @@ func TestBinaryDownload(t *testing.T) {
 	// Write each byte on its own line to simulate line-by-line output
 	// This is how the actual process would output binary data
 	for _, b := range binaryData {
-		line := nohup.OutputLine{
+		line := outputlog.OutputLine{
 			Stream:    "stdout",
 			Timestamp: timestamp,
 			Line:      string([]byte{b}),
 		}
-		outputLog.WriteString(nohup.FormatOutputLine(line))
+		outputLog.WriteString(outputlog.FormatOutputLine(line))
 	}
 
 	outputFile := filepath.Join(processDir, "output.log")

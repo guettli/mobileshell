@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"mobileshell/internal/outputlog"
 )
 
 // Workspace represents a workspace with a name, directory, and pre-command
@@ -260,7 +262,7 @@ func UpdateProcessExit(ws *Workspace, hash string, exitCode int, signal string) 
 
 	// Detect and write content type
 	outputFile := filepath.Join(processDir, "output.log")
-	if data, err := readRawStdoutBytes(outputFile); err == nil && len(data) > 0 {
+	if data, err := outputlog.ReadRawStdout(outputFile); err == nil && len(data) > 0 {
 		contentType := detectContentType(data)
 		if err := os.WriteFile(filepath.Join(processDir, "content-type"), []byte(contentType), 0600); err != nil {
 			return fmt.Errorf("failed to write content-type file: %w", err)
@@ -520,72 +522,6 @@ func generateWorkspaceID(name string) (string, error) {
 	}
 
 	return id, nil
-}
-
-// readRawStdoutBytes extracts raw stdout bytes from the combined output log file
-func readRawStdoutBytes(filename string) ([]byte, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	var stdoutBytes []byte
-	i := 0
-	for i < len(data) {
-		// Check for new format: "> stdout ..."
-		if i+9 <= len(data) && string(data[i:i+9]) == "> stdout " {
-			// New format: "> stdout timestamp length: content\n"
-			// Find the ": " separator
-			separatorIdx := -1
-			for j := i + 9; j < len(data)-1; j++ {
-				if data[j] == ':' && data[j+1] == ' ' {
-					separatorIdx = j + 2
-					break
-				}
-			}
-
-			if separatorIdx != -1 {
-				// Extract length from the format
-				// Find the space before the colon to get the length field
-				lengthStart := -1
-				for j := separatorIdx - 3; j >= i+9; j-- {
-					if data[j] == ' ' {
-						lengthStart = j + 1
-						break
-					}
-				}
-
-				if lengthStart != -1 {
-					lengthStr := string(data[lengthStart : separatorIdx-2])
-					var length int
-					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
-						// Read exactly 'length' bytes of content
-						if separatorIdx+length <= len(data) {
-							content := data[separatorIdx : separatorIdx+length]
-							stdoutBytes = append(stdoutBytes, content...)
-
-							// Move past content
-							i = separatorIdx + length
-							// Skip separator \n if present (only if content doesn't end with \n)
-							if i < len(data) && data[i] == '\n' {
-								i++
-							}
-							continue
-						}
-					}
-				}
-			}
-		}
-
-		// Skip to next line if parsing failed or not a stdout line
-		nextLine := i
-		for nextLine < len(data) && data[nextLine] != '\n' {
-			nextLine++
-		}
-		i = nextLine + 1
-	}
-
-	return stdoutBytes, nil
 }
 
 // detectContentType detects the MIME type of stdout data

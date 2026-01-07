@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mobileshell/internal/outputlog"
 )
 
 func TestInitExecutor(t *testing.T) {
@@ -318,7 +320,7 @@ func TestReadCombinedOutput(t *testing.T) {
 	}
 
 	// Read the combined output
-	stdout, stderr, stdin, err := ReadCombinedOutput(testFile)
+	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(testFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}
@@ -345,7 +347,7 @@ func TestReadCombinedOutput(t *testing.T) {
 	}
 
 	// Test with non-existent file
-	_, _, _, err = ReadCombinedOutput(filepath.Join(tmpDir, "non-existent.txt"))
+	_, _, _, err = outputlog.ReadCombinedOutput(filepath.Join(tmpDir, "non-existent.txt"))
 	if err == nil {
 		t.Error("ReadCombinedOutput should fail for non-existent file")
 	}
@@ -358,7 +360,7 @@ func TestReadCombinedOutput(t *testing.T) {
 		t.Fatalf("Failed to create malformed test file: %v", err)
 	}
 
-	stdout, stderr, stdin, err = ReadCombinedOutput(malformedFile)
+	stdout, stderr, stdin, err = outputlog.ReadCombinedOutput(malformedFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput should handle malformed content: %v", err)
 	}
@@ -392,7 +394,7 @@ func TestNewlinePreservation(t *testing.T) {
 	}
 
 	// Read using ReadCombinedOutput
-	stdout, _, _, err := ReadCombinedOutput(testFile)
+	stdout, _, _, err := outputlog.ReadCombinedOutput(testFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}
@@ -418,7 +420,7 @@ func TestNewlinePreservation(t *testing.T) {
 	}
 
 	// Test with ReadRawStdout for binary data preservation
-	rawBytes, err := ReadRawStdout(testFile)
+	rawBytes, err := outputlog.ReadRawStdout(testFile)
 	if err != nil {
 		t.Fatalf("ReadRawStdout failed: %v", err)
 	}
@@ -447,7 +449,7 @@ func TestReadCombinedOutputNewFormat(t *testing.T) {
 	}
 
 	// Read the combined output
-	stdout, stderr, stdin, err := ReadCombinedOutput(testFile)
+	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(testFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}

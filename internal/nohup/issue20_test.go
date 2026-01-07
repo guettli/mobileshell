@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
 )
 
@@ -127,7 +128,7 @@ func TestIssue20_BufferedReading(t *testing.T) {
 	}
 
 	// Start a goroutine to read from the pipe using the new readLines implementation
-	outputChan := make(chan OutputLine, 10)
+	outputChan := make(chan outputlog.OutputLine, 10)
 	done := make(chan struct{})
 	go func() {
 		file, _ := os.OpenFile(pipePath, os.O_RDONLY, 0)
