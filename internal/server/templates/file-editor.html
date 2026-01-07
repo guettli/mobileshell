@@ -207,6 +207,15 @@
                     return;
                 }
 
+                // Count non-wildcard characters (excluding *, /, ?)
+                const nonWildcardChars = pattern.replace(/[\*\/\?]/g, '').length;
+
+                // Only trigger autocomplete if there are at least 2 non-wildcard characters
+                if (nonWildcardChars < 2) {
+                    hideDropdown();
+                    return;
+                }
+
                 // Wait 300ms after user stops typing
                 autocompleteTimer = setTimeout(() => {
                     fetchAutocomplete(pattern);

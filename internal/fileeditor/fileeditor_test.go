@@ -275,6 +275,103 @@ func TestCalculateChecksum(t *testing.T) {
 	}
 }
 
+func TestSearchFilesPatternTransformation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test files
+	testFiles := []string{
+		"README.md",
+		"test.go",
+		"test_helper.go",
+		"internal/test.go",
+		"pkg/testing/test.go",
+	}
+
+	for _, file := range testFiles {
+		fullPath := filepath.Join(tmpDir, file)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			t.Fatalf("Failed to create directory: %v", err)
+		}
+		if err := os.WriteFile(fullPath, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", file, err)
+		}
+	}
+
+	tests := []struct {
+		name          string
+		pattern       string
+		shouldMatch   []string
+		shouldNotMatch []string
+	}{
+		{
+			name:    "simple pattern without wildcards - matches files in root only",
+			pattern: "test",
+			shouldMatch: []string{
+				"test.go",
+				"test_helper.go",
+			},
+			shouldNotMatch: []string{
+				"README.md",
+				"internal/test.go",
+				"pkg/testing/test.go",
+			},
+		},
+		{
+			name:    "pattern with existing wildcard should not be transformed",
+			pattern: "*.go",
+			shouldMatch: []string{
+				"test.go",
+				"test_helper.go",
+			},
+			shouldNotMatch: []string{
+				"README.md",
+				"internal/test.go",
+				"pkg/testing/test.go",
+			},
+		},
+		{
+			name:    "pattern starting with ** is not transformed (already has wildcards)",
+			pattern: "**/*test*",
+			shouldMatch: []string{
+				"test.go",
+				"test_helper.go",
+				"internal/test.go",
+				"pkg/testing/test.go",
+			},
+			shouldNotMatch: []string{
+				"README.md",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			result, err := SearchFiles(ctx, tmpDir, tt.pattern, 100)
+			if err != nil {
+				t.Fatalf("SearchFiles failed: %v", err)
+			}
+
+			matchedPaths := make(map[string]bool)
+			for _, match := range result.Matches {
+				matchedPaths[match.RelativePath] = true
+			}
+
+			for _, expectedMatch := range tt.shouldMatch {
+				if !matchedPaths[expectedMatch] {
+					t.Errorf("Expected %s to match pattern %s, but it didn't. Matched: %v", expectedMatch, tt.pattern, matchedPaths)
+				}
+			}
+
+			for _, expectedNonMatch := range tt.shouldNotMatch {
+				if matchedPaths[expectedNonMatch] {
+					t.Errorf("Expected %s not to match pattern %s, but it did", expectedNonMatch, tt.pattern)
+				}
+			}
+		})
+	}
+}
+
 func TestSearchFilesSimplePattern(t *testing.T) {
 	tmpDir := t.TempDir()
 
