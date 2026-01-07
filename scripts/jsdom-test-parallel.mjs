@@ -499,8 +499,8 @@ async function testFileAutocomplete() {
     });
   }
 
-  // Wait for files to be created
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  // Wait for files to be created (longer wait to avoid race conditions in CI)
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
   // Test 1: Simple wildcard pattern
   const simplePatternResponse = await request('GET', `/workspaces/${workspaceId}/files/autocomplete?pattern=${encodeURIComponent('*.go')}`, {
@@ -562,11 +562,6 @@ async function testFileAutocomplete() {
   });
 
   const subdirData = JSON.parse(subdirPatternResponse.text);
-  if (!subdirData || !subdirData.matches) {
-    console.error('Response status:', subdirPatternResponse.status);
-    console.error('Response text:', subdirPatternResponse.text);
-    console.error('Parsed data:', subdirData);
-  }
   assert.ok(subdirData.matches, 'Should have matches array');
   assert.ok(subdirData.matches.length >= 1, `Should find .txt files, got ${subdirData.matches.length} matches`);
   assert.ok(subdirData.matches.some(m => m.relative_path.includes('.txt')), 'Should find txt files');
