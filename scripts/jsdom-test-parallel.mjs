@@ -562,7 +562,10 @@ async function testFileAutocomplete() {
   });
 
   const subdirData = JSON.parse(subdirPatternResponse.text);
-  assert.ok(subdirData.matches, 'Should have matches array');
+  if (!subdirData.matches) {
+    console.error('Unexpected response for **/*.txt pattern:', subdirPatternResponse.text);
+    throw new Error(`Should have matches array. Response: ${subdirPatternResponse.text}`);
+  }
   assert.ok(subdirData.matches.length >= 1, `Should find .txt files, got ${subdirData.matches.length} matches`);
   assert.ok(subdirData.matches.some(m => m.relative_path.includes('.txt')), 'Should find txt files');
   console.log(`✓ Found ${subdirData.matches.length} .txt files recursively`);
