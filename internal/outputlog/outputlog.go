@@ -15,16 +15,16 @@ type OutputLine struct {
 }
 
 // FormatOutputLine formats an OutputLine into the output.log format
-// Format: "> stream timestamp length: content" (with separator \n only if content doesn't end with \n)
+// Format: "stream timestamp length: content" (with separator \n only if content doesn't end with \n)
 // where length is the byte length of content (which may include a trailing newline)
 func FormatOutputLine(line OutputLine) string {
 	timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
 	length := len(line.Line)
 	// Add separator newline only if content doesn't already end with one
 	if len(line.Line) > 0 && line.Line[len(line.Line)-1] == '\n' {
-		return fmt.Sprintf("> %s %s %d: %s", line.Stream, timestamp, length, line.Line)
+		return fmt.Sprintf("%s %s %d: %s", line.Stream, timestamp, length, line.Line)
 	}
-	return fmt.Sprintf("> %s %s %d: %s\n", line.Stream, timestamp, length, line.Line)
+	return fmt.Sprintf("%s %s %d: %s\n", line.Stream, timestamp, length, line.Line)
 }
 
 // ReadCombinedOutput reads and parses the combined output.log file
@@ -39,31 +39,30 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 	i := 0
 
 	for i < len(data) {
-		// Check for format: "> stream ..."
-		if i+2 < len(data) && data[i] == '>' && data[i+1] == ' ' {
-			// Format: "> stream timestamp length: content"
-			// Find the ": " separator
-			separatorIdx := -1
-			for j := i + 2; j < len(data)-1; j++ {
-				if data[j] == ':' && data[j+1] == ' ' {
-					separatorIdx = j + 2
-					break
-				}
+		// Find the ": " separator
+		separatorIdx := -1
+		for j := i; j < len(data)-1; j++ {
+			if data[j] == ':' && data[j+1] == ' ' {
+				separatorIdx = j + 2
+				break
 			}
+		}
 
-			if separatorIdx != -1 {
-				// Extract the stream type from between "> " and the first space after it
-				streamStart := i + 2
-				streamEnd := streamStart
-				for streamEnd < len(data) && data[streamEnd] != ' ' {
-					streamEnd++
-				}
-				stream := string(data[streamStart:streamEnd])
+		if separatorIdx != -1 {
+			// Extract the stream type from the beginning to the first space
+			streamStart := i
+			streamEnd := streamStart
+			for streamEnd < len(data) && data[streamEnd] != ' ' {
+				streamEnd++
+			}
+			stream := string(data[streamStart:streamEnd])
 
+			// Only process if it's a valid stream type
+			if stream == "stdout" || stream == "stderr" || stream == "stdin" || stream == "signal-sent" {
 				// Extract length from the format
 				// Find the space before the colon to get the length field
 				lengthStart := -1
-				for j := separatorIdx - 3; j >= i+2; j-- {
+				for j := separatorIdx - 3; j >= i; j-- {
 					if data[j] == ' ' {
 						lengthStart = j + 1
 						break
@@ -102,19 +101,13 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 					}
 				}
 			}
+		}
 
-			// If parsing failed, skip to next line
-			for i < len(data) && data[i] != '\n' {
-				i++
-			}
-			i++ // Skip the newline
-		} else {
-			// Skip to next line if not a recognized format
-			for i < len(data) && data[i] != '\n' {
-				i++
-			}
+		// If parsing failed or not a recognized format, skip to next line
+		for i < len(data) && data[i] != '\n' {
 			i++
 		}
+		i++ // Skip the newline
 	}
 
 	// Concatenate parts as-is (they already include newlines where appropriate)
@@ -136,12 +129,12 @@ func ReadRawStdout(filename string) ([]byte, error) {
 	var stdoutBytes []byte
 	i := 0
 	for i < len(data) {
-		// Check for format: "> stdout ..."
-		if i+9 <= len(data) && string(data[i:i+9]) == "> stdout " {
-			// Format: "> stdout timestamp length: content"
+		// Check for format: "stdout ..."
+		if i+7 <= len(data) && string(data[i:i+7]) == "stdout " {
+			// Format: "stdout timestamp length: content"
 			// Find the ": " separator
 			separatorIdx := -1
-			for j := i + 9; j < len(data)-1; j++ {
+			for j := i + 7; j < len(data)-1; j++ {
 				if data[j] == ':' && data[j+1] == ' ' {
 					separatorIdx = j + 2
 					break
@@ -152,7 +145,7 @@ func ReadRawStdout(filename string) ([]byte, error) {
 				// Extract length from the format
 				// Find the space before the colon to get the length field
 				lengthStart := -1
-				for j := separatorIdx - 3; j >= i+9; j-- {
+				for j := separatorIdx - 3; j >= i+7; j-- {
 					if data[j] == ' ' {
 						lengthStart = j + 1
 						break

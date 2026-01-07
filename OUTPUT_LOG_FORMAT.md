@@ -20,7 +20,7 @@ directory. The format is designed to:
 Each line in `output.log` follows this format:
 
 ```text
-> stream timestamp length: content
+stream timestamp length: content
 ```
 
 Where a separator `\n` is added after content only if content doesn't
@@ -28,7 +28,6 @@ already end with `\n`.
 
 ### Fields
 
-- **`>`**: Literal prefix character that marks the start of a log entry
 - **`stream`**: The output stream - one of: `stdout`, `stderr`, or
   `stdin`
 - **`timestamp`**: UTC timestamp in ISO 8601 format:
@@ -45,7 +44,7 @@ already end with `\n`.
 #### Example 1: Line with trailing newline
 
 ```text
-> stdout 2025-01-07T12:34:56.789Z 12: Hello world\n
+stdout 2025-01-07T12:34:56.789Z 12: Hello world\n
 ```
 
 - Content is `Hello world\n` (12 bytes, including the newline)
@@ -54,7 +53,7 @@ already end with `\n`.
 #### Example 2: Line without trailing newline
 
 ```text
-> stdout 2025-01-07T12:34:56.789Z 7: prompt>\n
+stdout 2025-01-07T12:34:56.789Z 7: prompt>\n
 ```
 
 - Content is `prompt>` (7 bytes, no trailing newline)
@@ -63,10 +62,10 @@ already end with `\n`.
 #### Example 3: Multiple lines
 
 ```text
-> stdout 2025-01-07T12:00:00.000Z 4: foo\n
-> stdout 2025-01-07T12:00:01.000Z 4: bar\n
-> stderr 2025-01-07T12:00:02.000Z 14: error message\n
-> stdin 2025-01-07T12:00:03.000Z 11: user input\n
+stdout 2025-01-07T12:00:00.000Z 4: foo\n
+stdout 2025-01-07T12:00:01.000Z 4: bar\n
+stderr 2025-01-07T12:00:02.000Z 14: error message\n
+stdin 2025-01-07T12:00:03.000Z 11: user input\n
 ```
 
 ## Newline Preservation
@@ -104,8 +103,8 @@ instead of displaying it.
 To correctly parse this format:
 
 1. Split the file by the log line separator `\n`
-2. For each line starting with `>`:
-   - Extract the stream type
+2. For each line:
+   - Extract the stream type (first token before space)
    - Extract the timestamp
    - Extract the length field
    - Read exactly `length` bytes as the content (may include `\n`)
@@ -116,13 +115,13 @@ To correctly parse this format:
 Signal events use the same length-based format:
 
 ```text
-> signal-sent timestamp length: signal_number signal_name
+signal-sent timestamp length: signal_number signal_name
 ```
 
 Example:
 
 ```text
-> signal-sent 2025-01-07T12:34:56.789Z 10: 15 SIGTERM
+signal-sent 2025-01-07T12:34:56.789Z 10: 15 SIGTERM
 ```
 
 The content is the signal number and name (e.g., "15 SIGTERM" is 10
