@@ -76,14 +76,27 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 
 	// Build the full command with pre-command if specified
 	var fullCommand string
+	var shellCmd []string
 	if ws.PreCommand != "" {
-		fullCommand = ws.PreCommand + " && " + proc.Command
+		// Write pre-command to a temporary script file
+		preScriptPath := filepath.Join(processDir, "pre-command.sh")
+		if err := os.WriteFile(preScriptPath, []byte(ws.PreCommand), 0700); err != nil {
+			return fmt.Errorf("failed to write pre-command script: %w", err)
+		}
+
+		// Extract shell from shebang (if present) to determine which shell to use
+		shell := workspace.ExtractShellFromShebang(ws.PreCommand)
+
+		// Source the pre-command script (to preserve environment) and then run user command
+		fullCommand = fmt.Sprintf(". %s && %s", preScriptPath, proc.Command)
+		shellCmd = []string{shell, "-c", fullCommand}
 	} else {
 		fullCommand = proc.Command
+		shellCmd = []string{"sh", "-c", fullCommand}
 	}
 
 	// Create the command
-	cmd := exec.Command("sh", "-c", fullCommand)
+	cmd := exec.Command(shellCmd[0], shellCmd[1:]...)
 	cmd.Dir = ws.Directory
 
 	// Set up stderr pipe separately (bypasses PTY)

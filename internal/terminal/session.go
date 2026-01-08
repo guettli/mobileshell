@@ -59,9 +59,18 @@ func NewSession(ws *websocket.Conn, stateDir string, workspaceID string, command
 	// Create the command with pre-command if specified
 	var cmd *exec.Cmd
 	if targetWorkspace.PreCommand != "" {
-		// If there's a pre-command, combine and run via sh -c
-		fullCommand := targetWorkspace.PreCommand + " && " + command
-		cmd = exec.Command("sh", "-c", fullCommand)
+		// Write pre-command to a temporary script file
+		preScriptPath := fmt.Sprintf("/tmp/.mobileshell-pre-command-%s.sh", workspaceID)
+		if err := os.WriteFile(preScriptPath, []byte(targetWorkspace.PreCommand), 0700); err != nil {
+			return nil, fmt.Errorf("failed to write pre-command script: %w", err)
+		}
+
+		// Extract shell from shebang (if present) to determine which shell to use
+		shell := workspace.ExtractShellFromShebang(targetWorkspace.PreCommand)
+
+		// Source the pre-command script (to preserve environment) and then run user command
+		fullCommand := fmt.Sprintf(". %s && %s", preScriptPath, command)
+		cmd = exec.Command(shell, "-c", fullCommand)
 	} else {
 		// No pre-command: run the command directly with PTY
 		// For bash, run directly - the PTY makes it interactive

@@ -15,8 +15,8 @@
         </div>
         <div class="mb-3">
             <label for="pre_command" class="form-label">Pre-command (optional)</label>
-            <input type="text" class="form-control" id="pre_command" name="pre_command" value="{{.FormValues.PreCommand}}" placeholder="e.g., source .env">
-            <div class="form-text">This command runs before every command in this workspace</div>
+            <textarea class="form-control" id="pre_command" name="pre_command" rows="4" placeholder="e.g., source .env">{{.FormValues.PreCommand}}</textarea>
+            <div class="form-text">This command runs before every command in this workspace. Supports multi-line scripts. If no shebang is provided, #!/usr/bin/env bash is added automatically.</div>
         </div>
         <button type="submit" class="btn btn-primary">Create Workspace</button>
     </form>

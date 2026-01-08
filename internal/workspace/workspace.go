@@ -84,7 +84,7 @@ func CreateWorkspace(stateDir, name, directory, preCommand string) (*Workspace, 
 		ID:         id,
 		Name:       name,
 		Directory:  directory,
-		PreCommand: preCommand,
+		PreCommand: normalizePreCommand(preCommand),
 		CreatedAt:  time.Now().UTC(),
 		Path:       workspacePath,
 	}
@@ -137,7 +137,7 @@ func UpdateWorkspace(stateDir, id, name, directory, preCommand string) (*Workspa
 	// Update workspace fields
 	ws.Name = name
 	ws.Directory = directory
-	ws.PreCommand = preCommand
+	ws.PreCommand = normalizePreCommand(preCommand)
 
 	// Save updated workspace metadata
 	if err := saveWorkspaceFiles(ws); err != nil {
@@ -489,6 +489,68 @@ func generateProcessHash(command string, timestamp time.Time) string {
 	data := fmt.Sprintf("%s:%d", command, timestamp.UnixNano())
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])[:16] // Use first 16 characters
+}
+
+// normalizePreCommand normalizes the pre-command by handling shebang prefixes
+// If the command starts with #!, it's used as-is
+// If the command is non-empty and doesn't start with #!, prepend #!/usr/bin/env bash
+// If the command is empty, return empty string
+func normalizePreCommand(preCommand string) string {
+	// Trim whitespace
+	preCommand = strings.TrimSpace(preCommand)
+
+	// If empty, return empty
+	if preCommand == "" {
+		return ""
+	}
+
+	// If starts with shebang, use as-is
+	if strings.HasPrefix(preCommand, "#!") {
+		return preCommand
+	}
+
+	// Otherwise, prepend default shebang
+	return "#!/usr/bin/env bash\n" + preCommand
+}
+
+// ExtractShellFromShebang extracts the shell binary from a shebang line
+// Returns "bash" by default if no shebang is found or if parsing fails
+func ExtractShellFromShebang(preCommand string) string {
+	lines := strings.Split(preCommand, "\n")
+	if len(lines) == 0 {
+		return "bash"
+	}
+
+	firstLine := strings.TrimSpace(lines[0])
+	if !strings.HasPrefix(firstLine, "#!") {
+		return "bash"
+	}
+
+	// Remove #! prefix and trim spaces
+	shebang := strings.TrimSpace(strings.TrimPrefix(firstLine, "#!"))
+
+	// Handle common cases:
+	// #!/usr/bin/env bash -> bash
+	// #!/usr/bin/env fish -> fish
+	// #!/bin/bash -> bash
+	// #!/bin/sh -> sh
+	parts := strings.Fields(shebang)
+	if len(parts) == 0 {
+		return "bash"
+	}
+
+	// If using env, the shell is the second part
+	if strings.HasSuffix(parts[0], "/env") && len(parts) > 1 {
+		return parts[1]
+	}
+
+	// Otherwise, extract the basename from the path
+	shell := filepath.Base(parts[0])
+	if shell == "" {
+		return "bash"
+	}
+
+	return shell
 }
 
 // generateWorkspaceID generates a URL-safe ID from a name
