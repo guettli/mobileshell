@@ -2,7 +2,6 @@ package nohup
 
 import (
 	"strings"
-	"sync"
 )
 
 // OutputType represents the detected type of output
@@ -17,8 +16,9 @@ const (
 )
 
 // OutputTypeDetector continuously analyzes stdout to detect output type
+// Note: This is accessed only from a single goroutine (readLinesWithDetection),
+// so no synchronization is needed
 type OutputTypeDetector struct {
-	mu              sync.Mutex
 	detectedType    OutputType
 	detectionReason string
 	detected        bool
@@ -44,9 +44,6 @@ func NewOutputTypeDetector() *OutputTypeDetector {
 // AnalyzeLine analyzes a line of output and updates detection state
 // Returns true if type has been detected (stop calling after this)
 func (d *OutputTypeDetector) AnalyzeLine(line string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	if d.detected {
 		return true
 	}
@@ -99,15 +96,11 @@ func (d *OutputTypeDetector) AnalyzeLine(line string) bool {
 
 // GetDetectedType returns the detected type and reason
 func (d *OutputTypeDetector) GetDetectedType() (OutputType, string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	return d.detectedType, d.detectionReason
 }
 
 // IsDetected returns true if type has been determined
 func (d *OutputTypeDetector) IsDetected() bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	return d.detected
 }
 
