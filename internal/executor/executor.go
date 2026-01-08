@@ -23,6 +23,7 @@ type Process struct {
 	ExitCode    int       `json:"exit_code"`           // 0 if not exited yet or exited successfully
 	Signal      string    `json:"signal,omitempty"`
 	EndTime     time.Time `json:"end_time,omitempty"`
+	ContentType string    `json:"content_type,omitempty"` // MIME type of stdout output
 }
 
 func InitExecutor(stateDir string) error {
@@ -93,6 +94,13 @@ func convertWorkspaceProcess(ws *workspace.Workspace, wp *workspace.Process) *Pr
 	workspaceTS := filepath.Base(ws.Path)
 	processDir := workspace.GetProcessDir(ws, wp.Hash)
 
+	// Read content-type if available
+	contentType := ""
+	contentTypeFile := filepath.Join(processDir, "content-type")
+	if data, err := os.ReadFile(contentTypeFile); err == nil {
+		contentType = string(data)
+	}
+
 	return &Process{
 		ID:          wp.Hash,
 		Command:     wp.Command,
@@ -105,6 +113,7 @@ func convertWorkspaceProcess(ws *workspace.Workspace, wp *workspace.Process) *Pr
 		Hash:        wp.Hash,
 		ExitCode:    wp.ExitCode,
 		Signal:      wp.Signal,
+		ContentType: contentType,
 	}
 }
 

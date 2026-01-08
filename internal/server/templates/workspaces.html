@@ -69,9 +69,6 @@
                 <strong>Current Workspace:</strong> {{.CurrentWorkspace.Name}}
                 <span class="badge bg-secondary workspace-badge ms-2">ID: {{.CurrentWorkspace.ID}}</span>
                 <span class="badge bg-secondary workspace-badge ms-2">{{.CurrentWorkspace.Directory}}</span>
-                {{if .CurrentWorkspace.PreCommand}}
-                <span class="badge bg-primary workspace-badge ms-2">Pre-command: {{.CurrentWorkspace.PreCommand}}</span>
-                {{end}}
             </div>
             <a href="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/edit" class="btn btn-sm btn-outline-primary">Edit</a>
         </div>
@@ -148,6 +145,30 @@
             <div class="col-md-6">
                 <div class="card mb-4">
                     <div class="card-body">
+                        <h5 class="card-title">Existing Workspaces</h5>
+                        {{if .Workspaces}}
+                        <div class="list-group">
+                            {{range .Workspaces}}
+                            <a href="{{$.BasePath}}/workspaces/{{.ID}}" class="list-group-item list-group-item-action">
+                                <div class="d-flex w-100 justify-content-between align-items-start">
+                                    <div>
+                                        <h6 class="mb-1">{{.Name}}</h6>
+                                        <p class="mb-1 text-muted small">{{.Directory}}</p>
+                                    </div>
+                                    <span class="badge bg-secondary">{{.ID}}</span>
+                                </div>
+                            </a>
+                            {{end}}
+                        </div>
+                        {{else}}
+                        <p class="text-muted">No workspaces yet. Create one to get started.</p>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
                         <h5 class="card-title">Create New Workspace</h5>
                         <div id="workspace-form-container">
                             {{if .Error}}
@@ -170,41 +191,13 @@
                                 </div>
                                 <div class="mb-3">
                                     <label for="pre_command" class="form-label">Pre-command (optional)</label>
-                                    <input type="text" class="form-control" id="pre_command" name="pre_command"
-                                        value="{{.FormValues.PreCommand}}" placeholder="e.g., source .env">
-                                    <div class="form-text">This command runs before every command in this workspace
+                                    <textarea class="form-control" id="pre_command" name="pre_command" rows="4" placeholder="e.g., source .env">{{.FormValues.PreCommand}}</textarea>
+                                    <div class="form-text">This command runs before every command in this workspace. Supports multi-line scripts. If no shebang is provided, #!/usr/bin/env bash is added automatically.
                                     </div>
                                 </div>
                                 <button type="submit" class="btn btn-primary">Create Workspace</button>
                             </form>
                         </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Existing Workspaces</h5>
-                        {{if .Workspaces}}
-                        <div class="list-group">
-                            {{range .Workspaces}}
-                            <a href="{{$.BasePath}}/workspaces/{{.ID}}" class="list-group-item list-group-item-action">
-                                <div class="d-flex w-100 justify-content-between align-items-start">
-                                    <div>
-                                        <h6 class="mb-1">{{.Name}}</h6>
-                                        <p class="mb-1 text-muted small">{{.Directory}}</p>
-                                        {{if .PreCommand}}
-                                        <p class="mb-0 text-muted small"><em>Pre-command: {{.PreCommand}}</em></p>
-                                        {{end}}
-                                    </div>
-                                    <span class="badge bg-secondary">{{.ID}}</span>
-                                </div>
-                            </a>
-                            {{end}}
-                        </div>
-                        {{else}}
-                        <p class="text-muted">No workspaces yet. Create one to get started.</p>
-                        {{end}}
                     </div>
                 </div>
             </div>

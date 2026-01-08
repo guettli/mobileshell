@@ -253,18 +253,16 @@ func SearchFiles(ctx context.Context, rootDir, pattern string, maxResults int) (
 	}
 
 	// Transform pattern to add wildcards for better UX
-	// Don't transform if pattern already contains wildcards or special chars
-	if !strings.Contains(pattern, "*") && !strings.Contains(pattern, "?") && !strings.Contains(pattern, "~") {
-		// If pattern starts with **, add /*pattern* for recursive search
-		if strings.HasPrefix(pattern, "**") {
-			rest := pattern[2:]
-			if len(rest) > 0 {
-				pattern = "**/*" + rest + "*"
-			}
-		} else {
-			// Otherwise, add *pattern* for simple wildcard match
-			pattern = "*" + pattern + "*"
+	// If pattern starts with **, handle it specially
+	if strings.HasPrefix(pattern, "**") {
+		rest := pattern[2:]
+		if len(rest) > 0 && !strings.ContainsAny(rest, "*?") {
+			// If the rest doesn't contain wildcards, add them
+			pattern = "**/*" + rest + "*"
 		}
+	} else if !strings.Contains(pattern, "*") && !strings.Contains(pattern, "?") && !strings.Contains(pattern, "~") {
+		// Otherwise, add *pattern* for simple wildcard match (only if no wildcards exist)
+		pattern = "*" + pattern + "*"
 	}
 
 	// Expand ~ to home directory

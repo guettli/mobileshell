@@ -9,7 +9,8 @@
                 </h6>
                 <p class="card-text">
                     <strong>Command:</strong> <code>{{.Process.Command}}</code><br>
-                    <small class="text-muted">Started: {{.Process.StartTime.Format "2006-01-02 15:04:05"}}{{$duration := formatDuration .Process.StartTime .Process.EndTime}}{{if $duration}} ({{$duration}}){{end}}</small>
+                    <small class="text-muted">Started: {{.Process.StartTime.Format "2006-01-02 15:04:05"}}{{$duration := formatDuration .Process.StartTime .Process.EndTime}}{{if $duration}} ({{$duration}}){{end}}</small>{{if .Process.ContentType}}<br>
+                    <small class="text-muted">Output type: {{.Process.ContentType}}</small>{{end}}
                 </p>
             </div>
         </div>

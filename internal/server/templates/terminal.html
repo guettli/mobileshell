@@ -69,10 +69,28 @@
     <div class="container-fluid mt-3">
         <div class="row mb-2">
             <div class="col">
-                <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}" class="btn btn-sm btn-outline-secondary">&larr; Back to Workspace</a>
+                <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}" class="btn btn-sm btn-outline-secondary">&larr; Back to Workspace "{{.WorkspaceName}}"</a>
                 <span class="connection-status ms-3 connecting" id="connection-status">Connecting...</span>
             </div>
         </div>
+
+        {{if eq .Process.Command "tmux"}}
+        <div class="row mb-2">
+            <div class="col">
+                <div class="alert alert-success" id="terminal-message" style="transition: opacity 1s;">
+                    <strong>tmux started</strong> - You can reconnect to this session even if the connection is lost.
+                </div>
+            </div>
+        </div>
+        {{else if eq .Process.Command "bash"}}
+        <div class="row mb-2">
+            <div class="col">
+                <div class="alert alert-warning" id="terminal-message" style="transition: opacity 1s;">
+                    <strong>bash started</strong> - Consider using tmux for reconnecting capability. Reconnecting is not possible without a terminal multiplexer.
+                </div>
+            </div>
+        </div>
+        {{end}}
 
         <div class="row">
             <div class="col">
@@ -244,6 +262,17 @@
                 ws.close();
             }
         });
+
+        // Fade out terminal message after 4 seconds
+        const terminalMessage = document.getElementById('terminal-message');
+        if (terminalMessage) {
+            setTimeout(() => {
+                terminalMessage.style.opacity = '0';
+                setTimeout(() => {
+                    terminalMessage.style.display = 'none';
+                }, 1000);
+            }, 4000);
+        }
 
         // Mobile keyboard button handlers
         function sendKey(key) {
