@@ -504,6 +504,12 @@ func normalizePreCommand(preCommand string) string {
 		return ""
 	}
 
+	// Normalize line endings: convert CRLF (\r\n) to LF (\n)
+	// This prevents issues when pre-commands are entered on Windows or copied from Windows sources
+	preCommand = strings.ReplaceAll(preCommand, "\r\n", "\n")
+	// Also remove any remaining standalone \r characters
+	preCommand = strings.ReplaceAll(preCommand, "\r", "")
+
 	// If starts with shebang, use as-is
 	if strings.HasPrefix(preCommand, "#!") {
 		return preCommand

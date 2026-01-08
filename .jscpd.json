@@ -8,7 +8,8 @@
     "**/build/**",
     "**/.nix-**/**",
     "**/result/**",
-    "**/*_test.go"
+    "**/*_test.go",
+    "**/.direnv/**"
   ],
   "format": ["go", "html", "javascript", "markup"],
   "minLines": 5,
