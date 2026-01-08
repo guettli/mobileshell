@@ -80,9 +80,16 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	cmd := exec.Command("sh", "-c", fullCommand)
 	cmd.Dir = ws.Directory
 
-	// Start the command with a PTY
-	// This provides a pseudo-terminal, making commands think they're running in a real terminal
+	// Set up stderr pipe separately (bypasses PTY)
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Start the command with a PTY for stdout only
+	// This provides a pseudo-terminal for stdout, making commands think they're running in a real terminal
 	// This is essential for commands that check isatty() or need terminal capabilities
+	// stderr is captured separately via the pipe
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to start command with pty: %w", err)
@@ -94,10 +101,15 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		slog.Warn("Failed to set PTY size, using default", "error", err)
 	}
 
-	// Start goroutine to read from PTY (combines stdout and stderr)
-	// PTY combines both streams, so we label everything as stdout
-	readersDone := make(chan struct{}, 1)
-	go readLines(ptmx, "stdout", outputChan, readersDone)
+	// Create output type detector
+	typeDetector := NewOutputTypeDetector()
+
+	// Start goroutine to read from PTY (stdout only)
+	readersDone := make(chan struct{}, 2)
+	go readLinesWithDetection(ptmx, "stdout", outputChan, readersDone, typeDetector)
+
+	// Start goroutine to read from stderr pipe
+	go readLines(stderrPipe, "stderr", outputChan, readersDone)
 
 	pid := cmd.Process.Pid
 
@@ -122,7 +134,8 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Wait for the process to complete
 	err = cmd.Wait()
 
-	// Wait for reader to finish draining the PTY
+	// Wait for both readers to finish draining (stdout from PTY, stderr from pipe)
+	<-readersDone
 	<-readersDone
 
 	// Close output channel so writer can finish
@@ -152,6 +165,16 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	exitStatusFile := filepath.Join(processDir, "exit-status")
 	if err := os.WriteFile(exitStatusFile, []byte(strconv.Itoa(exitCode)), 0600); err != nil {
 		return fmt.Errorf("failed to write exit-status file: %w", err)
+	}
+
+	// Write output type to file (format: "type,info")
+	outputType, detectionReason := typeDetector.GetDetectedType()
+	if outputType != OutputTypeUnknown {
+		outputTypeFile := filepath.Join(processDir, "output-type")
+		outputTypeContent := fmt.Sprintf("%s,%s", outputType, detectionReason)
+		if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
+			slog.Warn("Failed to write output-type file", "error", err)
+		}
 	}
 
 	// Update process metadata with exit information
@@ -188,6 +211,71 @@ func isBinaryData(line string) bool {
 	// If more than 30% of characters are non-printable, consider it binary
 	threshold := float64(len(line)) * 0.3
 	return float64(nonPrintableCount) > threshold
+}
+
+// readLinesWithDetection reads lines from a reader, sends them to the output channel,
+// and performs output type detection on stdout
+func readLinesWithDetection(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}, detector *OutputTypeDetector) {
+	defer func() {
+		done <- struct{}{}
+	}()
+
+	br := bufio.NewReader(reader)
+	var buffer []byte
+	flushTimeout := 100 * time.Millisecond
+
+	for {
+		// Read one byte at a time (bufio.Reader handles internal buffering)
+		b, err := br.ReadByte()
+		if err != nil {
+			// EOF or error - flush any remaining buffer
+			if len(buffer) > 0 {
+				line := string(buffer)
+				outputChan <- outputlog.OutputLine{
+					Stream:    stream,
+					Timestamp: time.Now().UTC(),
+					Line:      line,
+				}
+				// Analyze for type detection
+				if !detector.IsDetected() {
+					detector.AnalyzeLine(line)
+				}
+			}
+			break
+		}
+		buffer = append(buffer, b)
+
+		// Check if we should flush
+		shouldFlush := false
+		if len(buffer) > 0 && buffer[len(buffer)-1] == '\n' {
+			shouldFlush = true
+		} else if len(buffer) > 0 && br.Buffered() == 0 {
+			// No more data available immediately, wait a bit for more
+			time.Sleep(flushTimeout)
+			// If still no data, flush what we have
+			if br.Buffered() == 0 {
+				shouldFlush = true
+			}
+		}
+
+		if shouldFlush {
+			// Keep the line as-is, including newline if present
+			line := string(buffer)
+
+			outputChan <- outputlog.OutputLine{
+				Stream:    stream,
+				Timestamp: time.Now().UTC(),
+				Line:      line,
+			}
+
+			// Analyze for type detection (only if not already detected)
+			if !detector.IsDetected() {
+				detector.AnalyzeLine(line)
+			}
+
+			buffer = buffer[:0] // Reset buffer
+		}
+	}
 }
 
 // readLines reads lines from a reader and sends them to the output channel
