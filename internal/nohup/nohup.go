@@ -48,11 +48,32 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	writerDone := make(chan struct{})
 	binaryDetected := false
 
+	// Create output type detector
+	typeDetector := outputtype.NewDetector()
+
 	// Start goroutine to write output lines to file
 	go func() {
 		defer close(writerDone)
 		for line := range outputChan {
-			// Check if this line contains binary data
+			// Write the line to output.log first
+			formattedLine := outputlog.FormatOutputLine(line)
+			_, _ = outFile.WriteString(formattedLine)
+			// No need to sync since file was opened with O_SYNC
+
+			// Only analyze stdout for type detection
+			if line.Stream == "stdout" && !typeDetector.IsDetected() {
+				if typeDetector.AnalyzeLine(line.Line) {
+					// Type detected! Write output-type file immediately
+					detectedType, detectionReason := typeDetector.GetDetectedType()
+					outputTypeFile := filepath.Join(processDir, "output-type")
+					outputTypeContent := fmt.Sprintf("%s,%s", detectedType, detectionReason)
+					if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
+						slog.Warn("Failed to write output-type file", "error", err)
+					}
+				}
+			}
+
+			// Check if this line contains binary data (legacy detection for binary-data marker)
 			if !binaryDetected && (line.Stream == "stdout" || line.Stream == "stderr") {
 				if isBinaryData(line.Line) {
 					binaryDetected = true
@@ -61,11 +82,6 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 					_ = os.WriteFile(binaryMarkerFile, []byte("true"), 0600)
 				}
 			}
-
-			// Format the output line using the shared formatting function
-			formattedLine := outputlog.FormatOutputLine(line)
-			_, _ = outFile.WriteString(formattedLine)
-			// No need to sync since file was opened with O_SYNC
 		}
 	}()
 
@@ -102,12 +118,9 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		slog.Warn("Failed to set PTY size, using default", "error", err)
 	}
 
-	// Create output type detector
-	typeDetector := outputtype.NewDetector()
-
 	// Start goroutine to read from PTY (stdout only)
 	readersDone := make(chan struct{}, 2)
-	go readLinesWithDetection(ptmx, "stdout", outputChan, readersDone, typeDetector)
+	go readLines(ptmx, "stdout", outputChan, readersDone)
 
 	// Start goroutine to read from stderr pipe
 	go readLines(stderrPipe, "stderr", outputChan, readersDone)
@@ -168,15 +181,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		return fmt.Errorf("failed to write exit-status file: %w", err)
 	}
 
-	// Write output type to file (format: "type,info")
-	detectedType, detectionReason := typeDetector.GetDetectedType()
-	if detectedType != outputtype.OutputTypeUnknown {
-		outputTypeFile := filepath.Join(processDir, "output-type")
-		outputTypeContent := fmt.Sprintf("%s,%s", detectedType, detectionReason)
-		if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
-			slog.Warn("Failed to write output-type file", "error", err)
-		}
-	}
+	// Note: output-type file is written by the writer goroutine as soon as detection occurs
 
 	// Update process metadata with exit information
 	if err := workspace.UpdateProcessExit(ws, processHash, exitCode, signalName); err != nil {
@@ -212,71 +217,6 @@ func isBinaryData(line string) bool {
 	// If more than 30% of characters are non-printable, consider it binary
 	threshold := float64(len(line)) * 0.3
 	return float64(nonPrintableCount) > threshold
-}
-
-// readLinesWithDetection reads lines from a reader, sends them to the output channel,
-// and performs output type detection on stdout
-func readLinesWithDetection(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}, detector *outputtype.Detector) {
-	defer func() {
-		done <- struct{}{}
-	}()
-
-	br := bufio.NewReader(reader)
-	var buffer []byte
-	flushTimeout := 100 * time.Millisecond
-
-	for {
-		// Read one byte at a time (bufio.Reader handles internal buffering)
-		b, err := br.ReadByte()
-		if err != nil {
-			// EOF or error - flush any remaining buffer
-			if len(buffer) > 0 {
-				line := string(buffer)
-				outputChan <- outputlog.OutputLine{
-					Stream:    stream,
-					Timestamp: time.Now().UTC(),
-					Line:      line,
-				}
-				// Analyze for type detection
-				if !detector.IsDetected() {
-					detector.AnalyzeLine(line)
-				}
-			}
-			break
-		}
-		buffer = append(buffer, b)
-
-		// Check if we should flush
-		shouldFlush := false
-		if len(buffer) > 0 && buffer[len(buffer)-1] == '\n' {
-			shouldFlush = true
-		} else if len(buffer) > 0 && br.Buffered() == 0 {
-			// No more data available immediately, wait a bit for more
-			time.Sleep(flushTimeout)
-			// If still no data, flush what we have
-			if br.Buffered() == 0 {
-				shouldFlush = true
-			}
-		}
-
-		if shouldFlush {
-			// Keep the line as-is, including newline if present
-			line := string(buffer)
-
-			outputChan <- outputlog.OutputLine{
-				Stream:    stream,
-				Timestamp: time.Now().UTC(),
-				Line:      line,
-			}
-
-			// Analyze for type detection (only if not already detected)
-			if !detector.IsDetected() {
-				detector.AnalyzeLine(line)
-			}
-
-			buffer = buffer[:0] // Reset buffer
-		}
-	}
 }
 
 // readLines reads lines from a reader and sends them to the output channel
