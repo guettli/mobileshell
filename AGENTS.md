@@ -4,6 +4,9 @@ Before writing code, search for similar patterns/logic in the codebase and extra
 reusable functions. Never duplicate code - if you see existing logic that does what you need,
 refactor it into a shared helper first.
 
+before starting to modify files, switch to the main branch and pull. 
+
+
 after changes run `./scripts/test.sh`.
 
 use UTC when writing dates.
