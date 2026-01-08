@@ -15,6 +15,7 @@ import (
 	"github.com/creack/pty"
 	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
+	"mobileshell/pkg/outputtype"
 )
 
 // Run executes a command in nohup mode within a workspace
@@ -45,26 +46,31 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Create channel for output lines
 	outputChan := make(chan outputlog.OutputLine, 100)
 	writerDone := make(chan struct{})
-	binaryDetected := false
+
+	// Create output type detector
+	typeDetector := outputtype.NewDetector()
 
 	// Start goroutine to write output lines to file
 	go func() {
 		defer close(writerDone)
 		for line := range outputChan {
-			// Check if this line contains binary data
-			if !binaryDetected && (line.Stream == "stdout" || line.Stream == "stderr") {
-				if isBinaryData(line.Line) {
-					binaryDetected = true
-					// Create binary-data marker file
-					binaryMarkerFile := filepath.Join(processDir, "binary-data")
-					_ = os.WriteFile(binaryMarkerFile, []byte("true"), 0600)
-				}
-			}
-
-			// Format the output line using the shared formatting function
+			// Write the line to output.log first
 			formattedLine := outputlog.FormatOutputLine(line)
 			_, _ = outFile.WriteString(formattedLine)
 			// No need to sync since file was opened with O_SYNC
+
+			// Only analyze stdout for type detection
+			if line.Stream == "stdout" && !typeDetector.IsDetected() {
+				if typeDetector.AnalyzeLine(line.Line) {
+					// Type detected! Write output-type file immediately
+					detectedType, detectionReason := typeDetector.GetDetectedType()
+					outputTypeFile := filepath.Join(processDir, "output-type")
+					outputTypeContent := fmt.Sprintf("%s,%s", detectedType, detectionReason)
+					if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
+						slog.Warn("Failed to write output-type file", "error", err)
+					}
+				}
+			}
 		}
 	}()
 
@@ -80,9 +86,16 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	cmd := exec.Command("sh", "-c", fullCommand)
 	cmd.Dir = ws.Directory
 
-	// Start the command with a PTY
-	// This provides a pseudo-terminal, making commands think they're running in a real terminal
+	// Set up stderr pipe separately (bypasses PTY)
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Start the command with a PTY for stdout only
+	// This provides a pseudo-terminal for stdout, making commands think they're running in a real terminal
 	// This is essential for commands that check isatty() or need terminal capabilities
+	// stderr is captured separately via the pipe
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to start command with pty: %w", err)
@@ -94,10 +107,12 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		slog.Warn("Failed to set PTY size, using default", "error", err)
 	}
 
-	// Start goroutine to read from PTY (combines stdout and stderr)
-	// PTY combines both streams, so we label everything as stdout
-	readersDone := make(chan struct{}, 1)
+	// Start goroutine to read from PTY (stdout only)
+	readersDone := make(chan struct{}, 2)
 	go readLines(ptmx, "stdout", outputChan, readersDone)
+
+	// Start goroutine to read from stderr pipe
+	go readLines(stderrPipe, "stderr", outputChan, readersDone)
 
 	pid := cmd.Process.Pid
 
@@ -122,7 +137,8 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Wait for the process to complete
 	err = cmd.Wait()
 
-	// Wait for reader to finish draining the PTY
+	// Wait for both readers to finish draining (stdout from PTY, stderr from pipe)
+	<-readersDone
 	<-readersDone
 
 	// Close output channel so writer can finish
@@ -154,40 +170,14 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		return fmt.Errorf("failed to write exit-status file: %w", err)
 	}
 
+	// Note: output-type file is written by the writer goroutine as soon as detection occurs
+
 	// Update process metadata with exit information
 	if err := workspace.UpdateProcessExit(ws, processHash, exitCode, signalName); err != nil {
 		return fmt.Errorf("failed to update process exit: %w", err)
 	}
 
 	return nil
-}
-
-// isBinaryData checks if a line contains binary data
-// A line is considered binary if it contains null bytes or has a high proportion
-// of non-printable characters (excluding common whitespace)
-func isBinaryData(line string) bool {
-	if len(line) == 0 {
-		return false
-	}
-
-	nonPrintableCount := 0
-	for _, r := range line {
-		// Check for null bytes - definitive indicator of binary data
-		if r == 0 {
-			return true
-		}
-		// Count non-printable characters (excluding tab, newline, carriage return)
-		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
-			nonPrintableCount++
-		} else if r > 126 && r < 160 {
-			// Control characters in extended ASCII
-			nonPrintableCount++
-		}
-	}
-
-	// If more than 30% of characters are non-printable, consider it binary
-	threshold := float64(len(line)) * 0.3
-	return float64(nonPrintableCount) > threshold
 }
 
 // readLines reads lines from a reader and sends them to the output channel
