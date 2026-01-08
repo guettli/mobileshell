@@ -1,8 +1,12 @@
 package workspace
 
 import (
+	"bytes"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -299,5 +303,146 @@ func TestWorkspaceWithSpecialCharacters(t *testing.T) {
 	_, err = CreateWorkspace(tmpDir, "   ", workDir, "")
 	if err == nil {
 		t.Error("Expected error when creating workspace with only spaces")
+	}
+}
+
+func TestPreCommandLineEndingNormalization(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "CRLF line endings",
+			input:    "export FOO=bar\r\necho $FOO",
+			expected: "#!/usr/bin/env bash\nexport FOO=bar\necho $FOO",
+		},
+		{
+			name:     "Mixed CRLF and LF",
+			input:    "export FOO=bar\r\necho $FOO\nexport BAZ=qux",
+			expected: "#!/usr/bin/env bash\nexport FOO=bar\necho $FOO\nexport BAZ=qux",
+		},
+		{
+			name:     "Standalone CR characters",
+			input:    "export FOO=bar\recho $FOO",
+			expected: "#!/usr/bin/env bash\nexport FOO=barecho $FOO",
+		},
+		{
+			name:     "CRLF with existing shebang",
+			input:    "#!/usr/bin/env fish\r\nset FOO bar\r\necho $FOO",
+			expected: "#!/usr/bin/env fish\nset FOO bar\necho $FOO",
+		},
+		{
+			name:     "LF only (no change needed)",
+			input:    "export FOO=bar\necho $FOO",
+			expected: "#!/usr/bin/env bash\nexport FOO=bar\necho $FOO",
+		},
+		{
+			name:     "Empty pre-command",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizePreCommand(tt.input)
+			if result != tt.expected {
+				t.Errorf("normalizePreCommand() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPreCommandWithCRLFInWorkspace(t *testing.T) {
+	tmpDir := t.TempDir()
+	workDir := t.TempDir()
+
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
+	}
+
+	// Create workspace with pre-command containing CRLF
+	preCommandWithCRLF := "export FOO=bar\r\nexport BAZ=qux\r\necho $FOO"
+	ws, err := CreateWorkspace(tmpDir, "test-crlf", workDir, preCommandWithCRLF)
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+
+	// Verify the pre-command was normalized (no \r characters)
+	if strings.Contains(ws.PreCommand, "\r") {
+		t.Errorf("PreCommand should not contain \\r characters, got: %q", ws.PreCommand)
+	}
+
+	expectedPreCommand := "#!/usr/bin/env bash\nexport FOO=bar\nexport BAZ=qux\necho $FOO"
+	if ws.PreCommand != expectedPreCommand {
+		t.Errorf("Expected pre-command %q, got %q", expectedPreCommand, ws.PreCommand)
+	}
+
+	// Verify the pre-command file on disk also doesn't have \r
+	preCommandFile := filepath.Join(ws.Path, "pre-command")
+	data, err := os.ReadFile(preCommandFile)
+	if err != nil {
+		t.Fatalf("Failed to read pre-command file: %v", err)
+	}
+
+	if bytes.Contains(data, []byte("\r")) {
+		t.Errorf("Pre-command file should not contain \\r characters, got: %q", string(data))
+	}
+}
+
+func TestPreCommandWithCRLFExecutes(t *testing.T) {
+	tmpDir := t.TempDir()
+	workDir := t.TempDir()
+
+	if err := InitWorkspaces(tmpDir); err != nil {
+		t.Fatalf("Failed to initialize workspaces: %v", err)
+	}
+
+	// Create workspace with pre-command containing CRLF that sets an environment variable
+	// This simulates a user copy-pasting a pre-command from Windows or a web form
+	preCommandWithCRLF := "export TEST_VAR=success\r\necho \"Pre-command executed\""
+	ws, err := CreateWorkspace(tmpDir, "test-exec", workDir, preCommandWithCRLF)
+	if err != nil {
+		t.Fatalf("Failed to create workspace: %v", err)
+	}
+
+	// Create a process to simulate what happens in nohup
+	hash, err := CreateProcess(ws, "echo $TEST_VAR")
+	if err != nil {
+		t.Fatalf("Failed to create process: %v", err)
+	}
+
+	processDir := GetProcessDir(ws, hash)
+
+	// Write pre-command to a script file (simulating what nohup.go does)
+	preScriptPath := filepath.Join(processDir, "pre-command.sh")
+	if err := os.WriteFile(preScriptPath, []byte(ws.PreCommand), 0700); err != nil {
+		t.Fatalf("Failed to write pre-command script: %v", err)
+	}
+
+	// Extract shell from shebang
+	shell := ExtractShellFromShebang(ws.PreCommand)
+
+	// Try to execute the pre-command script
+	// This is the critical test - if CRLF wasn't normalized, this would fail with:
+	// "$'\r': command not found"
+	cmd := exec.Command(shell, "-c", fmt.Sprintf(". %s && echo \"Success: $TEST_VAR\"", preScriptPath))
+	cmd.Dir = workDir
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Failed to execute pre-command script (this would be the CRLF bug): %v\nOutput: %s", err, string(output))
+	}
+
+	// Verify the script executed successfully
+	outputStr := string(output)
+	if !strings.Contains(outputStr, "Success: success") {
+		t.Errorf("Pre-command did not set environment variable correctly. Output: %s", outputStr)
+	}
+
+	// Verify no CRLF errors in output
+	if strings.Contains(outputStr, "$'\\r'") || strings.Contains(outputStr, "command not found") {
+		t.Errorf("Pre-command execution failed with CRLF error: %s", outputStr)
 	}
 }
