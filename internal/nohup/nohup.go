@@ -15,6 +15,7 @@ import (
 	"github.com/creack/pty"
 	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
+	"mobileshell/pkg/outputtype"
 )
 
 // Run executes a command in nohup mode within a workspace
@@ -102,7 +103,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	}
 
 	// Create output type detector
-	typeDetector := NewOutputTypeDetector()
+	typeDetector := outputtype.NewDetector()
 
 	// Start goroutine to read from PTY (stdout only)
 	readersDone := make(chan struct{}, 2)
@@ -168,10 +169,10 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	}
 
 	// Write output type to file (format: "type,info")
-	outputType, detectionReason := typeDetector.GetDetectedType()
-	if outputType != OutputTypeUnknown {
+	detectedType, detectionReason := typeDetector.GetDetectedType()
+	if detectedType != outputtype.OutputTypeUnknown {
 		outputTypeFile := filepath.Join(processDir, "output-type")
-		outputTypeContent := fmt.Sprintf("%s,%s", outputType, detectionReason)
+		outputTypeContent := fmt.Sprintf("%s,%s", detectedType, detectionReason)
 		if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
 			slog.Warn("Failed to write output-type file", "error", err)
 		}
@@ -215,7 +216,7 @@ func isBinaryData(line string) bool {
 
 // readLinesWithDetection reads lines from a reader, sends them to the output channel,
 // and performs output type detection on stdout
-func readLinesWithDetection(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}, detector *OutputTypeDetector) {
+func readLinesWithDetection(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}, detector *outputtype.Detector) {
 	defer func() {
 		done <- struct{}{}
 	}()

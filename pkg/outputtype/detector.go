@@ -1,4 +1,4 @@
-package nohup
+package outputtype
 
 import (
 	"strings"
@@ -15,10 +15,10 @@ const (
 	OutputTypeInk        OutputType = "ink"
 )
 
-// OutputTypeDetector continuously analyzes stdout to detect output type
-// Note: This is accessed only from a single goroutine (readLinesWithDetection),
+// Detector continuously analyzes stdout to detect output type
+// Note: This is accessed only from a single goroutine,
 // so no synchronization is needed
-type OutputTypeDetector struct {
+type Detector struct {
 	detectedType    OutputType
 	detectionReason string
 	detected        bool
@@ -33,9 +33,9 @@ type OutputTypeDetector struct {
 	lineCount          int
 }
 
-// NewOutputTypeDetector creates a new output type detector
-func NewOutputTypeDetector() *OutputTypeDetector {
-	return &OutputTypeDetector{
+// NewDetector creates a new output type detector
+func NewDetector() *Detector {
+	return &Detector{
 		detectedType:  OutputTypeUnknown,
 		maxBufferSize: 8192, // Analyze up to 8KB of initial output
 	}
@@ -43,7 +43,7 @@ func NewOutputTypeDetector() *OutputTypeDetector {
 
 // AnalyzeLine analyzes a line of output and updates detection state
 // Returns true if type has been detected (stop calling after this)
-func (d *OutputTypeDetector) AnalyzeLine(line string) bool {
+func (d *Detector) AnalyzeLine(line string) bool {
 	if d.detected {
 		return true
 	}
@@ -95,17 +95,17 @@ func (d *OutputTypeDetector) AnalyzeLine(line string) bool {
 }
 
 // GetDetectedType returns the detected type and reason
-func (d *OutputTypeDetector) GetDetectedType() (OutputType, string) {
+func (d *Detector) GetDetectedType() (OutputType, string) {
 	return d.detectedType, d.detectionReason
 }
 
 // IsDetected returns true if type has been determined
-func (d *OutputTypeDetector) IsDetected() bool {
+func (d *Detector) IsDetected() bool {
 	return d.detected
 }
 
 // isBinaryData checks if a line contains binary data
-func (d *OutputTypeDetector) isBinaryData(line string) bool {
+func (d *Detector) isBinaryData(line string) bool {
 	if len(line) == 0 {
 		return false
 	}
@@ -132,7 +132,7 @@ func (d *OutputTypeDetector) isBinaryData(line string) bool {
 }
 
 // detectANSISequences scans for ANSI escape sequences in the line
-func (d *OutputTypeDetector) detectANSISequences(line string) {
+func (d *Detector) detectANSISequences(line string) {
 	// Look for ESC character (0x1B or \x1b)
 	if !strings.Contains(line, "\x1b[") {
 		return
@@ -200,9 +200,12 @@ func containsCursorPosition(line string) bool {
 			}
 		}
 		// Look for next ESC[
-		idx = strings.Index(line[idx+2:], "\x1b[")
-		if idx != -1 {
-			idx += idx + 2
+		remaining := line[idx+2:]
+		nextIdx := strings.Index(remaining, "\x1b[")
+		if nextIdx != -1 {
+			idx = idx + 2 + nextIdx
+		} else {
+			idx = -1
 		}
 	}
 	return false
