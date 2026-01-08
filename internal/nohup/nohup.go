@@ -46,7 +46,6 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Create channel for output lines
 	outputChan := make(chan outputlog.OutputLine, 100)
 	writerDone := make(chan struct{})
-	binaryDetected := false
 
 	// Create output type detector
 	typeDetector := outputtype.NewDetector()
@@ -70,16 +69,6 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 					if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
 						slog.Warn("Failed to write output-type file", "error", err)
 					}
-				}
-			}
-
-			// Check if this line contains binary data (legacy detection for binary-data marker)
-			if !binaryDetected && (line.Stream == "stdout" || line.Stream == "stderr") {
-				if isBinaryData(line.Line) {
-					binaryDetected = true
-					// Create binary-data marker file
-					binaryMarkerFile := filepath.Join(processDir, "binary-data")
-					_ = os.WriteFile(binaryMarkerFile, []byte("true"), 0600)
 				}
 			}
 		}
@@ -189,34 +178,6 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	}
 
 	return nil
-}
-
-// isBinaryData checks if a line contains binary data
-// A line is considered binary if it contains null bytes or has a high proportion
-// of non-printable characters (excluding common whitespace)
-func isBinaryData(line string) bool {
-	if len(line) == 0 {
-		return false
-	}
-
-	nonPrintableCount := 0
-	for _, r := range line {
-		// Check for null bytes - definitive indicator of binary data
-		if r == 0 {
-			return true
-		}
-		// Count non-printable characters (excluding tab, newline, carriage return)
-		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
-			nonPrintableCount++
-		} else if r > 126 && r < 160 {
-			// Control characters in extended ASCII
-			nonPrintableCount++
-		}
-	}
-
-	// If more than 30% of characters are non-printable, consider it binary
-	threshold := float64(len(line)) * 0.3
-	return float64(nonPrintableCount) > threshold
 }
 
 // readLines reads lines from a reader and sends them to the output channel
