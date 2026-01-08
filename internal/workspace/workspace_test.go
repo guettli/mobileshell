@@ -36,8 +36,9 @@ func TestWorkspaceCreation(t *testing.T) {
 		t.Errorf("Expected directory '%s', got '%s'", workDir, ws.Directory)
 	}
 
-	if ws.PreCommand != "source .env" {
-		t.Errorf("Expected pre-command 'source .env', got '%s'", ws.PreCommand)
+	expectedPreCommand := "#!/usr/bin/env bash\nsource .env"
+	if ws.PreCommand != expectedPreCommand {
+		t.Errorf("Expected pre-command '%s', got '%s'", expectedPreCommand, ws.PreCommand)
 	}
 
 	// Verify workspace directory exists

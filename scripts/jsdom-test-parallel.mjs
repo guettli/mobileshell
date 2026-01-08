@@ -426,11 +426,11 @@ async function testWorkspaceEditing() {
   const editPageDoc = parseHTML(editPageResponse.text);
   const nameInput = editPageDoc.querySelector('input[name="name"]');
   const directoryInput = editPageDoc.querySelector('input[name="directory"]');
-  const preCommandInput = editPageDoc.querySelector('input[name="pre_command"]');
+  const preCommandInput = editPageDoc.querySelector('textarea[name="pre_command"]');
 
   assert.ok(nameInput, 'Should have name input field');
   assert.ok(directoryInput, 'Should have directory input field');
-  assert.ok(preCommandInput, 'Should have pre-command input field');
+  assert.ok(preCommandInput, 'Should have pre-command textarea field');
   assert.equal(nameInput.value, workspaceName, 'Name field should have current name');
 
   // Update the workspace
