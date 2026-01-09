@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MobileShell - File Browser</title>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .file-table {
+            font-size: 0.9rem;
+        }
+        .file-table td {
+            vertical-align: middle;
+        }
+        .file-name {
+            font-family: monospace;
+        }
+        .file-icon {
+            margin-right: 0.5rem;
+        }
+        .directory-icon {
+            color: #0d6efd;
+        }
+        .file-icon-regular {
+            color: #6c757d;
+        }
+        .breadcrumb {
+            background-color: #f8f9fa;
+            padding: 0.75rem 1rem;
+            border-radius: 0.25rem;
+        }
+        .permissions {
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        .file-size {
+            text-align: right;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">MobileShell - File Browser</span>
+            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="mb-3">
+            <a href="{{.BasePath}}/" class="btn btn-sm btn-outline-secondary">&larr; Back to Workspaces</a>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Directory: {{.Path}}</h5>
+            </div>
+            <div class="card-body">
+                <nav aria-label="breadcrumb" class="mb-3">
+                    <ol class="breadcrumb mb-0">
+                        <li class="breadcrumb-item"><a href="{{.BasePath}}/files?path=/">Root</a></li>
+                        {{if ne .Path "/"}}
+                        {{$basePath := .BasePath}}
+                        {{$parts := split .Path "/"}}
+                        {{$currentPath := ""}}
+                        {{range $index, $part := $parts}}
+                        {{if ne $part ""}}
+                        {{$currentPath = printf "%s/%s" $currentPath $part}}
+                        <li class="breadcrumb-item"><a href="{{$basePath}}/files?path={{$currentPath}}">{{$part}}</a></li>
+                        {{end}}
+                        {{end}}
+                        {{end}}
+                    </ol>
+                </nav>
+
+                {{if .ParentDir}}
+                <div class="mb-2">
+                    <a href="{{.BasePath}}/files?path={{.ParentDir}}" class="btn btn-sm btn-outline-primary">&uarr; Parent Directory</a>
+                </div>
+                {{end}}
+
+                <table class="table table-hover file-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Size</th>
+                            <th>Modified</th>
+                            <th>Owner</th>
+                            <th>Permissions</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Files}}
+                        <tr>
+                            <td class="file-name">
+                                {{if .IsDir}}
+                                <span class="file-icon directory-icon">&#128193;</span>
+                                <a href="{{$.BasePath}}/files?path={{.Path}}">{{.Name}}/</a>
+                                {{else}}
+                                <span class="file-icon file-icon-regular">&#128196;</span>
+                                <a href="{{.ViewURL}}">{{.Name}}</a>
+                                {{end}}
+                            </td>
+                            <td class="file-size">
+                                {{if not .IsDir}}
+                                {{if lt .Size 1024}}
+                                {{.Size}} B
+                                {{else if lt .Size 1048576}}
+                                {{printf "%.1f" (divf .Size 1024.0)}} KB
+                                {{else if lt .Size 1073741824}}
+                                {{printf "%.1f" (divf .Size 1048576.0)}} MB
+                                {{else}}
+                                {{printf "%.1f" (divf .Size 1073741824.0)}} GB
+                                {{end}}
+                                {{else}}
+                                -
+                                {{end}}
+                            </td>
+                            <td>{{.ModTime.Format "2006-01-02 15:04:05 UTC"}}</td>
+                            <td>{{.Owner}}</td>
+                            <td class="permissions">{{.Mode}}</td>
+                            <td>
+                                {{if not .IsDir}}
+                                <a href="{{.ViewURL}}" class="btn btn-sm btn-outline-info">View</a>
+                                <a href="{{.DownloadURL}}" class="btn btn-sm btn-outline-primary" download>Download</a>
+                                {{end}}
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
+</body>
+
+</html>

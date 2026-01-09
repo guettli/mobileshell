@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MobileShell - View File</title>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .file-content {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: none;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">MobileShell - File Viewer</span>
+            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="mb-3">
+            <a href="{{.DirURL}}" class="btn btn-sm btn-outline-secondary">&larr; Back to Directory</a>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">File: {{.Path}}</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <strong>Size:</strong> {{.Size}} bytes<br>
+                    <strong>Modified:</strong> {{.ModTime.Format "2006-01-02 15:04:05 UTC"}}
+                </div>
+
+                <div class="mb-3">
+                    <a href="{{.BasePath}}/files/download?path={{.Path}}" class="btn btn-sm btn-outline-primary" download>Download</a>
+                </div>
+
+                <h6>Content:</h6>
+                <div class="file-content">{{.Content}}</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
+</body>
+
+</html>

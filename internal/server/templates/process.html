@@ -69,7 +69,7 @@
 
                 <p class="card-text">
                     <strong>Command:</strong> <code>{{.Process.Command}}</code><br>
-                    <strong>Process ID:</strong> {{.Process.ID}}<br>
+                    <strong>Process ID:</strong> <a href="{{.ProcessDirURL}}">{{.Process.ID}}</a><br>
                     <strong>PID:</strong> {{.Process.PID}}<br>
                     <strong>Started:</strong> {{.Process.StartTime.Format "2006-01-02 15:04:05 UTC"}}
                     {{if .Process.Completed}}
