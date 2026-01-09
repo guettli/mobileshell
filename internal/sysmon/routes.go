@@ -23,18 +23,10 @@ func RegisterRoutes(
 	})))
 
 	mux.HandleFunc("/sysmon/process/{pid}", authMiddleware(wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
-		result, err := HandleProcessDetail(tmpl, ctx, r, getBasePath(r), r.PathValue("pid"))
-		if httpErr, ok := err.(HTTPError); ok {
-			return nil, HTTPError{httpErr.StatusCode, httpErr.Message}
-		}
-		return result, err
+		return HandleProcessDetail(tmpl, ctx, r, getBasePath(r), r.PathValue("pid"))
 	})))
 
 	mux.HandleFunc("/sysmon/process/{pid}/hx-signal", authMiddleware(wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
-		result, err := HandleSendSignal(ctx, r, r.PathValue("pid"))
-		if httpErr, ok := err.(HTTPError); ok {
-			return nil, HTTPError{httpErr.StatusCode, httpErr.Message}
-		}
-		return result, err
+		return HandleSendSignal(ctx, r, r.PathValue("pid"))
 	})))
 }
