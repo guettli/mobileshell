@@ -37,9 +37,7 @@ echo "=== Cleanup started at $(date) ===" >> "$LOG_FILE"
 # These are test processes that should have been cleaned up
 # Pattern matches: /tmp.*/mobileshell nohup --state-dir /tmp.* test-workspace-*
 # This is specific enough to only match test processes, not production processes
-# shellcheck disable=SC2009  # Need ps output format for PPID+cmd pattern matching
-STALE_PIDS=$(ps -u "$USER" -o ppid,pid,etime,cmd --no-headers | \
-    grep "^ *1 " | grep "/tmp.*mobileshell nohup --state-dir /tmp.*test-workspace" | awk '{print $2}')
+STALE_PIDS=$(pgrep -u "$USER" -P 1 -f "/tmp.*mobileshell nohup --state-dir /tmp.*test-workspace" || true)
 
 if [ -z "$STALE_PIDS" ]; then
     echo "No stale processes found" >> "$LOG_FILE"
