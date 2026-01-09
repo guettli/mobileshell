@@ -350,15 +350,14 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
 
 	// System monitor routes
-	sysmonHandler := sysmon.NewHandler(s.tmpl)
 	mux.HandleFunc("/sysmon", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
-		return sysmonHandler.HandleSysmon(ctx, r, s.getBasePath(r))
+		return sysmon.HandleSysmon(s.tmpl, ctx, r, s.getBasePath(r))
 	})))
 	mux.HandleFunc("/sysmon/hx-processes", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
-		return sysmonHandler.HandleProcessList(ctx, r, s.getBasePath(r))
+		return sysmon.HandleProcessList(s.tmpl, ctx, r, s.getBasePath(r))
 	})))
 	mux.HandleFunc("/sysmon/process/{pid}", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
-		result, err := sysmonHandler.HandleProcessDetail(ctx, r, s.getBasePath(r), r.PathValue("pid"))
+		result, err := sysmon.HandleProcessDetail(s.tmpl, ctx, r, s.getBasePath(r), r.PathValue("pid"))
 		if err != nil {
 			if strings.Contains(err.Error(), "forbidden:") {
 				return nil, newHTTPError(http.StatusForbidden, strings.TrimPrefix(err.Error(), "forbidden: "))
@@ -371,7 +370,7 @@ func (s *Server) SetupRoutes() http.Handler {
 		return result, nil
 	})))
 	mux.HandleFunc("/sysmon/process/{pid}/hx-signal", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
-		result, err := sysmonHandler.HandleSendSignal(ctx, r, r.PathValue("pid"))
+		result, err := sysmon.HandleSendSignal(ctx, r, r.PathValue("pid"))
 		if err != nil {
 			if strings.Contains(err.Error(), "method not allowed") {
 				return nil, newHTTPError(http.StatusMethodNotAllowed, err.Error())

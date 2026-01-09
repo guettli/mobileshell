@@ -11,20 +11,8 @@ import (
 	"strings"
 )
 
-// Handler handles system monitor HTTP requests
-type Handler struct {
-	tmpl *template.Template
-}
-
-// NewHandler creates a new sysmon handler
-func NewHandler(tmpl *template.Template) *Handler {
-	return &Handler{
-		tmpl: tmpl,
-	}
-}
-
 // HandleSysmon renders the main system monitor page
-func (h *Handler) HandleSysmon(ctx context.Context, r *http.Request, basePath string) ([]byte, error) {
+func HandleSysmon(tmpl *template.Template, ctx context.Context, r *http.Request, basePath string) ([]byte, error) {
 	// Get initial sort params (default: CPU descending)
 	sortBy := r.URL.Query().Get("sort")
 	if sortBy == "" {
@@ -36,7 +24,7 @@ func (h *Handler) HandleSysmon(ctx context.Context, r *http.Request, basePath st
 	}
 
 	var buf bytes.Buffer
-	err := h.tmpl.ExecuteTemplate(&buf, "sysmon.html", map[string]interface{}{
+	err := tmpl.ExecuteTemplate(&buf, "sysmon.html", map[string]interface{}{
 		"BasePath": basePath,
 		"SortBy":   sortBy,
 		"Order":    order,
@@ -48,7 +36,7 @@ func (h *Handler) HandleSysmon(ctx context.Context, r *http.Request, basePath st
 }
 
 // HandleProcessList returns the sortable process list (HTMX endpoint)
-func (h *Handler) HandleProcessList(ctx context.Context, r *http.Request, basePath string) ([]byte, error) {
+func HandleProcessList(tmpl *template.Template, ctx context.Context, r *http.Request, basePath string) ([]byte, error) {
 	sortBy := r.URL.Query().Get("sort")
 	if sortBy == "" {
 		sortBy = "cpu"
@@ -71,7 +59,7 @@ func (h *Handler) HandleProcessList(ctx context.Context, r *http.Request, basePa
 	SortProcesses(processes, SortColumn(sortBy), SortOrder(order))
 
 	var buf bytes.Buffer
-	err = h.tmpl.ExecuteTemplate(&buf, "hx-sysmon-processes.html", map[string]interface{}{
+	err = tmpl.ExecuteTemplate(&buf, "hx-sysmon-processes.html", map[string]interface{}{
 		"Processes": processes,
 		"SortBy":    sortBy,
 		"Order":     order,
@@ -84,7 +72,7 @@ func (h *Handler) HandleProcessList(ctx context.Context, r *http.Request, basePa
 }
 
 // HandleProcessDetail renders the process detail page
-func (h *Handler) HandleProcessDetail(ctx context.Context, r *http.Request, basePath string, pidStr string) ([]byte, error) {
+func HandleProcessDetail(tmpl *template.Template, ctx context.Context, r *http.Request, basePath string, pidStr string) ([]byte, error) {
 	pid, err := strconv.ParseInt(pidStr, 10, 32)
 	if err != nil {
 		return nil, fmt.Errorf("invalid PID: %w", err)
@@ -101,7 +89,7 @@ func (h *Handler) HandleProcessDetail(ctx context.Context, r *http.Request, base
 	}
 
 	var buf bytes.Buffer
-	err = h.tmpl.ExecuteTemplate(&buf, "sysmon-process-detail.html", map[string]interface{}{
+	err = tmpl.ExecuteTemplate(&buf, "sysmon-process-detail.html", map[string]interface{}{
 		"Process":  detail,
 		"Signals":  GetAllSignals(),
 		"BasePath": basePath,
@@ -113,7 +101,7 @@ func (h *Handler) HandleProcessDetail(ctx context.Context, r *http.Request, base
 }
 
 // HandleSendSignal sends a signal to a process (POST only)
-func (h *Handler) HandleSendSignal(ctx context.Context, r *http.Request, pidStr string) ([]byte, error) {
+func HandleSendSignal(ctx context.Context, r *http.Request, pidStr string) ([]byte, error) {
 	if r.Method != http.MethodPost {
 		return nil, fmt.Errorf("method not allowed")
 	}
