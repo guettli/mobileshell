@@ -6,16 +6,13 @@ import (
 	"net/http"
 )
 
-// HandlerFunc is the signature for sysmon handlers
-type HandlerFunc func(context.Context, *http.Request) ([]byte, error)
-
 // RegisterRoutes registers all sysmon routes on the provided mux
 func RegisterRoutes(
 	mux *http.ServeMux,
 	tmpl *template.Template,
 	getBasePath func(*http.Request) string,
 	authMiddleware func(http.HandlerFunc) http.HandlerFunc,
-	wrapHandler func(HandlerFunc) http.HandlerFunc,
+	wrapHandler func(func(context.Context, *http.Request) ([]byte, error)) http.HandlerFunc,
 ) {
 	mux.HandleFunc("/sysmon", authMiddleware(wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
 		return HandleSysmon(tmpl, ctx, r, getBasePath(r))
