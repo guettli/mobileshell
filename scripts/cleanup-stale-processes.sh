@@ -31,6 +31,7 @@ echo "=== Cleanup started at $(date) ===" >> "$LOG_FILE"
 
 # Find orphaned mobileshell nohup processes (PPID=1) running from /tmp
 # These are test processes that should have been cleaned up
+# shellcheck disable=SC2009  # Need ps output format for PPID+cmd pattern matching
 STALE_PIDS=$(ps -u mobileshell -o ppid,pid,etime,cmd --no-headers | \
     grep "^ *1 " | grep "/tmp.*mobileshell nohup" | awk '{print $2}')
 
