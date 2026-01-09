@@ -13,8 +13,8 @@ fi
 unused_templates=""
 for template_file in internal/server/templates/*.html; do
     template_name=$(basename "$template_file")
-    # Search for the template name in Go files
-    if ! grep -r "\"$template_name\"" internal/server/*.go >/dev/null 2>&1; then
+    # Search for the template name in Go files (server and sysmon packages)
+    if ! grep -r "\"$template_name\"" internal/server/*.go internal/sysmon/*.go >/dev/null 2>&1; then
         unused_templates="$unused_templates$template_file\n"
     fi
 done
