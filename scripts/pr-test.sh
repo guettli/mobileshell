@@ -18,9 +18,6 @@ echo "=== Checking CI status ==="
 # Wait a moment for CI to start
 sleep 5
 
-# Get current branch name
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
 # Check if gh CLI is available
 if command -v gh &> /dev/null; then
     echo "Waiting for CI checks to complete..."
