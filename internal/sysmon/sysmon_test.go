@@ -197,3 +197,68 @@ func TestGetAllSignals(t *testing.T) {
 		t.Error("Common signals (SIGTERM, SIGKILL, SIGHUP) not found in signal list")
 	}
 }
+
+func TestVerifyProcessOwnership(t *testing.T) {
+	currentUID := uint32(os.Getuid())
+	currentPID := int32(os.Getpid())
+
+	// Test with current process (should succeed)
+	err := VerifyProcessOwnership(currentPID, currentUID)
+	if err != nil {
+		t.Errorf("VerifyProcessOwnership failed for current process: %v", err)
+	}
+
+	// Test with wrong UID (should fail)
+	err = VerifyProcessOwnership(currentPID, currentUID+9999)
+	if err == nil {
+		t.Error("VerifyProcessOwnership should fail for wrong UID")
+	}
+
+	// Test with non-existent PID (should fail)
+	err = VerifyProcessOwnership(999999, currentUID)
+	if err == nil {
+		t.Error("VerifyProcessOwnership should fail for non-existent PID")
+	}
+}
+
+func TestGetProcessDetailForUser(t *testing.T) {
+	currentUID := uint32(os.Getuid())
+	currentPID := int32(os.Getpid())
+
+	// Test with current process (should succeed)
+	detail, err := GetProcessDetailForUser(currentPID, currentUID)
+	if err != nil {
+		t.Fatalf("GetProcessDetailForUser failed: %v", err)
+	}
+	if detail.PID != currentPID {
+		t.Errorf("Expected PID %d, got %d", currentPID, detail.PID)
+	}
+
+	// Test with wrong UID (should fail)
+	_, err = GetProcessDetailForUser(currentPID, currentUID+9999)
+	if err == nil {
+		t.Error("GetProcessDetailForUser should fail for wrong UID")
+	}
+}
+
+func TestSendSignalToProcess(t *testing.T) {
+	currentUID := uint32(os.Getuid())
+
+	// Test with invalid signal (should fail)
+	err := SendSignalToProcess(int32(os.Getpid()), 999, currentUID)
+	if err == nil {
+		t.Error("SendSignalToProcess should fail for invalid signal")
+	}
+
+	// Test with non-existent PID (should fail)
+	err = SendSignalToProcess(999999, 15, currentUID)
+	if err == nil {
+		t.Error("SendSignalToProcess should fail for non-existent PID")
+	}
+
+	// Test with wrong UID (should fail)
+	err = SendSignalToProcess(int32(os.Getpid()), 0, currentUID+9999)
+	if err == nil {
+		t.Error("SendSignalToProcess should fail for wrong UID")
+	}
+}

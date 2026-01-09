@@ -3,6 +3,8 @@ package sysmon
 import (
 	"fmt"
 	"sort"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -222,4 +224,68 @@ func SortProcesses(processes []*ProcessInfo, column SortColumn, order SortOrder)
 		}
 		return less
 	})
+}
+
+// VerifyProcessOwnership checks if a process belongs to the specified user
+func VerifyProcessOwnership(pid int32, uid uint32) error {
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return fmt.Errorf("process not found: %w", err)
+	}
+
+	uids, err := p.Uids()
+	if err != nil {
+		return fmt.Errorf("failed to get process UIDs: %w", err)
+	}
+
+	if len(uids) == 0 || uint32(uids[0]) != uid {
+		return fmt.Errorf("process does not belong to user")
+	}
+
+	return nil
+}
+
+// GetProcessDetailForUser retrieves detailed information for a process and verifies ownership
+func GetProcessDetailForUser(pid int32, uid uint32) (*ProcessDetail, error) {
+	// Get process detail
+	detail, err := GetProcessDetail(pid)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify ownership
+	if err := VerifyProcessOwnership(pid, uid); err != nil {
+		return nil, fmt.Errorf("permission denied: %w", err)
+	}
+
+	return detail, nil
+}
+
+// SendSignalToProcess sends a signal to a process after verifying ownership
+func SendSignalToProcess(pid int32, signal int, uid uint32) error {
+	// Validate signal
+	if err := ValidateSignal(signal); err != nil {
+		return err
+	}
+
+	// Get process
+	p, err := process.NewProcess(pid)
+	if err != nil {
+		return fmt.Errorf("process not found: %w", err)
+	}
+
+	// Verify ownership
+	if err := VerifyProcessOwnership(pid, uid); err != nil {
+		return err
+	}
+
+	// Send signal
+	if err := p.SendSignal(syscall.Signal(signal)); err != nil {
+		if strings.Contains(err.Error(), "no such process") {
+			return fmt.Errorf("process has exited")
+		}
+		return fmt.Errorf("failed to send signal: %w", err)
+	}
+
+	return nil
 }

@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/shirou/gopsutil/v3/process"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
@@ -2186,22 +2185,14 @@ func (s *Server) handleSysmonProcessDetail(ctx context.Context, r *http.Request)
 		return nil, newHTTPError(http.StatusBadRequest, "Invalid PID")
 	}
 
-	// Get process detail
-	detail, err := sysmon.GetProcessDetail(int32(pid))
-	if err != nil {
-		// Process no longer exists or not accessible
-		return nil, newHTTPError(http.StatusGone, fmt.Sprintf("Process %d has exited or is no longer accessible", pid))
-	}
-
-	// Verify process belongs to current user
+	// Get process detail with ownership verification
 	currentUID := uint32(os.Getuid())
-	p, err := process.NewProcess(int32(pid))
+	detail, err := sysmon.GetProcessDetailForUser(int32(pid), currentUID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusGone, fmt.Sprintf("Process %d has exited", pid))
-	}
-	uids, err := p.Uids()
-	if err != nil || len(uids) == 0 || uint32(uids[0]) != currentUID {
-		return nil, newHTTPError(http.StatusForbidden, "Cannot view process owned by another user")
+		if strings.Contains(err.Error(), "permission denied") {
+			return nil, newHTTPError(http.StatusForbidden, "Cannot view process owned by another user")
+		}
+		return nil, newHTTPError(http.StatusGone, fmt.Sprintf("Process %d has exited or is no longer accessible", pid))
 	}
 
 	var buf bytes.Buffer
@@ -2237,28 +2228,18 @@ func (s *Server) hxHandleSysmonSignal(ctx context.Context, r *http.Request) ([]b
 		return nil, newHTTPError(http.StatusBadRequest, "Invalid signal")
 	}
 
-	// Validate signal
-	if err := sysmon.ValidateSignal(signalNum); err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	// Verify process belongs to current user
-	p, err := process.NewProcess(int32(pid))
-	if err != nil {
-		return []byte(`<div class="alert alert-warning">Process has already exited</div>`), nil
-	}
-
+	// Send signal with ownership verification
 	currentUID := uint32(os.Getuid())
-	uids, err := p.Uids()
-	if err != nil || len(uids) == 0 || uint32(uids[0]) != currentUID {
-		return nil, newHTTPError(http.StatusForbidden, "Cannot signal process owned by another user")
-	}
-
-	// Send signal
-	err = p.SendSignal(syscall.Signal(signalNum))
+	err = sysmon.SendSignalToProcess(int32(pid), signalNum, currentUID)
 	if err != nil {
-		if strings.Contains(err.Error(), "no such process") {
+		if strings.Contains(err.Error(), "process has exited") || strings.Contains(err.Error(), "process not found") {
 			return []byte(`<div class="alert alert-warning">Process has already exited</div>`), nil
+		}
+		if strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "does not belong to user") {
+			return nil, newHTTPError(http.StatusForbidden, "Cannot signal process owned by another user")
+		}
+		if strings.Contains(err.Error(), "invalid signal") {
+			return nil, newHTTPError(http.StatusBadRequest, err.Error())
 		}
 		return []byte(`<div class="alert alert-danger">Failed to send signal: ` + err.Error() + `</div>`), nil
 	}
