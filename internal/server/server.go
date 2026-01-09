@@ -350,10 +350,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
 
 	// System monitor routes
-	mux.HandleFunc("/sysmon", s.authMiddleware(s.wrapHandler(s.handleSysmon)))
-	mux.HandleFunc("/sysmon/hx-processes", s.authMiddleware(s.wrapHandler(s.hxHandleSysmonProcesses)))
-	mux.HandleFunc("/sysmon/process/{pid}", s.authMiddleware(s.wrapHandler(s.handleSysmonProcessDetail)))
-	mux.HandleFunc("/sysmon/process/{pid}/hx-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSysmonSignal)))
+	sysmon.RegisterRoutes(mux, s.tmpl, s.getBasePath, s.authMiddleware, func(h sysmon.HandlerFunc) http.HandlerFunc {
+		return s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+			return h(ctx, r)
+		})
+	})
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -2113,29 +2114,5 @@ func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([
 	}
 
 	return jsonBytes, nil
-}
-
-func (s *Server) handleSysmon(ctx context.Context, r *http.Request) ([]byte, error) {
-	return sysmon.HandleSysmon(s.tmpl, ctx, r, s.getBasePath(r))
-}
-
-func (s *Server) hxHandleSysmonProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
-	return sysmon.HandleProcessList(s.tmpl, ctx, r, s.getBasePath(r))
-}
-
-func (s *Server) handleSysmonProcessDetail(ctx context.Context, r *http.Request) ([]byte, error) {
-	result, err := sysmon.HandleProcessDetail(s.tmpl, ctx, r, s.getBasePath(r), r.PathValue("pid"))
-	if httpErr, ok := err.(sysmon.HTTPError); ok {
-		return nil, newHTTPError(httpErr.StatusCode, httpErr.Message)
-	}
-	return result, err
-}
-
-func (s *Server) hxHandleSysmonSignal(ctx context.Context, r *http.Request) ([]byte, error) {
-	result, err := sysmon.HandleSendSignal(ctx, r, r.PathValue("pid"))
-	if httpErr, ok := err.(sysmon.HTTPError); ok {
-		return nil, newHTTPError(httpErr.StatusCode, httpErr.Message)
-	}
-	return result, err
 }
 
