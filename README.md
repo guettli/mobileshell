@@ -7,6 +7,9 @@ Provide a shell like experience via web - Build to access your Linux system with
 - Build with htmx and bootstrap.
 - Optional: Install as systemd service on your Linux PC or server.
 
+This was build with the help of AI agents. This whole project is more a less a playground for me
+playing with agents.
+
 ## Usage
 
 You install MobileShell via `./scripts/install.sh myserver.example.com myuser`. This will connect to
