@@ -105,15 +105,34 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
-	// Start the command with a PTY for stdout only
-	// This provides a pseudo-terminal for stdout, making commands think they're running in a real terminal
-	// This is essential for commands that check isatty() or need terminal capabilities
-	// stderr is captured separately via the pipe
-	ptmx, err := pty.Start(cmd)
+	// Open a PTY manually so we can control which streams use it
+	// We want stdout to use the PTY (for terminal capabilities)
+	// But stderr should use the pipe (for separate capture)
+	ptmx, tty, err := pty.Open()
 	if err != nil {
-		return fmt.Errorf("failed to start command with pty: %w", err)
+		return fmt.Errorf("failed to open pty: %w", err)
 	}
 	defer func() { _ = ptmx.Close() }()
+	defer func() { _ = tty.Close() }()
+
+	// Assign PTY to stdin and stdout only (stderr uses the pipe)
+	cmd.Stdin = tty
+	cmd.Stdout = tty
+	// cmd.Stderr is already set to stderrPipe above
+
+	// Start the command in a new session (detach from parent)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid:  true,
+		Setctty: true,
+	}
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Close tty in parent process (child has its own copy)
+	_ = tty.Close()
 
 	// Set PTY size to a reasonable default (80x24 is standard terminal size)
 	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
