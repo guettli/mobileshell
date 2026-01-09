@@ -11,6 +11,16 @@ import (
 	"strings"
 )
 
+// HTTPError represents an HTTP error with status code
+type HTTPError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e HTTPError) Error() string {
+	return e.Message
+}
+
 // HandleSysmon renders the main system monitor page
 func HandleSysmon(tmpl *template.Template, ctx context.Context, r *http.Request, basePath string) ([]byte, error) {
 	// Get initial sort params (default: CPU descending)
@@ -75,7 +85,7 @@ func HandleProcessList(tmpl *template.Template, ctx context.Context, r *http.Req
 func HandleProcessDetail(tmpl *template.Template, ctx context.Context, r *http.Request, basePath string, pidStr string) ([]byte, error) {
 	pid, err := strconv.ParseInt(pidStr, 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("invalid PID: %w", err)
+		return nil, HTTPError{http.StatusBadRequest, "Invalid PID"}
 	}
 
 	// Get process detail with ownership verification
@@ -83,9 +93,9 @@ func HandleProcessDetail(tmpl *template.Template, ctx context.Context, r *http.R
 	detail, err := GetProcessDetailForUser(int32(pid), currentUID)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
-			return nil, fmt.Errorf("forbidden: cannot view process owned by another user")
+			return nil, HTTPError{http.StatusForbidden, "Cannot view process owned by another user"}
 		}
-		return nil, fmt.Errorf("process %d has exited or is no longer accessible", pid)
+		return nil, HTTPError{http.StatusGone, fmt.Sprintf("Process %d has exited or is no longer accessible", pid)}
 	}
 
 	var buf bytes.Buffer
@@ -103,21 +113,21 @@ func HandleProcessDetail(tmpl *template.Template, ctx context.Context, r *http.R
 // HandleSendSignal sends a signal to a process (POST only)
 func HandleSendSignal(ctx context.Context, r *http.Request, pidStr string) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		return nil, fmt.Errorf("method not allowed")
+		return nil, HTTPError{http.StatusMethodNotAllowed, "Method not allowed"}
 	}
 
 	pid, err := strconv.ParseInt(pidStr, 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("invalid PID: %w", err)
+		return nil, HTTPError{http.StatusBadRequest, "Invalid PID"}
 	}
 
 	if err := r.ParseForm(); err != nil {
-		return nil, fmt.Errorf("failed to parse form: %w", err)
+		return nil, HTTPError{http.StatusBadRequest, "Failed to parse form"}
 	}
 
 	signalNum, err := strconv.Atoi(r.FormValue("signal"))
 	if err != nil {
-		return nil, fmt.Errorf("invalid signal: %w", err)
+		return nil, HTTPError{http.StatusBadRequest, "Invalid signal"}
 	}
 
 	// Send signal with ownership verification
@@ -128,10 +138,10 @@ func HandleSendSignal(ctx context.Context, r *http.Request, pidStr string) ([]by
 			return []byte(`<div class="alert alert-warning">Process has already exited</div>`), nil
 		}
 		if strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "does not belong to user") {
-			return nil, fmt.Errorf("forbidden: cannot signal process owned by another user")
+			return nil, HTTPError{http.StatusForbidden, "Cannot signal process owned by another user"}
 		}
 		if strings.Contains(err.Error(), "invalid signal") {
-			return nil, fmt.Errorf("bad request: %s", err.Error())
+			return nil, HTTPError{http.StatusBadRequest, err.Error()}
 		}
 		return []byte(`<div class="alert alert-danger">Failed to send signal: ` + err.Error() + `</div>`), nil
 	}
