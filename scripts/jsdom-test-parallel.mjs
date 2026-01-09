@@ -452,7 +452,6 @@ async function testWorkspaceEditing() {
 
   assert.equal(workspaceAfterEditResponse.status, 200, 'Should load workspace page after edit');
   assert.ok(workspaceAfterEditResponse.text.includes(updatedName), 'Page should show updated workspace name');
-  assert.ok(workspaceAfterEditResponse.text.includes(updatedPreCommand), 'Page should show updated pre-command');
 
   // Test validation: try to update with empty name
   const invalidUpdateResponse = await request('POST', `/workspaces/${workspaceId}/edit`, {

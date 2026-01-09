@@ -17,12 +17,13 @@ import (
 
 // Workspace represents a workspace with a name, directory, and pre-command
 type Workspace struct {
-	ID         string    `json:"id"`   // URL-safe immutable identifier
-	Name       string    `json:"name"` // Display name (can be changed)
-	Directory  string    `json:"directory"`
-	PreCommand string    `json:"pre_command"`
-	CreatedAt  time.Time `json:"created_at"`
-	Path       string    `json:"path"` // Full path to workspace directory
+	ID                     string    `json:"id"`   // URL-safe immutable identifier
+	Name                   string    `json:"name"` // Display name (can be changed)
+	Directory              string    `json:"directory"`
+	PreCommand             string    `json:"pre_command"`
+	DefaultTerminalCommand string    `json:"default_terminal_command"` // Default command for interactive terminal (empty means auto-detect)
+	CreatedAt              time.Time `json:"created_at"`
+	Path                   string    `json:"path"` // Full path to workspace directory
 }
 
 // Process represents a process within a workspace
@@ -119,7 +120,7 @@ func GetWorkspaceByID(stateDir, id string) (*Workspace, error) {
 }
 
 // UpdateWorkspace updates an existing workspace's name, directory, and pre-command
-func UpdateWorkspace(stateDir, id, name, directory, preCommand string) (*Workspace, error) {
+func UpdateWorkspace(stateDir, id, name, directory, preCommand, defaultTerminalCommand string) (*Workspace, error) {
 	// Get the existing workspace
 	ws, err := GetWorkspaceByID(stateDir, id)
 	if err != nil {
@@ -138,6 +139,7 @@ func UpdateWorkspace(stateDir, id, name, directory, preCommand string) (*Workspa
 	ws.Name = name
 	ws.Directory = directory
 	ws.PreCommand = normalizePreCommand(preCommand)
+	ws.DefaultTerminalCommand = strings.TrimSpace(defaultTerminalCommand)
 
 	// Save updated workspace metadata
 	if err := saveWorkspaceFiles(ws); err != nil {

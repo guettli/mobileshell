@@ -49,6 +49,12 @@
                                 <textarea class="form-control" id="pre_command" name="pre_command" rows="4" placeholder="e.g., source .env">{{.Workspace.PreCommand}}</textarea>
                                 <div class="form-text">This command runs before every command in this workspace. Supports multi-line scripts. If no shebang is provided, #!/usr/bin/env bash is added automatically.</div>
                             </div>
+                            <div class="mb-3">
+                                <label for="default_terminal_command" class="form-label">Default Interactive Terminal Command (optional)</label>
+                                <input type="text" class="form-control" id="default_terminal_command" name="default_terminal_command"
+                                    value="{{.Workspace.DefaultTerminalCommand}}" placeholder="e.g., tmux, bash, zsh">
+                                <div class="form-text">If empty, tmux will be used automatically if available, otherwise bash. Using tmux enables reconnecting to the terminal session after disconnection.</div>
+                            </div>
                             <div class="d-flex justify-content-between">
                                 <div>
                                     <button type="submit" class="btn btn-primary">Save Changes</button>

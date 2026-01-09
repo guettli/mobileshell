@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -557,10 +558,11 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 		err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
 			"BasePath": basePath,
 			"Workspace": map[string]any{
-				"ID":         ws.ID,
-				"Name":       ws.Name,
-				"Directory":  ws.Directory,
-				"PreCommand": ws.PreCommand,
+				"ID":                     ws.ID,
+				"Name":                   ws.Name,
+				"Directory":              ws.Directory,
+				"PreCommand":             ws.PreCommand,
+				"DefaultTerminalCommand": ws.DefaultTerminalCommand,
 			},
 		})
 		if err != nil {
@@ -574,16 +576,18 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 		name := r.FormValue("name")
 		directory := r.FormValue("directory")
 		preCommand := r.FormValue("pre_command")
+		defaultTerminalCommand := r.FormValue("default_terminal_command")
 
 		if name == "" || directory == "" {
 			var buf bytes.Buffer
 			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
 				"BasePath": basePath,
 				"Workspace": map[string]any{
-					"ID":         ws.ID,
-					"Name":       ws.Name,
-					"Directory":  ws.Directory,
-					"PreCommand": ws.PreCommand,
+					"ID":                     ws.ID,
+					"Name":                   ws.Name,
+					"Directory":              ws.Directory,
+					"PreCommand":             ws.PreCommand,
+					"DefaultTerminalCommand": ws.DefaultTerminalCommand,
 				},
 				"Error": "Workspace name and directory are required",
 			})
@@ -594,16 +598,17 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 		}
 
 		// Update the workspace
-		_, err := workspace.UpdateWorkspace(s.stateDir, workspaceID, name, directory, preCommand)
+		_, err := workspace.UpdateWorkspace(s.stateDir, workspaceID, name, directory, preCommand, defaultTerminalCommand)
 		if err != nil {
 			var buf bytes.Buffer
 			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
 				"BasePath": basePath,
 				"Workspace": map[string]any{
-					"ID":         ws.ID,
-					"Name":       name,
-					"Directory":  directory,
-					"PreCommand": preCommand,
+					"ID":                     ws.ID,
+					"Name":                   name,
+					"Directory":              directory,
+					"PreCommand":             preCommand,
+					"DefaultTerminalCommand": defaultTerminalCommand,
 				},
 				"Error": fmt.Sprintf("Failed to update workspace: %v", err),
 			})
@@ -1761,15 +1766,25 @@ if err := r.ParseForm(); err != nil {
 return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
 }
 
-command := r.FormValue("command")
-if command == "" {
-command = "bash"
-}
-
 // Get workspace
 ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 if err != nil {
 return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+}
+
+command := r.FormValue("command")
+if command == "" {
+// Use workspace default if set, otherwise auto-detect
+if ws.DefaultTerminalCommand != "" {
+command = ws.DefaultTerminalCommand
+} else {
+// Check if tmux is available
+if _, err := exec.LookPath("tmux"); err == nil {
+command = "tmux"
+} else {
+command = "bash"
+}
+}
 }
 
 // Create the process
