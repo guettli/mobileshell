@@ -867,8 +867,6 @@ async function testRerunCommand() {
 
   assert.ok(secondOutputFound, 'Rerun command should produce same output');
   console.log('✓ Rerun command executed successfully with same output');
-
-  console.log(`✓ ${testName} passed`);
 }
 
 
