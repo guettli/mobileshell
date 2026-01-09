@@ -13,6 +13,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +50,12 @@ type Server struct {
 func New(stateDir string) (*Server, error) {
 	funcMap := template.FuncMap{
 		"formatDuration": formatDuration,
+		"split": func(s, sep string) []string {
+			return strings.Split(s, sep)
+		},
+		"divf": func(a int64, b float64) float64 {
+			return float64(a) / b
+		},
 	}
 	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
@@ -336,6 +343,11 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files/read", s.authMiddleware(s.wrapHandler(s.handleFileRead)))
 	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
 	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
+
+	// File browser routes (for all local files)
+	mux.HandleFunc("/files", s.authMiddleware(s.wrapHandler(s.handleFileBrowser)))
+	mux.HandleFunc("/files/view", s.authMiddleware(s.wrapHandler(s.handleFileView)))
+	mux.HandleFunc("/files/download", s.authMiddleware(s.wrapHandler(s.handleFileDownload)))
 
 	// System monitor routes
 	sysmon.RegisterRoutes(mux, s.tmpl, s.getBasePath, s.authMiddleware,
@@ -1234,6 +1246,10 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		stdin = ""
 	}
 
+	// Get the process directory path for the file browser link
+	processDirPath := filepath.Dir(proc.OutputFile)
+	processDirURL := fmt.Sprintf("%s/files?path=%s", s.getBasePath(r), url.QueryEscape(processDirPath))
+
 	var buf bytes.Buffer
 	err = s.tmpl.ExecuteTemplate(&buf, "process.html", map[string]interface{}{
 		"Process":       proc,
@@ -1244,6 +1260,7 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		"BasePath":      s.getBasePath(r),
 		"WorkspaceID":   workspaceID,
 		"WorkspaceName": ws.Name,
+		"ProcessDirURL": processDirURL,
 	})
 	if err != nil {
 		return nil, err
@@ -2103,5 +2120,187 @@ func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([
 	}
 
 	return jsonBytes, nil
+}
+
+// handleFileBrowser handles browsing local files and directories
+func (s *Server) handleFileBrowser(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodGet {
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
+	}
+
+	basePath := s.getBasePath(r)
+
+	// Get the path from query parameter, default to root
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		filePath = "/"
+	}
+
+	// Clean and resolve the path
+	filePath = filepath.Clean(filePath)
+
+	// Get file info
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: fmt.Sprintf("Path not found: %v", err)}
+	}
+
+	// If it's a directory, show directory listing
+	if info.IsDir() {
+		entries, err := os.ReadDir(filePath)
+		if err != nil {
+			return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to read directory: %v", err)}
+		}
+
+		// Get file info for each entry
+		type FileInfo struct {
+			Name        string
+			Path        string
+			IsDir       bool
+			Size        int64
+			ModTime     time.Time
+			Mode        os.FileMode
+			Owner       string
+			DownloadURL string
+			ViewURL     string
+			EditURL     string
+		}
+
+		var files []FileInfo
+		for _, entry := range entries {
+			entryPath := filepath.Join(filePath, entry.Name())
+			entryInfo, err := entry.Info()
+			if err != nil {
+				continue // Skip entries we can't stat
+			}
+
+			// Get owner (Unix only)
+			owner := ""
+			if stat, ok := entryInfo.Sys().(*syscall.Stat_t); ok {
+				owner = fmt.Sprintf("%d:%d", stat.Uid, stat.Gid)
+			}
+
+			fileInfo := FileInfo{
+				Name:        entry.Name(),
+				Path:        entryPath,
+				IsDir:       entry.IsDir(),
+				Size:        entryInfo.Size(),
+				ModTime:     entryInfo.ModTime(),
+				Mode:        entryInfo.Mode(),
+				Owner:       owner,
+				DownloadURL: fmt.Sprintf("%s/files/download?path=%s", basePath, url.QueryEscape(entryPath)),
+				ViewURL:     fmt.Sprintf("%s/files/view?path=%s", basePath, url.QueryEscape(entryPath)),
+				EditURL:     "",
+			}
+
+			files = append(files, fileInfo)
+		}
+
+		// Sort: directories first, then by name
+		sort.Slice(files, func(i, j int) bool {
+			if files[i].IsDir != files[j].IsDir {
+				return files[i].IsDir
+			}
+			return files[i].Name < files[j].Name
+		})
+
+		// Get parent directory
+		parentDir := filepath.Dir(filePath)
+		if filePath == "/" {
+			parentDir = ""
+		}
+
+		var buf bytes.Buffer
+		err = s.tmpl.ExecuteTemplate(&buf, "file-browser.html", map[string]interface{}{
+			"BasePath":  basePath,
+			"Path":      filePath,
+			"ParentDir": parentDir,
+			"Files":     files,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+
+	// If it's a file, redirect to view
+	return nil, &redirectError{
+		url:        fmt.Sprintf("%s/files/view?path=%s", basePath, url.QueryEscape(filePath)),
+		statusCode: http.StatusSeeOther,
+	}
+}
+
+// handleFileView handles viewing a file in read-only mode
+func (s *Server) handleFileView(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodGet {
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
+	}
+
+	basePath := s.getBasePath(r)
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Missing path parameter"}
+	}
+
+	// Clean the path
+	filePath = filepath.Clean(filePath)
+
+	// Read the file
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: fmt.Sprintf("Failed to read file: %v", err)}
+	}
+
+	// Get file info
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: fmt.Sprintf("Failed to get file info: %v", err)}
+	}
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "file-view.html", map[string]interface{}{
+		"BasePath": basePath,
+		"Path":     filePath,
+		"Content":  string(content),
+		"Size":     info.Size(),
+		"ModTime":  info.ModTime(),
+		"DirURL":   fmt.Sprintf("%s/files?path=%s", basePath, url.QueryEscape(filepath.Dir(filePath))),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// handleFileDownload handles downloading a file
+func (s *Server) handleFileDownload(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodGet {
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
+	}
+
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Missing path parameter"}
+	}
+
+	// Clean the path
+	filePath = filepath.Clean(filePath)
+
+	// Check if file exists and is not a directory
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: fmt.Sprintf("File not found: %v", err)}
+	}
+	if info.IsDir() {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Cannot download a directory"}
+	}
+
+	// Read the file
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to read file: %v", err)}
+	}
+
+	return content, nil
 }
 
