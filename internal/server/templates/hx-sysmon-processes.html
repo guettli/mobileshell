@@ -1,0 +1,62 @@
+{{if .Processes}}
+<table class="table table-striped table-hover process-table">
+    <thead>
+        <tr>
+            <th hx-get="{{$.BasePath}}/sysmon/hx-processes?sort=pid&order={{if eq .SortBy "pid"}}{{if eq .Order "asc"}}desc{{else}}asc{{end}}{{else}}asc{{end}}"
+                hx-target="#process-list"
+                hx-swap="innerHTML">
+                PID {{if eq .SortBy "pid"}}<span class="sort-indicator">{{if eq .Order "asc"}}▲{{else}}▼{{end}}</span>{{end}}
+            </th>
+            <th hx-get="{{$.BasePath}}/sysmon/hx-processes?sort=name&order={{if eq .SortBy "name"}}{{if eq .Order "asc"}}desc{{else}}asc{{end}}{{else}}asc{{end}}"
+                hx-target="#process-list"
+                hx-swap="innerHTML">
+                Name {{if eq .SortBy "name"}}<span class="sort-indicator">{{if eq .Order "asc"}}▲{{else}}▼{{end}}</span>{{end}}
+            </th>
+            <th hx-get="{{$.BasePath}}/sysmon/hx-processes?sort=cpu&order={{if eq .SortBy "cpu"}}{{if eq .Order "asc"}}desc{{else}}asc{{end}}{{else}}desc{{end}}"
+                hx-target="#process-list"
+                hx-swap="innerHTML">
+                CPU% {{if eq .SortBy "cpu"}}<span class="sort-indicator">{{if eq .Order "asc"}}▲{{else}}▼{{end}}</span>{{end}}
+            </th>
+            <th hx-get="{{$.BasePath}}/sysmon/hx-processes?sort=memory&order={{if eq .SortBy "memory"}}{{if eq .Order "asc"}}desc{{else}}asc{{end}}{{else}}desc{{end}}"
+                hx-target="#process-list"
+                hx-swap="innerHTML">
+                Memory {{if eq .SortBy "memory"}}<span class="sort-indicator">{{if eq .Order "asc"}}▲{{else}}▼{{end}}</span>{{end}}
+            </th>
+            <th hx-get="{{$.BasePath}}/sysmon/hx-processes?sort=io&order={{if eq .SortBy "io"}}{{if eq .Order "asc"}}desc{{else}}asc{{end}}{{else}}desc{{end}}"
+                hx-target="#process-list"
+                hx-swap="innerHTML">
+                I/O {{if eq .SortBy "io"}}<span class="sort-indicator">{{if eq .Order "asc"}}▲{{else}}▼{{end}}</span>{{end}}
+            </th>
+            <th>Command</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Processes}}
+        <tr>
+            <td><a href="{{$.BasePath}}/sysmon/process/{{.PID}}">{{.PID}}</a></td>
+            <td>{{.Name}}</td>
+            <td class="{{if gt .CPUPercent 50.0}}cpu-high{{else if gt .CPUPercent 20.0}}cpu-medium{{end}}">
+                {{printf "%.1f" .CPUPercent}}%
+            </td>
+            <td class="{{if gt .MemoryMB 500.0}}memory-high{{end}}">
+                {{printf "%.1f" .MemoryMB}} MB
+            </td>
+            <td>
+                {{if or (gt .IOReadMB 0.1) (gt .IOWriteMB 0.1)}}
+                    {{if gt .IOReadMB 0.1}}R: {{printf "%.1f" .IOReadMB}} MB{{end}}
+                    {{if and (gt .IOReadMB 0.1) (gt .IOWriteMB 0.1)}} / {{end}}
+                    {{if gt .IOWriteMB 0.1}}W: {{printf "%.1f" .IOWriteMB}} MB{{end}}
+                {{else}}
+                    <span class="text-muted">-</span>
+                {{end}}
+            </td>
+            <td><code class="text-truncate d-inline-block" style="max-width: 500px;" title="{{.Cmdline}}">{{.Cmdline}}</code></td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+{{else}}
+<div class="alert alert-info">
+    No processes found for the current user.
+</div>
+{{end}}

@@ -57,7 +57,11 @@
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
             <a href="{{.BasePath}}/" class="navbar-brand mb-0 h1">MobileShell</a>
-            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+            <div>
+                <a href="{{.BasePath}}/" class="btn btn-light btn-sm me-2">Workspaces</a>
+                <a href="{{.BasePath}}/sysmon" class="btn btn-outline-light btn-sm me-2">System Monitor</a>
+                <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+            </div>
         </div>
     </nav>
 

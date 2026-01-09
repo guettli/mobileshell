@@ -750,6 +750,128 @@ async function testInteractiveTerminal() {
   console.log(`✓ ${testName} passed`);
 }
 
+// Test 8: Rerun command functionality
+async function testRerunCommand() {
+  const testName = 'Test 8: Rerun command';
+  console.log(`\n=== ${testName} ===`);
+
+  const sessionCookie = await login();
+  const workspaceName = `test-workspace-${Date.now()}-8`;
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  console.log(`✓ Workspace created: ${workspaceName}`);
+
+  // Execute a unique command
+  const uniqueMarker = `rerun-test-${Date.now()}`;
+  const testCommand = `echo "${uniqueMarker}"`;
+
+  const executeResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `command=${encodeURIComponent(testCommand)}`,
+  });
+
+  assert.equal(executeResponse.status, 200, 'Should execute first command');
+  const firstProcessMatch = executeResponse.text.match(/processes\/([^\/]+)\/hx-output/);
+  assert.ok(firstProcessMatch, 'Should have first process output link');
+  const firstProcessId = firstProcessMatch[1];
+
+  // Wait for the first process to complete
+  await new Promise(resolve => setTimeout(resolve, 1000));
+
+  // Verify process moved to finished
+  let finishedProcessHtml = null;
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const finishedResponse = await request('GET', `/workspaces/${workspaceId}/hx-finished-processes?offset=0`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+    });
+
+    if (finishedResponse.text.includes(firstProcessId) && finishedResponse.text.includes(uniqueMarker)) {
+      finishedProcessHtml = finishedResponse.text;
+      break;
+    }
+  }
+
+  assert.ok(finishedProcessHtml, 'Process should appear in finished processes list');
+  console.log('✓ First command completed and appears in finished processes');
+
+  // Parse the finished processes HTML to find the rerun button
+  const finishedDoc = parseHTML(finishedProcessHtml);
+  const rerunForm = finishedDoc.querySelector(`form[hx-post*="hx-execute"]`);
+  assert.ok(rerunForm, 'Should have rerun form in finished processes');
+
+  const commandInput = rerunForm.querySelector('input[name="command"]');
+  assert.ok(commandInput, 'Rerun form should have command input');
+  assert.equal(commandInput.value, testCommand, 'Command input should contain the original command');
+
+  const rerunButton = rerunForm.querySelector('button[type="submit"]');
+  assert.ok(rerunButton, 'Should have rerun button');
+  assert.ok(rerunButton.textContent.includes('Rerun'), 'Button should be labeled "Rerun"');
+
+  // Verify button has proper accessibility attributes
+  const titleAttr = rerunButton.getAttribute('title');
+  assert.ok(titleAttr, 'Rerun button should have a title attribute for accessibility');
+  assert.ok(titleAttr.includes('Rerun'), 'Title attribute should describe the rerun action');
+
+  // Verify button has proper styling classes
+  assert.ok(rerunButton.classList.contains('btn'), 'Rerun button should have btn class');
+  assert.ok(rerunButton.classList.contains('btn-sm'), 'Rerun button should have btn-sm class');
+  assert.ok(rerunButton.classList.contains('rerun-command-btn'), 'Rerun button should have rerun-command-btn class for easy identification');
+
+  console.log('✓ Rerun button found with correct command and attributes');
+
+  // Click the rerun button by submitting the form
+  const hxTarget = rerunForm.getAttribute('hx-target');
+  assert.ok(hxTarget, 'Rerun form should have hx-target attribute');
+
+  const rerunResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `command=${encodeURIComponent(testCommand)}`,
+  });
+
+  assert.equal(rerunResponse.status, 200, 'Should execute rerun command');
+  const secondProcessMatch = rerunResponse.text.match(/processes\/([^\/]+)\/hx-output/);
+  assert.ok(secondProcessMatch, 'Should have second process output link');
+  const secondProcessId = secondProcessMatch[1];
+
+  // Verify we got a different process ID
+  assert.notEqual(secondProcessId, firstProcessId, 'Rerun should create a new process instance');
+  console.log('✓ Rerun created new process instance');
+
+  // Wait for second process output
+  let secondOutputFound = false;
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const outputResponse = await request('GET', `/workspaces/${workspaceId}/processes/${secondProcessId}/hx-output`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+    });
+
+    if (outputResponse.text.includes(uniqueMarker)) {
+      secondOutputFound = true;
+      break;
+    }
+  }
+
+  assert.ok(secondOutputFound, 'Rerun command should produce same output');
+  console.log('✓ Rerun command executed successfully with same output');
+}
+
+
+
+
 // Test 9: File editor double save (issue #60)
 async function testFileEditorDoubleSave() {
   const testName = 'Test 9: File editor double save';
@@ -825,13 +947,12 @@ async function testFileEditorDoubleSave() {
   // After the fix, this should succeed
   if (secondSaveResponse.text.includes('Conflict Detected')) {
     console.log('✗ Bug reproduced: Second save shows false conflict');
-    assert.fail('Second save should succeed but shows conflict (bug #60)');
+        assert.fail('Second save should succeed but shows conflict (bug #60)');
   } else if (secondSaveResponse.text.includes('Success')) {
     console.log('✓ Second save succeeded (bug is fixed)');
   } else {
     assert.fail('Unexpected response from second save');
   }
-
   console.log(`✓ ${testName} passed`);
 }
 
@@ -852,6 +973,7 @@ async function runTests() {
       testWorkspaceEditing(),
       testFileAutocomplete(),
       testInteractiveTerminal(),
+      testRerunCommand(),
       testFileEditorDoubleSave(),
     ]);
 

@@ -27,9 +27,11 @@ import (
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/sysmon"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 	"mobileshell/internal/wshub"
+	"mobileshell/pkg/httperror"
 )
 
 //go:embed templates/*
@@ -151,34 +153,34 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 				_, _ = w.Write(de.data)
 				return
 			}
-			// Check if it's an httpError with status code
-			if he, ok := err.(*httpError); ok {
+			// Check if it's an HTTPError with status code
+			if he, ok := err.(httperror.HTTPError); ok {
 				slog.Error("HTTP handler error",
 					"method", r.Method,
 					"path", r.URL.Path,
-					"status", he.statusCode,
-					"error", he.message)
+					"status", he.StatusCode,
+					"error", he.Message)
 
 				// Render error page using template
 				var buf bytes.Buffer
-				title := http.StatusText(he.statusCode)
+				title := http.StatusText(he.StatusCode)
 				if title == "" {
 					title = "Error"
 				}
 
 				err := s.tmpl.ExecuteTemplate(&buf, "error.html", map[string]interface{}{
-					"StatusCode": he.statusCode,
+					"StatusCode": he.StatusCode,
 					"Title":      title,
-					"Message":    he.message,
+					"Message":    he.Message,
 					"BasePath":   s.getBasePath(r),
 				})
 				if err != nil {
 					// Fallback to plain text if template fails
-					http.Error(w, he.message, he.statusCode)
+					http.Error(w, he.Message, he.StatusCode)
 					return
 				}
 
-				w.WriteHeader(he.statusCode)
+				w.WriteHeader(he.StatusCode)
 				_, _ = w.Write(buf.Bytes())
 				return
 			}
@@ -199,19 +201,6 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 	}
 }
 
-// httpError represents an HTTP error with a status code
-type httpError struct {
-	message    string
-	statusCode int
-}
-
-func (e *httpError) Error() string {
-	return e.message
-}
-
-func newHTTPError(statusCode int, message string) error {
-	return &httpError{statusCode: statusCode, message: message}
-}
 
 // redirectError represents an HTTP redirect
 type redirectError struct {
@@ -348,6 +337,14 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
 	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
 
+	// System monitor routes
+	sysmon.RegisterRoutes(mux, s.tmpl, s.getBasePath, s.authMiddleware,
+		func(h func(context.Context, *http.Request) ([]byte, error)) http.HandlerFunc {
+			return s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+				return h(ctx, r)
+			})
+		})
+
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
 
@@ -390,7 +387,7 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 
 	// Handle POST request - authenticate
 	if r.Method != http.MethodPost {
-		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 	}
 
 	password := r.FormValue("password")
@@ -467,7 +464,7 @@ func (s *Server) handleWorkspaces(ctx context.Context, r *http.Request) ([]byte,
 
 func (s *Server) hxHandleWorkspaceCreate(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 	}
 
 	name := r.FormValue("name")
@@ -475,7 +472,7 @@ func (s *Server) hxHandleWorkspaceCreate(ctx context.Context, r *http.Request) (
 	preCommand := r.FormValue("pre_command")
 
 	if name == "" || directory == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Name and directory are required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Name and directory are required"}
 	}
 
 	// Create the workspace
@@ -510,13 +507,13 @@ func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]by
 	// Extract workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" || workspaceID == "create" {
-		return nil, newHTTPError(http.StatusNotFound, "Not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Not found"}
 	}
 
 	// Get the workspace by ID
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Render workspace page
@@ -541,13 +538,13 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 	// Extract workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
-		return nil, newHTTPError(http.StatusNotFound, "Not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Not found"}
 	}
 
 	// Get the workspace by ID
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	basePath := s.getBasePath(r)
@@ -622,12 +619,12 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 		return nil, &redirectError{url: fmt.Sprintf("%s/workspaces/%s", basePath, workspaceID), statusCode: http.StatusSeeOther}
 	}
 
-	return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 }
 
 func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 	}
 
 	// Redirect to home page
@@ -637,7 +634,7 @@ func (s *Server) handleWorkspaceClear(ctx context.Context, r *http.Request) ([]b
 
 func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 	}
 
 	command := r.FormValue("command")
@@ -648,13 +645,13 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Workspace ID is required"}
 	}
 
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	proc, err := executor.Execute(s.stateDir, ws, command)
@@ -675,7 +672,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Workspace ID is required"}
 	}
 
 	// Parse query parameters to get current process IDs
@@ -688,7 +685,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	allProcesses, err := executor.ListWorkspaceProcesses(ws)
@@ -1125,7 +1122,7 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Workspace ID is required"}
 	}
 
 	// Get offset from query parameter
@@ -1138,7 +1135,7 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	allProcesses, err := executor.ListWorkspaceProcesses(ws)
@@ -1200,25 +1197,25 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 	// Get process ID from path parameter
 	processID := r.PathValue("processID")
 	if processID == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Process ID is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Process ID is required"}
 	}
 
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Workspace ID is required"}
 	}
 
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Get the process
 	proc, ok := executor.GetProcess(s.stateDir, processID)
 	if !ok {
-		return nil, newHTTPError(http.StatusNotFound, "Process not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
 	}
 
 	// Check for binary-data marker
@@ -1261,7 +1258,7 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 
 	proc, ok := executor.GetProcess(s.stateDir, processID)
 	if !ok {
-		return nil, newHTTPError(http.StatusNotFound, "Process not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
 	}
 
 	expand := r.URL.Query().Get("expand") == "true"
@@ -1368,7 +1365,7 @@ func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte
 
 	// Parse form data
 	if err := r.ParseForm(); err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
 	}
 
 	stdinData := r.FormValue("stdin")
@@ -1376,7 +1373,7 @@ func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte
 	// Get workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Get process directory
@@ -1425,19 +1422,19 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 
 	// Parse form data
 	if err := r.ParseForm(); err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
 	}
 
 	signalStr := r.FormValue("signal")
 	if signalStr == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "No signal provided")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "No signal provided"}
 	}
 
 	// Parse signal number
 	var signalNum int
 	_, err := fmt.Sscanf(signalStr, "%d", &signalNum)
 	if err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, "Invalid signal number")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Invalid signal number"}
 	}
 
 	// Get signal name
@@ -1446,29 +1443,29 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 	// Get workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Get process to find PID
 	proc, ok := executor.GetProcess(s.stateDir, processID)
 	if !ok {
-		return nil, newHTTPError(http.StatusNotFound, "Process not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
 	}
 
 	if proc.PID == 0 {
-		return nil, newHTTPError(http.StatusBadRequest, "Process has no PID")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Process has no PID"}
 	}
 
 	// Send signal to process
 	process, err := os.FindProcess(proc.PID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, "Failed to find process")
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: "Failed to find process"}
 	}
 
 	err = process.Signal(syscall.Signal(signalNum))
 	if err != nil {
 		slog.Error("Failed to send signal to process", "error", err, "pid", proc.PID, "signal", signalName)
-		return nil, newHTTPError(http.StatusInternalServerError, "Failed to send signal")
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: "Failed to send signal"}
 	}
 
 	// Log the signal send to output.log
@@ -1496,19 +1493,19 @@ func (s *Server) handleDownloadOutput(ctx context.Context, r *http.Request) ([]b
 	// Get process ID from path parameter
 	processID := r.PathValue("processID")
 	if processID == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Process ID is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Process ID is required"}
 	}
 
 	// Get workspace ID from path parameter
 	workspaceID := r.PathValue("id")
 	if workspaceID == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Workspace ID is required"}
 	}
 
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Get process directory
@@ -1518,7 +1515,7 @@ func (s *Server) handleDownloadOutput(ctx context.Context, r *http.Request) ([]b
 	// Read raw stdout bytes
 	stdoutBytes, err := outputlog.ReadRawStdout(outputFile)
 	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, "Failed to read output")
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: "Failed to read output"}
 	}
 
 	// Read content type from file, or detect it
@@ -1726,13 +1723,13 @@ processID := r.PathValue("processID")
 // Get workspace
 ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 if err != nil {
-return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 }
 
 // Get process
 proc, found := executor.GetProcess(s.stateDir, processID)
 if !found {
-return nil, newHTTPError(http.StatusNotFound, "Process not found")
+return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
 }
 
 basePath := s.getBasePath(r)
@@ -1763,7 +1760,13 @@ workspaceID := r.PathValue("id")
 
 // Parse form data
 if err := r.ParseForm(); err != nil {
-return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
+}
+
+// Get workspace
+ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+if err != nil {
+return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 }
 
 // Get workspace
@@ -1856,7 +1859,7 @@ func (s *Server) handleFileEditor(ctx context.Context, r *http.Request) ([]byte,
 	// Get workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	basePath := s.getBasePath(r)
@@ -1884,7 +1887,7 @@ func (s *Server) handleFileEditor(ctx context.Context, r *http.Request) ([]byte,
 // handleFileRead reads a file and returns its content with session info
 func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 	}
 
 	workspaceID := r.PathValue("id")
@@ -1892,17 +1895,17 @@ func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, e
 	// Get workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Parse form data
 	if err := r.ParseForm(); err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
 	}
 
 	relativePath := r.FormValue("file_path")
 	if relativePath == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "File path is required"}
 	}
 
 	// Resolve file path relative to workspace directory
@@ -1911,7 +1914,7 @@ func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, e
 	// Read file
 	session, err := fileeditor.ReadFile(filePath)
 	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to read file: %v", err)}
 	}
 
 	basePath := s.getBasePath(r)
@@ -1943,7 +1946,7 @@ func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, e
 // handleFileSave saves a file with conflict detection
 func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodPost {
-		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 	}
 
 	workspaceID := r.PathValue("id")
@@ -1951,12 +1954,12 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	// Get workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Parse form data
 	if err := r.ParseForm(); err != nil {
-		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
 	}
 
 	relativePath := r.FormValue("file_path")
@@ -1964,7 +1967,7 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	originalChecksum := r.FormValue("original_checksum")
 
 	if relativePath == "" {
-		return nil, newHTTPError(http.StatusBadRequest, "File path is required")
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "File path is required"}
 	}
 
 	// Resolve file path relative to workspace directory
@@ -1973,7 +1976,7 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	// Read current file state
 	currentSession, err := fileeditor.ReadFile(filePath)
 	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to read file: %v", err))
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to read file: %v", err)}
 	}
 
 	// Check if file has been modified since the user loaded it
@@ -2023,7 +2026,7 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	// Try to write the file
 	result, err := fileeditor.WriteFile(session, newContent)
 	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to write file: %v", err))
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to write file: %v", err)}
 	}
 
 	basePath := s.getBasePath(r)
@@ -2061,7 +2064,7 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 // handleFileAutocomplete provides autocomplete suggestions for file paths
 func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([]byte, error) {
 	if r.Method != http.MethodGet {
-		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
 	}
 
 	workspaceID := r.PathValue("id")
@@ -2069,7 +2072,7 @@ func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([
 	// Get workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
-		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
 	// Get the pattern from query parameter
@@ -2096,7 +2099,7 @@ func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([
 	// Perform the search
 	result, err := fileeditor.SearchFiles(searchCtx, ws.Directory, pattern, 10)
 	if err != nil {
-		return nil, newHTTPError(http.StatusInternalServerError, fmt.Sprintf("Failed to search files: %v", err))
+		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to search files: %v", err)}
 	}
 
 	// Return JSON response
