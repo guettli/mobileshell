@@ -23,10 +23,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/shirou/gopsutil/v3/process"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/sysmon"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 	"mobileshell/internal/wshub"
@@ -347,6 +349,12 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files/read", s.authMiddleware(s.wrapHandler(s.handleFileRead)))
 	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
 	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
+
+	// System monitor routes
+	mux.HandleFunc("/sysmon", s.authMiddleware(s.wrapHandler(s.handleSysmon)))
+	mux.HandleFunc("/sysmon/hx-processes", s.authMiddleware(s.wrapHandler(s.hxHandleSysmonProcesses)))
+	mux.HandleFunc("/sysmon/process/{pid}", s.authMiddleware(s.wrapHandler(s.handleSysmonProcessDetail)))
+	mux.HandleFunc("/sysmon/process/{pid}/hx-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSysmonSignal)))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -2106,5 +2114,155 @@ func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([
 	}
 
 	return jsonBytes, nil
+}
+
+// handleSysmon renders the main system monitor page
+func (s *Server) handleSysmon(ctx context.Context, r *http.Request) ([]byte, error) {
+	basePath := s.getBasePath(r)
+
+	// Get initial sort params (default: CPU descending)
+	sortBy := r.URL.Query().Get("sort")
+	if sortBy == "" {
+		sortBy = "cpu"
+	}
+	order := r.URL.Query().Get("order")
+	if order == "" {
+		order = "desc"
+	}
+
+	var buf bytes.Buffer
+	err := s.tmpl.ExecuteTemplate(&buf, "sysmon.html", map[string]interface{}{
+		"BasePath": basePath,
+		"SortBy":   sortBy,
+		"Order":    order,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to render template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// hxHandleSysmonProcesses returns the sortable process list (HTMX endpoint)
+func (s *Server) hxHandleSysmonProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
+	sortBy := r.URL.Query().Get("sort")
+	if sortBy == "" {
+		sortBy = "cpu"
+	}
+	order := r.URL.Query().Get("order")
+	if order == "" {
+		order = "desc"
+	}
+
+	// Get current user's UID for filtering
+	currentUID := uint32(os.Getuid())
+
+	// Fetch and filter processes
+	processes, err := sysmon.GetUserProcesses(currentUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get processes: %w", err)
+	}
+
+	// Sort processes
+	sysmon.SortProcesses(processes, sysmon.SortColumn(sortBy), sysmon.SortOrder(order))
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-sysmon-processes.html", map[string]interface{}{
+		"Processes": processes,
+		"SortBy":    sortBy,
+		"Order":     order,
+		"BasePath":  s.getBasePath(r),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to render template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// handleSysmonProcessDetail renders the process detail page
+func (s *Server) handleSysmonProcessDetail(ctx context.Context, r *http.Request) ([]byte, error) {
+	pidStr := r.PathValue("pid")
+	pid, err := strconv.ParseInt(pidStr, 10, 32)
+	if err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Invalid PID")
+	}
+
+	// Get process detail
+	detail, err := sysmon.GetProcessDetail(int32(pid))
+	if err != nil {
+		// Process no longer exists or not accessible
+		return nil, newHTTPError(http.StatusGone, fmt.Sprintf("Process %d has exited or is no longer accessible", pid))
+	}
+
+	// Verify process belongs to current user
+	currentUID := uint32(os.Getuid())
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return nil, newHTTPError(http.StatusGone, fmt.Sprintf("Process %d has exited", pid))
+	}
+	uids, err := p.Uids()
+	if err != nil || len(uids) == 0 || uint32(uids[0]) != currentUID {
+		return nil, newHTTPError(http.StatusForbidden, "Cannot view process owned by another user")
+	}
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "sysmon-process-detail.html", map[string]interface{}{
+		"Process":  detail,
+		"Signals":  sysmon.GetAllSignals(),
+		"BasePath": s.getBasePath(r),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to render template: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// hxHandleSysmonSignal sends a signal to a process (POST only)
+func (s *Server) hxHandleSysmonSignal(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, newHTTPError(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	pidStr := r.PathValue("pid")
+	pid, err := strconv.ParseInt(pidStr, 10, 32)
+	if err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Invalid PID")
+	}
+
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	signalNum, err := strconv.Atoi(r.FormValue("signal"))
+	if err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Invalid signal")
+	}
+
+	// Validate signal
+	if err := sysmon.ValidateSignal(signalNum); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	// Verify process belongs to current user
+	p, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return []byte(`<div class="alert alert-warning">Process has already exited</div>`), nil
+	}
+
+	currentUID := uint32(os.Getuid())
+	uids, err := p.Uids()
+	if err != nil || len(uids) == 0 || uint32(uids[0]) != currentUID {
+		return nil, newHTTPError(http.StatusForbidden, "Cannot signal process owned by another user")
+	}
+
+	// Send signal
+	err = p.SendSignal(syscall.Signal(signalNum))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such process") {
+			return []byte(`<div class="alert alert-warning">Process has already exited</div>`), nil
+		}
+		return []byte(`<div class="alert alert-danger">Failed to send signal: ` + err.Error() + `</div>`), nil
+	}
+
+	return []byte(`<div class="alert alert-success">Signal sent successfully</div>`), nil
 }
 
