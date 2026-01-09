@@ -350,10 +350,42 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
 
 	// System monitor routes
-	mux.HandleFunc("/sysmon", s.authMiddleware(s.wrapHandler(s.handleSysmon)))
-	mux.HandleFunc("/sysmon/hx-processes", s.authMiddleware(s.wrapHandler(s.hxHandleSysmonProcesses)))
-	mux.HandleFunc("/sysmon/process/{pid}", s.authMiddleware(s.wrapHandler(s.handleSysmonProcessDetail)))
-	mux.HandleFunc("/sysmon/process/{pid}/hx-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSysmonSignal)))
+	sysmonHandler := sysmon.NewHandler(s.tmpl)
+	mux.HandleFunc("/sysmon", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+		return sysmonHandler.HandleSysmon(ctx, r, s.getBasePath(r))
+	})))
+	mux.HandleFunc("/sysmon/hx-processes", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+		return sysmonHandler.HandleProcessList(ctx, r, s.getBasePath(r))
+	})))
+	mux.HandleFunc("/sysmon/process/{pid}", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+		result, err := sysmonHandler.HandleProcessDetail(ctx, r, s.getBasePath(r), r.PathValue("pid"))
+		if err != nil {
+			if strings.Contains(err.Error(), "forbidden:") {
+				return nil, newHTTPError(http.StatusForbidden, strings.TrimPrefix(err.Error(), "forbidden: "))
+			}
+			if strings.Contains(err.Error(), "invalid PID") {
+				return nil, newHTTPError(http.StatusBadRequest, err.Error())
+			}
+			return nil, newHTTPError(http.StatusGone, err.Error())
+		}
+		return result, nil
+	})))
+	mux.HandleFunc("/sysmon/process/{pid}/hx-signal", s.authMiddleware(s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+		result, err := sysmonHandler.HandleSendSignal(ctx, r, r.PathValue("pid"))
+		if err != nil {
+			if strings.Contains(err.Error(), "method not allowed") {
+				return nil, newHTTPError(http.StatusMethodNotAllowed, err.Error())
+			}
+			if strings.Contains(err.Error(), "forbidden:") {
+				return nil, newHTTPError(http.StatusForbidden, strings.TrimPrefix(err.Error(), "forbidden: "))
+			}
+			if strings.Contains(err.Error(), "bad request:") || strings.Contains(err.Error(), "invalid") {
+				return nil, newHTTPError(http.StatusBadRequest, err.Error())
+			}
+			return nil, err
+		}
+		return result, nil
+	})))
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
@@ -2113,52 +2145,5 @@ func (s *Server) handleFileAutocomplete(ctx context.Context, r *http.Request) ([
 	}
 
 	return jsonBytes, nil
-}
-
-// handleSysmon renders the main system monitor page
-func (s *Server) handleSysmon(ctx context.Context, r *http.Request) ([]byte, error) {
-	handler := sysmon.NewHandler(s.tmpl)
-	return handler.HandleSysmon(ctx, r, s.getBasePath(r))
-}
-
-// hxHandleSysmonProcesses returns the sortable process list (HTMX endpoint)
-func (s *Server) hxHandleSysmonProcesses(ctx context.Context, r *http.Request) ([]byte, error) {
-	handler := sysmon.NewHandler(s.tmpl)
-	return handler.HandleProcessList(ctx, r, s.getBasePath(r))
-}
-
-// handleSysmonProcessDetail renders the process detail page
-func (s *Server) handleSysmonProcessDetail(ctx context.Context, r *http.Request) ([]byte, error) {
-	handler := sysmon.NewHandler(s.tmpl)
-	result, err := handler.HandleProcessDetail(ctx, r, s.getBasePath(r), r.PathValue("pid"))
-	if err != nil {
-		if strings.Contains(err.Error(), "forbidden:") {
-			return nil, newHTTPError(http.StatusForbidden, strings.TrimPrefix(err.Error(), "forbidden: "))
-		}
-		if strings.Contains(err.Error(), "invalid PID") {
-			return nil, newHTTPError(http.StatusBadRequest, err.Error())
-		}
-		return nil, newHTTPError(http.StatusGone, err.Error())
-	}
-	return result, nil
-}
-
-// hxHandleSysmonSignal sends a signal to a process (POST only)
-func (s *Server) hxHandleSysmonSignal(ctx context.Context, r *http.Request) ([]byte, error) {
-	handler := sysmon.NewHandler(s.tmpl)
-	result, err := handler.HandleSendSignal(ctx, r, r.PathValue("pid"))
-	if err != nil {
-		if strings.Contains(err.Error(), "method not allowed") {
-			return nil, newHTTPError(http.StatusMethodNotAllowed, err.Error())
-		}
-		if strings.Contains(err.Error(), "forbidden:") {
-			return nil, newHTTPError(http.StatusForbidden, strings.TrimPrefix(err.Error(), "forbidden: "))
-		}
-		if strings.Contains(err.Error(), "bad request:") || strings.Contains(err.Error(), "invalid") {
-			return nil, newHTTPError(http.StatusBadRequest, err.Error())
-		}
-		return nil, err
-	}
-	return result, nil
 }
 
