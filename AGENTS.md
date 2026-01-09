@@ -6,7 +6,7 @@ refactor it into a shared helper first.
 
 before starting to modify files, switch to the main branch and pull.
 
-after changes run `./scripts/test.sh`.
+Before git push run `./scripts/test.sh`.
 
 use UTC when writing dates.
 
