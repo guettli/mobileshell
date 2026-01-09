@@ -33,7 +33,7 @@ type Hub struct {
 
 // RateLimiter tracks rate limiting for a single process
 type RateLimiter struct {
-	lastUpdate time.Time
+	lastUpdate  time.Time
 	minInterval time.Duration
 }
 
@@ -49,7 +49,7 @@ func NewHub() *Hub {
 func (h *Hub) RegisterClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	h.clients[client.ID] = client
 	slog.Info("WebSocket client registered", "clientID", client.ID, "workspaceID", client.WorkspaceID, "processID", client.ProcessID)
 }
@@ -60,7 +60,7 @@ func (h *Hub) RegisterClient(client *Client) {
 func (h *Hub) UnregisterClient(clientID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	if client, ok := h.clients[clientID]; ok {
 		// Remove from the map to stop new broadcasts
 		delete(h.clients, clientID)
@@ -75,64 +75,26 @@ func (h *Hub) UnregisterClient(clientID string) {
 	}
 }
 
-// BroadcastToWorkspace broadcasts a message to all clients subscribed to a workspace
-func (h *Hub) BroadcastToWorkspace(workspaceID string, message Message) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	
-	for _, client := range h.clients {
-		if client.WorkspaceID == workspaceID && client.ProcessID == "" {
-			select {
-			case client.SendChan <- message:
-			case <-client.Done:
-				// Client disconnected
-			default:
-				// Channel full, skip
-				slog.Warn("WebSocket client channel full, dropping message", "clientID", client.ID)
-			}
-		}
-	}
-}
-
-// BroadcastToProcess broadcasts a message to all clients subscribed to a specific process
-func (h *Hub) BroadcastToProcess(workspaceID, processID string, message Message) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	
-	for _, client := range h.clients {
-		if client.WorkspaceID == workspaceID && client.ProcessID == processID {
-			select {
-			case client.SendChan <- message:
-			case <-client.Done:
-				// Client disconnected
-			default:
-				// Channel full, skip
-				slog.Warn("WebSocket client channel full, dropping message", "clientID", client.ID)
-			}
-		}
-	}
-}
-
 // ShouldSendUpdate checks if an update should be sent for a process (rate limiting)
 func (h *Hub) ShouldSendUpdate(processID string, minInterval time.Duration) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	limiter, exists := h.rateLimiters[processID]
 	if !exists {
 		limiter = &RateLimiter{
-			lastUpdate: time.Time{}, // Zero time, so first update is always allowed
+			lastUpdate:  time.Time{}, // Zero time, so first update is always allowed
 			minInterval: minInterval,
 		}
 		h.rateLimiters[processID] = limiter
 	}
-	
+
 	now := time.Now()
 	if now.Sub(limiter.lastUpdate) >= limiter.minInterval {
 		limiter.lastUpdate = now
 		return true
 	}
-	
+
 	return false
 }
 
@@ -140,13 +102,13 @@ func (h *Hub) ShouldSendUpdate(processID string, minInterval time.Duration) bool
 func (h *Hub) CleanupRateLimiters(processIDs []string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	// Create a set of active process IDs
 	activeIDs := make(map[string]bool)
 	for _, id := range processIDs {
 		activeIDs[id] = true
 	}
-	
+
 	// Remove rate limiters for processes not in the active list
 	for id := range h.rateLimiters {
 		if !activeIDs[id] {
