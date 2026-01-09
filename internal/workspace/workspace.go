@@ -3,6 +3,7 @@ package workspace
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,11 @@ import (
 	"time"
 
 	"mobileshell/internal/outputlog"
+)
+
+// Error variables for robust error checking
+var (
+	ErrInvalidWorkspaceName = errors.New("workspace name must contain at least one valid character (a-z, 0-9)")
 )
 
 // Workspace represents a workspace with a name, directory, and pre-command
@@ -583,7 +589,7 @@ func generateWorkspaceID(name string) (string, error) {
 
 	// Ensure it's not empty
 	if id == "" {
-		return "", fmt.Errorf("workspace name must contain at least one valid character (a-z, 0-9)")
+		return "", ErrInvalidWorkspaceName
 	}
 
 	// Limit length

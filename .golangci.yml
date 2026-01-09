@@ -1,0 +1,30 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - forbidigo
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+linters-settings:
+  forbidigo:
+    forbid:
+      - p: 'err\.Error\(\)'
+        msg: 'Avoid calling err.Error() for string comparisons - use errors.Is() or errors.As() instead for robust error checking'
+        # Allow err.Error() in logging and error wrapping contexts
+        exclude-godoc-examples: false
+
+issues:
+  exclude-rules:
+    # Allow err.Error() when used in logging contexts (passed to logger functions)
+    - path: '.*\.go'
+      linters:
+        - forbidigo
+      text: 'err\.Error\(\)'
+      source: 'log\.|logger\.|slog\.|fmt\.Errorf\(|errors\.New\(|Error\(w,'

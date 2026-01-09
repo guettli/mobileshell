@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -280,8 +281,8 @@ func TestWorkspaceWithSpecialCharacters(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when creating workspace with only special characters")
 	}
-	if err != nil && err.Error() != "workspace name must contain at least one valid character (a-z, 0-9)" {
-		t.Errorf("Expected specific error message, got: %v", err)
+	if !errors.Is(err, ErrInvalidWorkspaceName) {
+		t.Errorf("Expected ErrInvalidWorkspaceName, got: %v", err)
 	}
 
 	// Test workspace name with mixed special and valid characters should work
