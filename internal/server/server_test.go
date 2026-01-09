@@ -15,6 +15,7 @@ import (
 	"mobileshell/internal/executor"
 	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
+	"mobileshell/pkg/httperror"
 )
 
 func TestTemplateRendering(t *testing.T) {
@@ -563,9 +564,9 @@ func TestErrorPageRendering(t *testing.T) {
 			req := httptest.NewRequest("GET", "/workspaces/nonexistent/hx-finished-processes", nil)
 			w := httptest.NewRecorder()
 
-			// Create a handler that returns the httpError
+			// Create a handler that returns the HTTPError
 			handler := srv.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
-				return nil, newHTTPError(tt.statusCode, tt.message)
+				return nil, httperror.HTTPError{StatusCode: tt.statusCode, Message: tt.message}
 			})
 
 			handler(w, req)
