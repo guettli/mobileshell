@@ -27,6 +27,7 @@ import (
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/sysmon"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 	"mobileshell/internal/wshub"
@@ -347,6 +348,14 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/files/read", s.authMiddleware(s.wrapHandler(s.handleFileRead)))
 	mux.HandleFunc("/workspaces/{id}/files/save", s.authMiddleware(s.wrapHandler(s.handleFileSave)))
 	mux.HandleFunc("/workspaces/{id}/files/autocomplete", s.authMiddleware(s.wrapHandler(s.handleFileAutocomplete)))
+
+	// System monitor routes
+	sysmon.RegisterRoutes(mux, s.tmpl, s.getBasePath, s.authMiddleware,
+		func(h func(context.Context, *http.Request) ([]byte, error)) http.HandlerFunc {
+			return s.wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+				return h(ctx, r)
+			})
+		})
 
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
