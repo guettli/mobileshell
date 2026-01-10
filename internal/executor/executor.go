@@ -1,16 +1,13 @@
 package executor
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
 
-	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
 )
 
@@ -65,55 +62,19 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 	// Get workspace timestamp from path
 	workspaceTS := filepath.Base(ws.Path)
 
-	// Get process directory for file paths
-	processDir := workspace.GetProcessDir(ws, hash)
-	outputFile := filepath.Join(processDir, "output.log")
-
 	// Spawn the process using `mobileshell nohup` in the background
 	cmd := exec.Command(execPath, "nohup", "--state-dir", stateDir, workspaceTS, hash)
-
-	// Capture stdout and stderr from the nohup subprocess
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe for nohup: %w", err)
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stderr pipe for nohup: %w", err)
-	}
-
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to spawn nohup process: %w", err)
 	}
 
-	// Read and log nohup subprocess output in the background
+	// Don't wait for the nohup process - let it run independently
 	go func() {
-		defer func() { _ = stdoutPipe.Close() }()
-		defer func() { _ = stderrPipe.Close() }()
-
-		// Open output.log for appending
-		outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0600)
-		if err != nil {
-			// If we can't open the file, just drain the pipes silently
-			_, _ = io.Copy(io.Discard, stdoutPipe)
-			_, _ = io.Copy(io.Discard, stderrPipe)
-			_ = cmd.Wait()
-			return
-		}
-		defer func() { _ = outFile.Close() }()
-
-		// Read from both pipes and write to output.log
-		done := make(chan struct{}, 2)
-
-		go readNohupStream(stdoutPipe, "nohup-stdout", outFile, done)
-		go readNohupStream(stderrPipe, "nohup-stderr", outFile, done)
-
-		// Wait for both readers to finish
-		<-done
-		<-done
-
 		_ = cmd.Wait()
 	}()
+
+	// Get process directory for file paths
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	proc := &Process{
 		ID:          hash,
@@ -211,21 +172,4 @@ func DetectContentType(data []byte) string {
 // ListWorkspaces returns all workspaces
 func ListWorkspaces(stateDir string) ([]*workspace.Workspace, error) {
 	return workspace.ListWorkspaces(stateDir)
-}
-
-// readNohupStream reads from a nohup subprocess stream and writes it to output.log
-func readNohupStream(reader io.Reader, streamName string, outFile *os.File, done chan<- struct{}) {
-	defer func() { done <- struct{}{} }()
-
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := scanner.Text() + "\n"
-		outputLine := outputlog.OutputLine{
-			Stream:    streamName,
-			Timestamp: time.Now().UTC(),
-			Line:      line,
-		}
-		formattedLine := outputlog.FormatOutputLine(outputLine)
-		_, _ = outFile.WriteString(formattedLine)
-	}
 }
