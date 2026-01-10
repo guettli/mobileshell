@@ -29,27 +29,21 @@ PASSWORD="test-password-$(cat "$PASSWORD_FILE")"
 # Add password using the CLI
 [[ -z "${CI:-}" ]] && echo "Adding password via add-password command..."
 STDERR_TMP=$(mktemp)
-if echo "$PASSWORD" | go run ./cmd/mobileshell add-password --state-dir "$TEMP_STATE_DIR" --from-stdin 2>"$STDERR_TMP"; then
-    [ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
-    rm -f "$STDERR_TMP"
-else
-    [ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
-    rm -f "$STDERR_TMP"
-    exit 1
-fi
+echo "$PASSWORD" | go run ./cmd/mobileshell add-password --state-dir "$TEMP_STATE_DIR" --from-stdin 2>"$STDERR_TMP"
+exit_code=$?
+[ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
+rm -f "$STDERR_TMP"
+[ $exit_code -ne 0 ] && exit $exit_code
 [[ -z "${CI:-}" ]] && echo "✓ Password added"
 
 # Build the server
 [[ -z "${CI:-}" ]] && echo "Building server..."
 STDERR_TMP=$(mktemp)
-if go build -o "$TEMP_STATE_DIR/mobileshell" ./cmd/mobileshell 2>"$STDERR_TMP"; then
-    [ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
-    rm -f "$STDERR_TMP"
-else
-    [ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
-    rm -f "$STDERR_TMP"
-    exit 1
-fi
+go build -o "$TEMP_STATE_DIR/mobileshell" ./cmd/mobileshell 2>"$STDERR_TMP"
+exit_code=$?
+[ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
+rm -f "$STDERR_TMP"
+[ $exit_code -ne 0 ] && exit $exit_code
 [[ -z "${CI:-}" ]] && echo "✓ Server built"
 
 # Find a free port
