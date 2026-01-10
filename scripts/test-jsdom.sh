@@ -111,3 +111,4 @@ kill $SERVER_PID 2>/dev/null || true
 wait $SERVER_PID 2>/dev/null || true
 
 [[ -z "${CI:-}" ]] && echo "✓ Test completed successfully"
+exit 0
