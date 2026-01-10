@@ -212,6 +212,10 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 }
 
 
+func newHTTPError(statusCode int, message string) error {
+	return httperror.HTTPError{StatusCode: statusCode, Message: message}
+}
+
 // redirectError represents an HTTP redirect
 type redirectError struct {
 	url        string
