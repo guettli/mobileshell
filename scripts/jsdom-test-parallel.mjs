@@ -898,7 +898,25 @@ async function testClaudeIntegration() {
   const claudeButton = workspaceDoc.querySelector('button[onclick*="startClaudeSession"]');
   assert.ok(claudeButton, 'Should have Start Claude button');
   assert.ok(claudeButton.textContent.includes('Start Claude'), 'Button should say "Start Claude"');
-  console.log('✓ Claude button found on workspace page');
+
+  // Verify button is next to Interactive Terminal button
+  const interactiveTerminalButton = workspaceDoc.querySelector('button[onclick*="launchInteractiveTerminal"]');
+  assert.ok(interactiveTerminalButton, 'Should have Interactive Terminal button');
+
+  // Both buttons should be in the same button group
+  const buttonGroup = claudeButton.closest('.d-flex');
+  assert.ok(buttonGroup, 'Claude button should be in button group');
+  assert.ok(buttonGroup.contains(interactiveTerminalButton), 'Both buttons should be in same group');
+  console.log('✓ Claude button found on workspace page next to Interactive Terminal');
+
+  // Verify the startClaudeSession JavaScript function exists in the page
+  assert.ok(workspacePageResponse.text.includes('function startClaudeSession()'),
+    'Page should have startClaudeSession function');
+  assert.ok(workspacePageResponse.text.includes('htmx.ajax'),
+    'startClaudeSession should use htmx.ajax');
+  assert.ok(workspacePageResponse.text.includes('hx-execute-claude'),
+    'startClaudeSession should call hx-execute-claude endpoint');
+  console.log('✓ JavaScript function verified');
 
   // Test submitting a Claude prompt via the endpoint
   const testPrompt = 'Explain what this command does: echo "hello world"';
