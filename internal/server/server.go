@@ -711,9 +711,8 @@ func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, 
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	// Build Claude command in dialog mode for interactive session
+	// Build Claude command for interactive dialog session
 	claudeArgs := claude.BuildCommand(prompt, claude.CommandOptions{
-		DialogMode: true,
 		StreamJSON: true,
 		NoSession:  true,
 		WorkDir:    ws.Directory,

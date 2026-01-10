@@ -6,10 +6,6 @@ import (
 
 // CommandOptions configures how the Claude CLI command should be built
 type CommandOptions struct {
-	// DialogMode enables interactive dialog mode instead of one-time print mode
-	// When true, starts a persistent Claude session that can handle multiple exchanges
-	DialogMode bool
-
 	// StreamJSON enables streaming JSON output format with verbose mode
 	// This allows real-time display of Claude's response as it's generated
 	StreamJSON bool
@@ -21,25 +17,24 @@ type CommandOptions struct {
 	WorkDir string
 }
 
-// BuildCommand creates a Claude CLI command with optional dialog mode.
+// BuildCommand creates a Claude CLI command for interactive dialog sessions.
 // It returns a slice of strings suitable for exec.Command().
 //
+// The command always runs in interactive dialog mode (no `-p` flag) to enable
+// multi-turn conversations via stdin.
+//
 // The command uses:
-// - `-p` flag for print mode (non-interactive, single response) when DialogMode is false
-// - Interactive dialog mode when DialogMode is true (no `-p` flag)
+// - Interactive dialog mode (no `-p` flag) for multi-turn conversations
 // - `--output-format=stream-json --verbose` for real-time streaming (if StreamJSON is true)
 // - `--no-session-persistence` to avoid creating session files (if NoSession is true)
 //
-// Example command structures:
-//   Print mode: claude -p --output-format=stream-json --verbose --no-session-persistence "prompt text"
-//   Dialog mode: claude --output-format=stream-json --verbose --no-session-persistence "prompt text"
+// Example command:
+//   claude --output-format=stream-json --verbose --no-session-persistence "prompt text"
 func BuildCommand(prompt string, opts CommandOptions) []string {
 	var args []string
 
-	// Add -p flag for print mode (one-time response) unless DialogMode is enabled
-	if !opts.DialogMode {
-		args = append(args, "-p")
-	}
+	// Always run in interactive dialog mode (no -p flag)
+	// This enables multi-turn conversations via stdin
 
 	// Add streaming JSON format if requested
 	if opts.StreamJSON {

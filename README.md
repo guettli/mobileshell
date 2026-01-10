@@ -87,37 +87,39 @@ to provide AI assistance directly from the process detail page.
 
 ### How to Use Claude
 
-1. Navigate to any process detail page in MobileShell
-2. Find the "Ask Claude" form
-3. Enter your initial question or prompt
-   (e.g., "Explain what this command does")
-4. Click "Ask Claude"
-5. Claude starts as an interactive dialog session running in the background
-6. You can continue the conversation by sending additional input to the process
+1. Navigate to your workspace in MobileShell
+2. Click the "Start Claude" button (next to Interactive Terminal)
+3. Enter your initial question in the prompt dialog
+4. Claude starts as an interactive session in the background
+5. View the Claude process in the running processes list
+6. Continue the conversation by sending additional messages via stdin
+   on the process page
 
 ### How It Works
 
-- Claude runs as an interactive dialog session, similar to other commands
-- Started via `nohup` as a background process for persistent execution
+- Claude always runs in interactive dialog mode for multi-turn conversations
+- Started from workspace page via "Start Claude" button
+- Runs via `nohup` as a background process, like other commands
 - Uses the following Claude CLI flags:
-  - Interactive mode (no `-p` flag) for multi-turn conversations
+  - No `-p` flag (interactive mode, not one-time print mode)
   - `--output-format=stream-json`: Real-time streaming JSON output
   - `--verbose`: Verbose output for debugging
   - `--no-session-persistence`: No session files created
-- Initial prompt starts the conversation, additional input continues it
+- Initial prompt starts the conversation
+- Continue the dialog by sending messages via stdin on the process page
 - Responses are rendered as Markdown with HTML sanitization
-- Each Claude session runs as a separate process that you can view,
-  interact with, and download
+- Each Claude session is a separate process you can view, interact with,
+  and download
 
 ### Notes
 
 - Claude integration is optional - MobileShell works without it
-- If the `claude` command is not found, the form will still submit
-  but the process will fail
-- Claude sessions run in the context of the workspace directory
-- Each Claude session is a persistent interactive dialog, not a one-time query
-- You can send additional messages to continue the conversation using
-  the stdin input form on the process page
+- If the `claude` command is not found, clicking "Start Claude"
+  will create a failed process
+- Claude sessions run in the workspace directory context
+- Always interactive - no support for one-time queries
+- Send additional messages via stdin on the process page to continue
+  the conversation
 
 ## Features
 
