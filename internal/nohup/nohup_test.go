@@ -286,20 +286,35 @@ func TestNohupRunWithStderrOutput(t *testing.T) {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
-	// Verify output.log contains both stdout and stderr with proper prefixes
+	// Poll for expected output with timeout
 	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
-	outputData, err := os.ReadFile(outputFile)
-	if err != nil {
-		t.Fatalf("Failed to read output.log: %v", err)
-	}
 
-	output := string(outputData)
-	if !contains(output, "stdout") || !contains(output, "stdout message") {
-		t.Errorf("Expected output to contain 'stdout' and 'stdout message', got '%s'", output)
-	}
-	if !contains(output, "stderr") || !contains(output, "stderr message") {
-		t.Errorf("Expected output to contain 'stderr' and 'stderr message', got '%s'", output)
+	timeout := time.After(2 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	var output string
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("Timeout waiting for output, got '%s'", output)
+		case <-ticker.C:
+			outputData, err := os.ReadFile(outputFile)
+			if err != nil {
+				continue // File might not exist yet
+			}
+			output = string(outputData)
+
+			// Check if we have all expected output
+			hasStdout := contains(output, "stdout") && contains(output, "stdout message")
+			hasStderr := contains(output, "stderr") && contains(output, "stderr message")
+
+			if hasStdout && hasStderr {
+				// Success! Found all expected output
+				return
+			}
+		}
 	}
 }
 
