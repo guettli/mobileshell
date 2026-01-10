@@ -29,4 +29,8 @@ func RegisterRoutes(
 	mux.HandleFunc("/sysmon/process/{pid}/hx-signal", authMiddleware(wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
 		return HandleSendSignal(ctx, r, r.PathValue("pid"))
 	})))
+
+	mux.HandleFunc("/sysmon/hx-bulk-signal", authMiddleware(wrapHandler(func(ctx context.Context, r *http.Request) ([]byte, error) {
+		return HandleBulkSignal(ctx, r)
+	})))
 }
