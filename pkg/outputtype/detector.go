@@ -13,6 +13,7 @@ const (
 	OutputTypeText       OutputType = "text"
 	OutputTypeFullscreen OutputType = "fullscreen"
 	OutputTypeInk        OutputType = "ink"
+	OutputTypeMarkdown   OutputType = "markdown"
 )
 
 // Detector continuously analyzes stdout to detect output type
@@ -31,6 +32,14 @@ type Detector struct {
 	hasCursorMovement  bool
 	hasColorCodes      bool
 	lineCount          int
+
+	// Markdown detection counters
+	markdownHeaderCount    int
+	markdownCodeBlockCount int
+	markdownListCount      int
+	markdownLinkCount      int
+	markdownBoldCount      int
+	markdownBlockquoteCount int
 }
 
 // NewDetector creates a new output type detector
@@ -63,6 +72,9 @@ func (d *Detector) AnalyzeLine(line string) bool {
 	// Check for ANSI escape sequences
 	d.detectANSISequences(line)
 
+	// Check for markdown patterns
+	d.detectMarkdownPatterns(line)
+
 	// Determine type based on detected patterns
 	if d.hasAlternateScreen || d.hasClearScreen {
 		// Fullscreen applications use alternate screen buffer or clear entire screen
@@ -78,6 +90,20 @@ func (d *Detector) AnalyzeLine(line string) bool {
 
 	// If we've seen enough output, make a determination
 	if len(d.buffer) >= d.maxBufferSize || d.lineCount >= 50 {
+		// Check if markdown patterns are strong enough to classify as markdown
+		markdownScore := d.markdownHeaderCount + d.markdownCodeBlockCount +
+			d.markdownListCount + d.markdownLinkCount +
+			d.markdownBoldCount + d.markdownBlockquoteCount
+
+		// If we have at least 3 markdown indicators, classify as markdown
+		// Priority: markdown > ink > text (since markdown can coexist with ANSI codes)
+		if markdownScore >= 3 {
+			d.detectedType = OutputTypeMarkdown
+			d.detectionReason = "significant markdown formatting detected"
+			d.detected = true
+			return true
+		}
+
 		if d.hasColorCodes || d.hasCursorMovement {
 			// Ink-based applications use ANSI codes but not fullscreen sequences
 			d.detectedType = OutputTypeInk
@@ -235,4 +261,94 @@ func containsSGR(line string) bool {
 		}
 	}
 	return false
+}
+
+// detectMarkdownPatterns scans for markdown formatting patterns in the line
+func (d *Detector) detectMarkdownPatterns(line string) {
+	trimmedLine := strings.TrimSpace(line)
+	if len(trimmedLine) == 0 {
+		return
+	}
+
+	// Check for headers (# Header, ## Header, etc.)
+	if strings.HasPrefix(trimmedLine, "#") {
+		// Count consecutive # characters
+		hashCount := 0
+		for i := 0; i < len(trimmedLine) && i < 6; i++ {
+			if trimmedLine[i] == '#' {
+				hashCount++
+			} else {
+				break
+			}
+		}
+		// Valid markdown header if followed by space or at end of line
+		if hashCount > 0 && hashCount <= 6 {
+			if hashCount == len(trimmedLine) || (hashCount < len(trimmedLine) && trimmedLine[hashCount] == ' ') {
+				d.markdownHeaderCount++
+			}
+		}
+	}
+
+	// Check for code blocks (```language or ~~~ or just ```)
+	if strings.HasPrefix(trimmedLine, "```") || strings.HasPrefix(trimmedLine, "~~~") {
+		d.markdownCodeBlockCount++
+	}
+
+	// Check for unordered lists (- item, * item, + item)
+	if strings.HasPrefix(trimmedLine, "- ") || strings.HasPrefix(trimmedLine, "* ") || strings.HasPrefix(trimmedLine, "+ ") {
+		d.markdownListCount++
+	}
+
+	// Check for ordered lists (1. item, 2. item, etc.)
+	if len(trimmedLine) >= 3 {
+		if trimmedLine[0] >= '0' && trimmedLine[0] <= '9' {
+			// Find where digits end
+			i := 1
+			for i < len(trimmedLine) && trimmedLine[i] >= '0' && trimmedLine[i] <= '9' {
+				i++
+			}
+			// Check if followed by ". "
+			if i < len(trimmedLine)-1 && trimmedLine[i] == '.' && trimmedLine[i+1] == ' ' {
+				d.markdownListCount++
+			}
+		}
+	}
+
+	// Check for markdown links [text](url)
+	if strings.Contains(line, "](") {
+		// Look for [text](url) pattern
+		openBracket := strings.Index(line, "[")
+		for openBracket != -1 {
+			closeBracket := strings.Index(line[openBracket:], "]")
+			if closeBracket != -1 {
+				closeBracket += openBracket
+				if closeBracket+1 < len(line) && line[closeBracket+1] == '(' {
+					// Found potential link, look for closing paren
+					closeParen := strings.Index(line[closeBracket+2:], ")")
+					if closeParen != -1 {
+						d.markdownLinkCount++
+						break
+					}
+				}
+			}
+			// Look for next opening bracket
+			remaining := line[openBracket+1:]
+			nextIdx := strings.Index(remaining, "[")
+			if nextIdx != -1 {
+				openBracket = openBracket + 1 + nextIdx
+			} else {
+				break
+			}
+		}
+	}
+
+	// Check for bold/italic (**bold**, __bold**, *italic*, _italic_)
+	if strings.Contains(line, "**") || strings.Contains(line, "__") {
+		d.markdownBoldCount++
+	}
+
+	// Check for blockquotes (> quote)
+	if strings.HasPrefix(trimmedLine, "> ") {
+		d.markdownBlockquoteCount++
+	}
 }

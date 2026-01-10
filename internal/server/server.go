@@ -25,6 +25,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"mobileshell/internal/auth"
+	"mobileshell/internal/claude"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/outputlog"
@@ -32,6 +33,8 @@ import (
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 	"mobileshell/internal/wshub"
+	"mobileshell/pkg/markdown"
+	"mobileshell/pkg/outputtype"
 	"mobileshell/pkg/httperror"
 )
 
@@ -324,6 +327,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
 	mux.HandleFunc("/workspaces/{id}/edit", s.authMiddleware(s.wrapHandler(s.handleWorkspaceEdit)))
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
+	mux.HandleFunc("/workspaces/{id}/hx-execute-claude", s.authMiddleware(s.wrapHandler(s.hxExecuteClaude)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/json-process-updates", s.authMiddleware(s.wrapHandler(s.jsonHandleProcessUpdates)))
 	mux.HandleFunc("/workspaces/{id}/ws-process-updates", s.authMiddleware(s.handleWSProcessUpdates))
@@ -678,6 +682,58 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 	fmt.Fprintf(&buf, `<div data-process-id="%s" style="display:none" data-output-url="%s/workspaces/%s/processes/%s/hx-output">%s</div>`,
 		proc.ID, basePath, workspaceID, proc.ID, command)
 	return buf.Bytes(), nil
+}
+
+func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
+	}
+
+	// Parse form to get prompt
+	if err := r.ParseForm(); err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
+	}
+
+	prompt := r.FormValue("prompt")
+	if prompt == "" {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Prompt is required"}
+	}
+
+	// Get workspace ID from path parameter
+	workspaceID := r.PathValue("id")
+	if workspaceID == "" {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Workspace ID is required"}
+	}
+
+	// Get the workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
+	}
+
+	// Build Claude command
+	claudeArgs := claude.BuildCommand(prompt, claude.CommandOptions{
+		StreamJSON: true,
+		NoSession:  true,
+		WorkDir:    ws.Directory,
+	})
+
+	// Join args to create command string
+	command := "claude " + strings.Join(claudeArgs, " ")
+
+	// Execute as background process
+	proc, err := executor.Execute(s.stateDir, ws, command)
+	if err != nil {
+		return nil, err
+	}
+
+	// Render the process card for HTMX
+	snippet, err := s.renderRunningProcessSnippet(proc, workspaceID, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return []byte(snippet), nil
 }
 
 func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) ([]byte, error) {
@@ -1246,6 +1302,21 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		stdin = ""
 	}
 
+	// Read content type and render markdown if needed
+	contentType := ""
+	outputTypeFile := filepath.Join(processDir, "output-type")
+	if data, err := os.ReadFile(outputTypeFile); err == nil {
+		parts := strings.Split(strings.TrimSpace(string(data)), ",")
+		if len(parts) > 0 {
+			contentType = parts[0]
+		}
+	}
+
+	stdoutHTML := ""
+	if contentType == string(outputtype.OutputTypeMarkdown) && stdout != "" {
+		stdoutHTML = markdown.RenderToHTML(stdout)
+	}
+
 	// Get the process directory path for the file browser link
 	processDirPath := filepath.Dir(proc.OutputFile)
 	processDirURL := fmt.Sprintf("%s/files?path=%s", s.getBasePath(r), url.QueryEscape(processDirPath))
@@ -1254,9 +1325,11 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 	err = s.tmpl.ExecuteTemplate(&buf, "process.html", map[string]interface{}{
 		"Process":       proc,
 		"Stdout":        stdout,
+		"StdoutHTML":    template.HTML(stdoutHTML),
 		"Stderr":        stderr,
 		"Stdin":         stdin,
 		"IsBinary":      isBinary,
+		"ContentType":   contentType,
 		"BasePath":      s.getBasePath(r),
 		"WorkspaceID":   workspaceID,
 		"WorkspaceName": ws.Name,
@@ -1291,10 +1364,12 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 
 type processOutputData struct {
 	stdout      string
+	stdoutHTML  string // Rendered HTML from markdown
 	stderr      string
 	stdin       string
 	needsExpand bool
 	isBinary    bool
+	contentType string // Content type from output-type file
 }
 
 func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOutputData, error) {
@@ -1336,12 +1411,31 @@ func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOu
 	// Prepare preview
 	needsExpand := !autoShow && !expand
 
+	// Read content type from output-type file
+	contentType := ""
+	outputTypeFile := filepath.Join(processDir, "output-type")
+	if data, err := os.ReadFile(outputTypeFile); err == nil {
+		// Output-type file format: "type,reason"
+		parts := strings.Split(strings.TrimSpace(string(data)), ",")
+		if len(parts) > 0 {
+			contentType = parts[0]
+		}
+	}
+
+	// Render markdown to HTML if content type is markdown
+	stdoutHTML := ""
+	if contentType == string(outputtype.OutputTypeMarkdown) && stdout != "" {
+		stdoutHTML = markdown.RenderToHTML(stdout)
+	}
+
 	return processOutputData{
 		stdout:      stdout,
+		stdoutHTML:  stdoutHTML,
 		stderr:      stderr,
 		stdin:       stdin,
 		needsExpand: needsExpand,
 		isBinary:    isBinary,
+		contentType: contentType,
 	}, nil
 }
 
@@ -1355,12 +1449,14 @@ func (s *Server) renderProcessOutput(proc *executor.Process, workspaceID string,
 	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
 		"Process":     proc,
 		"Stdout":      outputData.stdout,
+		"StdoutHTML":  template.HTML(outputData.stdoutHTML), // Mark as safe HTML
 		"Stderr":      outputData.stderr,
 		"Stdin":       outputData.stdin,
 		"Type":        "combined",
 		"NeedsExpand": outputData.needsExpand,
 		"Expanded":    expand,
 		"IsBinary":    outputData.isBinary,
+		"ContentType": outputData.contentType,
 		"BasePath":    s.getBasePath(r),
 		"WorkspaceID": workspaceID,
 	})
