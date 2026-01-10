@@ -101,31 +101,62 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	cmd := exec.Command(shellCmd[0], shellCmd[1:]...)
 	cmd.Dir = ws.Directory
 
-	// Set up stderr pipe separately (bypasses PTY)
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
+	// Check if this is a Claude command - if so, use pipes instead of PTY
+	// to prevent Claude from detecting a terminal and showing its TUI interface
+	isClaudeCommand := strings.Contains(proc.Command, "claude")
 
-	// Open a PTY manually so we can control which streams use it
-	// We want stdout to use the PTY (for terminal capabilities)
-	// But stderr should use the pipe (for separate capture)
-	ptmx, tty, err := pty.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open pty: %w", err)
-	}
-	defer func() { _ = ptmx.Close() }()
-	defer func() { _ = tty.Close() }()
+	var stderrPipe, stdoutPipe io.ReadCloser
+	var stdinPipe io.WriteCloser
+	var ptmx, tty *os.File
 
-	// Assign PTY to stdin and stdout only (stderr uses the pipe)
-	cmd.Stdin = tty
-	cmd.Stdout = tty
-	// cmd.Stderr is already set to stderrPipe above
+	if isClaudeCommand {
+		// Use regular pipes for Claude to prevent TUI activation
+		stderrPipe, err = cmd.StderrPipe()
+		if err != nil {
+			return fmt.Errorf("failed to create stderr pipe: %w", err)
+		}
 
-	// Start the command in a new session (detach from parent)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid:  true,
-		Setctty: true,
+		stdoutPipe, err = cmd.StdoutPipe()
+		if err != nil {
+			return fmt.Errorf("failed to create stdout pipe: %w", err)
+		}
+
+		stdinPipe, err = cmd.StdinPipe()
+		if err != nil {
+			return fmt.Errorf("failed to create stdin pipe: %w", err)
+		}
+
+		// Start the command in a new session (detach from parent)
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setsid: true,
+		}
+	} else {
+		// Set up stderr pipe separately (bypasses PTY)
+		stderrPipe, err = cmd.StderrPipe()
+		if err != nil {
+			return fmt.Errorf("failed to create stderr pipe: %w", err)
+		}
+
+		// Open a PTY manually so we can control which streams use it
+		// We want stdout to use the PTY (for terminal capabilities)
+		// But stderr should use the pipe (for separate capture)
+		ptmx, tty, err = pty.Open()
+		if err != nil {
+			return fmt.Errorf("failed to open pty: %w", err)
+		}
+		defer func() { _ = ptmx.Close() }()
+		defer func() { _ = tty.Close() }()
+
+		// Assign PTY to stdin and stdout only (stderr uses the pipe)
+		cmd.Stdin = tty
+		cmd.Stdout = tty
+		// cmd.Stderr is already set to stderrPipe above
+
+		// Start the command in a new session (detach from parent)
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Setsid:  true,
+			Setctty: true,
+		}
 	}
 
 	// Start the command
@@ -133,29 +164,43 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Close tty in parent process (child has its own copy)
-	_ = tty.Close()
+	// Handle PTY vs pipe setup based on command type
+	var stdoutReader io.Reader
+	var stdinWriter io.WriteCloser
 
-	// Set PTY size to a reasonable default (80x24 is standard terminal size)
-	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
-		slog.Warn("Failed to set PTY size, using default", "error", err)
+	if isClaudeCommand {
+		// For Claude commands using pipes
+		stdoutReader = stdoutPipe
+		stdinWriter = stdinPipe
+	} else {
+		// For regular commands using PTY
+		// Close tty in parent process (child has its own copy)
+		_ = tty.Close()
+
+		// Set PTY size to a reasonable default (80x24 is standard terminal size)
+		if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
+			slog.Warn("Failed to set PTY size, using default", "error", err)
+		}
+
+		stdoutReader = ptmx
+		stdinWriter = ptmx
 	}
 
-	// Start goroutine to read from PTY (stdout only)
+	// Start goroutine to read from stdout (either PTY or pipe)
 	readersDone := make(chan struct{}, 2)
-	go readLines(ptmx, "stdout", outputChan, readersDone)
+	go readLines(stdoutReader, "stdout", outputChan, readersDone)
 
 	// Start goroutine to read from stderr pipe
 	go readLines(stderrPipe, "stderr", outputChan, readersDone)
 
 	pid := cmd.Process.Pid
 
-	// Start goroutine to read from named pipe and forward to PTY
+	// Start goroutine to read from named pipe and forward to stdin
 	// Started IMMEDIATELY after process starts, before any file I/O
 	// to minimize the window where a writer might try to connect before reader is ready
 	stdinDone := make(chan struct{})
 	namedPipePath := filepath.Join(processDir, "stdin.pipe")
-	go readStdinPipe(namedPipePath, ptmx, outputChan, stdinDone)
+	go readStdinPipe(namedPipePath, stdinWriter, outputChan, stdinDone)
 
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
