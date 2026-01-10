@@ -62,6 +62,55 @@ go build -o mobileshell ./cmd/mobileshell
 # Access at http://localhost:22123
 ```
 
+## Using Claude Integration
+
+MobileShell integrates with the [Claude CLI](https://github.com/anthropics/claude-code)
+to provide AI assistance directly from the process detail page.
+
+### Setup
+
+1. Install the Claude CLI on your system:
+
+   ```bash
+   # Follow installation instructions at:
+   # https://github.com/anthropics/claude-code
+   ```
+
+2. Ensure the `claude` command is available in your PATH:
+
+   ```bash
+   which claude
+   ```
+
+3. The Claude CLI should be configured with your Anthropic API key
+   (see Claude CLI documentation)
+
+### How to Use Claude
+
+1. Navigate to any process detail page in MobileShell
+2. Find the "Ask Claude" form
+3. Enter your question or prompt
+   (e.g., "Explain what this command does")
+4. Click "Ask Claude"
+5. Claude will execute as a background process and display the response
+
+### How It Works
+
+- Questions are sent to Claude using the CLI with the following flags:
+  - `-p`: Print mode (non-interactive, single response)
+  - `--output-format=stream-json`: Real-time streaming JSON output
+  - `--verbose`: Verbose output for debugging
+  - `--no-session-persistence`: No session files created
+- Responses are rendered as Markdown with HTML sanitization
+- Each Claude query runs as a separate process that you can view
+  and download
+
+### Notes
+
+- Claude integration is optional - MobileShell works without it
+- If the `claude` command is not found, the form will still submit but the process will fail
+- Claude queries run in the context of the workspace directory
+
 ## Features
 
 - **Authentication**: Secure password authentication with session management
@@ -70,6 +119,12 @@ go build -o mobileshell ./cmd/mobileshell
   programs (see [TTY_SUPPORT.md](TTY_SUPPORT.md) for details)
 - **Process Management**: View running and completed processes
 - **Output Viewing**: View stdout and stderr for each process
+- **Claude Integration**: Ask Claude questions about your code and
+  commands directly from the process page
+  - Integrated AI assistance using the Claude CLI
+  - Markdown rendering for formatted responses
+  - Real-time streaming output
+  - No session persistence for one-off queries
 - **File Editor**: Create and edit files directly in the workspace with conflict detection
   - Auto-creates parent directories
   - Detects external file modifications

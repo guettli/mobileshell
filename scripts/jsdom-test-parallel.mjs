@@ -872,13 +872,124 @@ async function testRerunCommand() {
 
 
 
-// Test 9: File editor double save (issue #60)
-async function testFileEditorDoubleSave() {
-  const testName = 'Test 9: File editor double save';
+// Test 9: Claude integration
+async function testClaudeIntegration() {
+  const testName = 'Test 9: Claude integration';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-9`;
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  console.log(`✓ Workspace created: ${workspaceName}`);
+
+  // Create a simple process to get a process page
+  const executeResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: 'command=echo "test process"',
+  });
+
+  assert.equal(executeResponse.status, 200, 'Should execute command');
+  const processMatch = executeResponse.text.match(/processes\/([^\/]+)/);
+  assert.ok(processMatch, 'Should have process ID in response');
+  const processId = processMatch[1];
+  console.log(`✓ Test process created: ${processId}`);
+
+  // Navigate to the process page
+  const processPageResponse = await request('GET', `/workspaces/${workspaceId}/processes/${processId}`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  });
+
+  assert.equal(processPageResponse.status, 200, 'Should load process page');
+  assert.ok(processPageResponse.text.includes('Ask Claude'), 'Page should have "Ask Claude" section');
+  console.log('✓ Process page loaded with Claude form');
+
+  // Parse the page to verify the Claude form
+  const processDoc = parseHTML(processPageResponse.text);
+  const claudeForm = processDoc.querySelector('form[hx-post*="hx-execute-claude"]');
+  assert.ok(claudeForm, 'Should have Claude form with hx-post to hx-execute-claude endpoint');
+
+  const promptTextarea = claudeForm.querySelector('textarea[name="prompt"]');
+  assert.ok(promptTextarea, 'Should have prompt textarea');
+  assert.equal(promptTextarea.getAttribute('required'), '', 'Prompt should be required');
+  assert.ok(promptTextarea.placeholder.toLowerCase().includes('claude'), 'Placeholder should mention Claude');
+
+  const submitButton = claudeForm.querySelector('button[type="submit"]');
+  assert.ok(submitButton, 'Should have submit button');
+  assert.ok(submitButton.textContent.includes('Ask Claude'), 'Button should say "Ask Claude"');
+  console.log('✓ Claude form structure validated');
+
+  // Verify HTMX attributes
+  const hxTarget = claudeForm.getAttribute('hx-target');
+  assert.equal(hxTarget, '#claude-output', 'Form should target #claude-output');
+
+  const hxSwap = claudeForm.getAttribute('hx-swap');
+  assert.equal(hxSwap, 'afterbegin', 'Form should use afterbegin swap');
+
+  const claudeOutputDiv = processDoc.querySelector('#claude-output');
+  assert.ok(claudeOutputDiv, 'Should have #claude-output div for responses');
+  console.log('✓ HTMX attributes validated');
+
+  // Submit a Claude prompt
+  const testPrompt = 'Explain what this command does: echo "hello world"';
+  const claudeExecuteResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute-claude`, {
+    headers: {
+      Cookie: sessionCookie,
+      'HX-Request': 'true',
+    },
+    body: `prompt=${encodeURIComponent(testPrompt)}`,
+  });
+
+  assert.equal(claudeExecuteResponse.status, 200, 'Should execute Claude command');
+  console.log('✓ Claude command submitted successfully');
+
+  // Parse the response to verify it's a process card
+  const claudeResponseDoc = parseHTML(claudeExecuteResponse.text);
+  const processCard = claudeResponseDoc.querySelector('.card');
+  assert.ok(processCard, 'Response should contain a process card');
+
+  // Verify the command includes claude CLI with expected flags
+  const commandText = claudeExecuteResponse.text;
+  assert.ok(commandText.includes('claude'), 'Command should include "claude"');
+  assert.ok(commandText.includes('-p'), 'Command should include -p flag');
+
+  // The command may include streaming flags if Claude is configured
+  if (commandText.includes('stream-json')) {
+    assert.ok(commandText.includes('--output-format=stream-json'), 'Should include streaming JSON flag');
+    assert.ok(commandText.includes('--verbose'), 'Should include verbose flag');
+    console.log('✓ Claude command includes streaming flags');
+  }
+
+  // Extract process ID from the response
+  const claudeProcessMatch = claudeExecuteResponse.text.match(/processes\/([a-f0-9]+)/);
+  assert.ok(claudeProcessMatch, 'Should have Claude process ID in response');
+  const claudeProcessId = claudeProcessMatch[1];
+  console.log(`✓ Claude process created: ${claudeProcessId}`);
+
+  // Verify the process can be accessed
+  const claudeProcessPageResponse = await request('GET', `/workspaces/${workspaceId}/processes/${claudeProcessId}`, {
+    headers: {
+      Cookie: sessionCookie,
+    },
+  });
+
+  assert.equal(claudeProcessPageResponse.status, 200, 'Should load Claude process page');
+  assert.ok(claudeProcessPageResponse.text.includes('claude'), 'Process page should show claude command');
+
+  console.log(`✓ ${testName} passed`);
+}
+
+// Test 10: File editor double save (issue #60)
+async function testFileEditorDoubleSave() {
+  const testName = 'Test 10: File editor double save';
+  console.log(`\n=== ${testName} ===`);
+
+  const sessionCookie = await login();
+  const workspaceName = `test-workspace-${Date.now()}-10`;
   const workspaceId = await createWorkspace(sessionCookie, workspaceName);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
@@ -974,6 +1085,7 @@ async function runTests() {
       testFileAutocomplete(),
       testInteractiveTerminal(),
       testRerunCommand(),
+      testClaudeIntegration(),
       testFileEditorDoubleSave(),
     ]);
 
