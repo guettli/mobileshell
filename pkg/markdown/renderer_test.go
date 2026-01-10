@@ -95,7 +95,7 @@ func TestRenderToHTML_XSSPrevention(t *testing.T) {
 		},
 		{
 			name:        "iframe",
-			input:       "<iframe src=\"http://evil.com\"></iframe>",
+			input:       "<iframe src=\"example.com\"></iframe>",
 			shouldBlock: "<iframe",
 			description: "Iframes should be removed",
 		},
