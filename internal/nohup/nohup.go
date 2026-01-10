@@ -9,10 +9,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/creack/pty"
+	"mobileshell/internal/claude"
 	"mobileshell/internal/outputlog"
 	"mobileshell/internal/workspace"
 	"mobileshell/pkg/outputtype"
@@ -196,6 +198,12 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Wait for writer to finish
 	<-writerDone
 
+	// Post-process Claude stream-json output if applicable
+	if err := postProcessClaudeOutput(processDir, proc.Command); err != nil {
+		slog.Warn("Failed to post-process Claude output", "error", err)
+		// Continue anyway - this is not a fatal error
+	}
+
 	// Write exit status to file
 	exitStatusFile := filepath.Join(processDir, "exit-status")
 	if err := os.WriteFile(exitStatusFile, []byte(strconv.Itoa(exitCode)), 0600); err != nil {
@@ -314,4 +322,58 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 		// The scanner exited because the writer closed the pipe (EOF)
 		// Loop back to reopen the pipe and wait for the next writer
 	}
+}
+
+// postProcessClaudeOutput processes Claude CLI stream-json output
+// It extracts the markdown text from the JSON stream and updates the output file
+func postProcessClaudeOutput(processDir, command string) error {
+	// Only process Claude commands
+	if !strings.Contains(command, "claude") {
+		return nil
+	}
+
+	outputFile := filepath.Join(processDir, "output.log")
+
+	// Read the combined output
+	stdout, _, _, err := outputlog.ReadCombinedOutput(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to read output: %w", err)
+	}
+
+	// Parse the stream-json and extract markdown text
+	markdownText := claude.ParseStreamJSON(stdout)
+
+	if markdownText == "" {
+		return nil // No text extracted
+	}
+
+	// Write the processed markdown output back
+	// We need to reconstruct the output.log format with just stdout containing markdown
+	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open output file for writing: %w", err)
+	}
+	defer func() { _ = outFile.Close() }()
+
+	// Write markdown as stdout lines
+	for _, line := range strings.Split(markdownText, "\n") {
+		outputLine := outputlog.OutputLine{
+			Stream:    "stdout",
+			Timestamp: time.Now().UTC(),
+			Line:      line + "\n",
+		}
+		formattedLine := outputlog.FormatOutputLine(outputLine)
+		if _, err := outFile.WriteString(formattedLine); err != nil {
+			return fmt.Errorf("failed to write output line: %w", err)
+		}
+	}
+
+	// Force output-type to markdown
+	outputTypeFile := filepath.Join(processDir, "output-type")
+	outputTypeContent := fmt.Sprintf("%s,%s", outputtype.OutputTypeMarkdown, "Claude CLI output processed")
+	if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
+		return fmt.Errorf("failed to write output-type file: %w", err)
+	}
+
+	return nil
 }

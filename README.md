@@ -7,6 +7,9 @@ Provide a shell like experience via web - Build to access your Linux system with
 - Build with htmx and bootstrap.
 - Optional: Install as systemd service on your Linux PC or server.
 
+This was build with the help of AI agents. This whole project is more a less a playground for me
+playing with agents.
+
 ## Usage
 
 You install MobileShell via `./scripts/install.sh myserver.example.com myuser`. This will connect to
@@ -59,6 +62,64 @@ go build -o mobileshell ./cmd/mobileshell
 # Access at http://localhost:22123
 ```
 
+## Using Claude Integration
+
+MobileShell integrates with the [Claude CLI](https://github.com/anthropics/claude-code)
+to provide AI assistance directly from the process detail page.
+
+### Setup
+
+1. Install the Claude CLI on your system:
+
+   ```bash
+   # Follow installation instructions at:
+   # https://github.com/anthropics/claude-code
+   ```
+
+2. Ensure the `claude` command is available in your PATH:
+
+   ```bash
+   which claude
+   ```
+
+3. The Claude CLI should be configured with your Anthropic API key
+   (see Claude CLI documentation)
+
+### How to Use Claude
+
+1. Navigate to your workspace in MobileShell
+2. Click the "Start Claude" button (next to Interactive Terminal)
+3. Enter your initial question in the prompt dialog
+4. Claude starts as an interactive session in the background
+5. View the Claude process in the running processes list
+6. Continue the conversation by sending additional messages via stdin
+   on the process page
+
+### How It Works
+
+- Claude always runs in interactive dialog mode for multi-turn conversations
+- Started from workspace page via "Start Claude" button
+- Runs via `nohup` as a background process, like other commands
+- Uses the following Claude CLI flags:
+  - No `-p` flag (interactive mode, not one-time print mode)
+  - `--output-format=stream-json`: Real-time streaming JSON output
+  - `--verbose`: Verbose output for debugging
+- Initial prompt starts the conversation
+- Continue the dialog by sending messages via stdin on the process page
+- Responses are rendered as Markdown with HTML sanitization
+- Each Claude session is a separate process you can view, interact with,
+  and download
+
+### Notes
+
+- Claude integration is optional - MobileShell works without it
+- If the `claude` command is not found, clicking "Start Claude"
+  will create a failed process
+- Claude sessions run in the workspace directory context
+- Always interactive - no support for one-time queries
+- Send additional messages via stdin on the process page to continue
+  the conversation
+
 ## Features
 
 - **Authentication**: Secure password authentication with session management
@@ -67,6 +128,13 @@ go build -o mobileshell ./cmd/mobileshell
   programs (see [TTY_SUPPORT.md](TTY_SUPPORT.md) for details)
 - **Process Management**: View running and completed processes
 - **Output Viewing**: View stdout and stderr for each process
+- **Claude Integration**: Interactive AI dialog sessions with Claude
+  directly from the process page
+  - Integrated AI assistance using the Claude CLI
+  - Persistent interactive sessions for multi-turn conversations
+  - Markdown rendering for formatted responses
+  - Real-time streaming output
+  - Continue conversations via stdin input
 - **File Editor**: Create and edit files directly in the workspace with conflict detection
   - Auto-creates parent directories
   - Detects external file modifications

@@ -6,7 +6,7 @@ set -Eeuo pipefail
 # Ensure Nix environment is active, or run this script via nix develop
 if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     echo "Nix environment not active. Running via 'nix develop'..."
-    exec nix develop --command "$0" "$@"
+    exec nix develop --quiet --command "$0" "$@"
 fi
 
 # Create temp directory for results

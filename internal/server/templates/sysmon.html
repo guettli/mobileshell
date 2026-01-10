@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MobileShell - System Monitor</title>
+    <link href="{{.BasePath}}/static/static/bootstrap.min.css" rel="stylesheet">
+    <script src="{{.BasePath}}/static/static/htmx.min.js"></script>
+    <style>
+        .process-table {
+            font-size: 0.9rem;
+        }
+
+        .process-table th {
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+
+        .process-table th:hover {
+            background-color: #f8f9fa;
+        }
+
+        .sort-indicator {
+            margin-left: 4px;
+            font-size: 0.75rem;
+        }
+
+        .cpu-high {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .cpu-medium {
+            color: #fd7e14;
+        }
+
+        .memory-high {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .process-table td {
+            vertical-align: middle;
+        }
+
+        .process-table code {
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a href="{{.BasePath}}/" class="navbar-brand mb-0 h1">MobileShell</a>
+            <div>
+                <a href="{{.BasePath}}/" class="btn btn-outline-light btn-sm me-2">Workspaces</a>
+                <a href="{{.BasePath}}/sysmon" class="btn btn-light btn-sm me-2">System Monitor</a>
+                <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">System Monitor - My Processes</h5>
+                <p class="text-muted small mb-3">Showing processes owned by current user. Auto-refresh every 2 seconds.</p>
+
+                <div id="process-list"
+                     hx-get="{{.BasePath}}/sysmon/hx-processes?sort={{.SortBy}}&order={{.Order}}"
+                     hx-trigger="load, every 2s"
+                     hx-swap="innerHTML">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-muted mt-2">Loading processes...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

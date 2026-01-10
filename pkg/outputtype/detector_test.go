@@ -481,3 +481,249 @@ func TestDetector_RealWorldExamples(t *testing.T) {
 		})
 	}
 }
+
+func TestDetector_Markdown(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+	}{
+		{
+			name: "markdown with headers and lists",
+			lines: []string{
+				"# Main Header\n",
+				"\n",
+				"This is some content.\n",
+				"\n",
+				"## Subheader\n",
+				"\n",
+				"- Item 1\n",
+				"- Item 2\n",
+				"- Item 3\n",
+			},
+		},
+		{
+			name: "markdown with code blocks",
+			lines: []string{
+				"# Code Example\n",
+				"\n",
+				"Here's some code:\n",
+				"\n",
+				"```go\n",
+				"func main() {\n",
+				"    fmt.Println(\"Hello\")\n",
+				"}\n",
+				"```\n",
+			},
+		},
+		{
+			name: "markdown with links and bold",
+			lines: []string{
+				"Check out [this link](https://example.com)\n",
+				"\n",
+				"This is **bold text** and this is *italic*.\n",
+				"\n",
+				"## Another header\n",
+				"\n",
+				"1. First item\n",
+				"2. Second item\n",
+			},
+		},
+		{
+			name: "markdown with blockquotes",
+			lines: []string{
+				"# Quote Section\n",
+				"\n",
+				"> This is a quote\n",
+				"> with multiple lines\n",
+				"\n",
+				"And some **bold** text.\n",
+				"\n",
+				"## Subsection\n",
+			},
+		},
+		{
+			name: "markdown typical AI response",
+			lines: []string{
+				"# Analysis Results\n",
+				"\n",
+				"Here are my findings:\n",
+				"\n",
+				"## Key Points\n",
+				"\n",
+				"1. First observation\n",
+				"2. Second observation\n",
+				"3. Third observation\n",
+				"\n",
+				"### Code Example\n",
+				"\n",
+				"```python\n",
+				"def hello():\n",
+				"    print('world')\n",
+				"```\n",
+				"\n",
+				"For more information, see [documentation](https://example.com).\n",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewDetector()
+
+			// Feed lines until detection
+			for _, line := range tt.lines {
+				if d.AnalyzeLine(line) {
+					break
+				}
+			}
+
+			// If not detected after initial lines, feed more to trigger buffer limit
+			if !d.IsDetected() {
+				for i := 0; i < 10; i++ {
+					for _, line := range tt.lines {
+						if d.AnalyzeLine(line) {
+							break
+						}
+					}
+				}
+			}
+
+			if !d.IsDetected() {
+				t.Fatal("Expected markdown to be detected")
+			}
+
+			outputType, reason := d.GetDetectedType()
+			if outputType != OutputTypeMarkdown {
+				t.Errorf("Expected OutputTypeMarkdown, got %s (reason: %s)", outputType, reason)
+			}
+
+			if !strings.Contains(reason, "markdown") {
+				t.Errorf("Expected reason to mention markdown, got: %s", reason)
+			}
+		})
+	}
+}
+
+func TestDetector_MarkdownNotConfusedWithText(t *testing.T) {
+	// Test that plain text without markdown patterns is not detected as markdown
+	d := NewDetector()
+
+	plainTextLines := []string{
+		"This is just plain text.\n",
+		"It has no markdown formatting.\n",
+		"Just regular sentences.\n",
+		"Maybe some numbers like 123.\n",
+		"And punctuation!\n",
+	}
+
+	// Feed enough lines to trigger detection
+	for i := 0; i < 15; i++ {
+		for _, line := range plainTextLines {
+			d.AnalyzeLine(line)
+		}
+	}
+
+	outputType, _ := d.GetDetectedType()
+	if outputType == OutputTypeMarkdown {
+		t.Errorf("Plain text should not be detected as markdown, got %s", outputType)
+	}
+}
+
+func TestDetector_MarkdownPriorityOverInk(t *testing.T) {
+	// Test that markdown takes priority over Ink detection
+	// (Claude output might contain both ANSI codes and markdown)
+	d := NewDetector()
+
+	// Mix of markdown and ANSI color codes
+	lines := []string{
+		"# \x1b[1mHeader with Colors\x1b[0m\n",
+		"\n",
+		"This has \x1b[32mgreen text\x1b[0m but also **bold markdown**.\n",
+		"\n",
+		"## Subheader\n",
+		"\n",
+		"- List item with \x1b[34mblue\x1b[0m\n",
+		"- Another item\n",
+		"\n",
+		"```\n",
+		"code block\n",
+		"```\n",
+	}
+
+	for _, line := range lines {
+		d.AnalyzeLine(line)
+	}
+
+	// Feed more if not detected
+	if !d.IsDetected() {
+		for i := 0; i < 10; i++ {
+			for _, line := range lines {
+				if d.AnalyzeLine(line) {
+					break
+				}
+			}
+		}
+	}
+
+	outputType, _ := d.GetDetectedType()
+	if outputType != OutputTypeMarkdown {
+		t.Errorf("Expected markdown to take priority over Ink, got %s", outputType)
+	}
+}
+
+func TestDetector_MarkdownEdgeCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		lines        []string
+		shouldDetect bool
+	}{
+		{
+			name: "hash without space is not markdown header",
+			lines: []string{
+				"#notaheader\n",
+				"#stilln otaheader\n",
+				"Just text\n",
+			},
+			shouldDetect: false,
+		},
+		{
+			name: "single markdown indicator not enough",
+			lines: []string{
+				"# Just one header\n",
+				"And then plain text.\n",
+				"No other markdown.\n",
+			},
+			shouldDetect: false, // Need at least 3 indicators
+		},
+		{
+			name: "multiple headers should detect",
+			lines: []string{
+				"# Header 1\n",
+				"## Header 2\n",
+				"### Header 3\n",
+				"#### Header 4\n",
+			},
+			shouldDetect: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewDetector()
+
+			// Feed lines multiple times to reach buffer limit
+			for i := 0; i < 15; i++ {
+				for _, line := range tt.lines {
+					d.AnalyzeLine(line)
+				}
+			}
+
+			outputType, _ := d.GetDetectedType()
+			isMarkdown := (outputType == OutputTypeMarkdown)
+
+			if isMarkdown != tt.shouldDetect {
+				t.Errorf("Expected markdown detection: %v, got %v (type: %s)", tt.shouldDetect, isMarkdown, outputType)
+			}
+		})
+	}
+}

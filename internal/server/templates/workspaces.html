@@ -57,7 +57,11 @@
     <nav class="navbar navbar-dark bg-dark">
         <div class="container-fluid">
             <a href="{{.BasePath}}/" class="navbar-brand mb-0 h1">MobileShell</a>
-            <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+            <div>
+                <a href="{{.BasePath}}/" class="btn btn-light btn-sm me-2">Workspaces</a>
+                <a href="{{.BasePath}}/sysmon" class="btn btn-outline-light btn-sm me-2">System Monitor</a>
+                <a href="{{.BasePath}}/logout" class="btn btn-outline-light btn-sm">Logout</a>
+            </div>
         </div>
     </nav>
 
@@ -89,6 +93,9 @@
                         <button type="button" class="btn btn-outline-success" onclick="launchInteractiveTerminal()">
                             Interactive Terminal
                         </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="startClaudeSession()">
+                            Start Claude
+                        </button>
                         <a href="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/files" class="btn btn-outline-info">
                             Edit Files
                         </a>
@@ -101,20 +108,34 @@
         function launchInteractiveTerminal() {
             const commandInput = document.querySelector('input[name="command"]');
             const command = commandInput.value.trim() || 'bash';
-            
+
             // Create a form and submit it to open terminal
             const form = document.createElement('form');
             form.method = 'POST';
             form.action = '{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/terminal-execute';
-            
+
             const input = document.createElement('input');
             input.type = 'hidden';
             input.name = 'command';
             input.value = command;
-            
+
             form.appendChild(input);
             document.body.appendChild(form);
             form.submit();
+        }
+
+        function startClaudeSession() {
+            const prompt = window.prompt('Enter your initial question for Claude:');
+            if (!prompt || prompt.trim() === '') {
+                return;
+            }
+
+            // Use htmx to submit the Claude command
+            htmx.ajax('POST', '{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute-claude', {
+                target: '#running-processes',
+                swap: 'beforeend',
+                values: { prompt: prompt }
+            });
         }
         </script>
 
