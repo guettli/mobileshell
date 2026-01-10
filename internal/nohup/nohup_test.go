@@ -286,6 +286,9 @@ func TestNohupRunWithStderrOutput(t *testing.T) {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
+	// Give it a moment to complete
+	time.Sleep(100 * time.Millisecond)
+
 	// Verify output.log contains both stdout and stderr with proper prefixes
 	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
