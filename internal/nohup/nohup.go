@@ -200,7 +200,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// to minimize the window where a writer might try to connect before reader is ready
 	stdinDone := make(chan struct{})
 	namedPipePath := filepath.Join(processDir, "stdin.pipe")
-	go readStdinPipe(namedPipePath, stdinWriter, outputChan, stdinDone)
+	go readStdinPipe(namedPipePath, stdinWriter, outputChan, stdinDone, isClaudeCommand)
 
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
@@ -324,7 +324,8 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Outp
 // readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
 // This runs in the background and exits when the process ends or stdin write fails
 // It continuously reopens the pipe to handle multiple writers (each HTTP request opens/closes)
-func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- outputlog.OutputLine, done chan<- struct{}) {
+// useNonBlocking enables non-blocking open for commands that need immediate stdin connection
+func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- outputlog.OutputLine, done chan<- struct{}, useNonBlocking bool) {
 	defer func() {
 		close(done)
 		_ = stdinWriter.Close()
@@ -332,12 +333,34 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 
 	// Keep reading from the pipe until the process exits
 	for {
-		// Open the named pipe for reading in blocking mode
-		// This will block until a writer opens the pipe
-		file, err := os.OpenFile(pipePath, os.O_RDONLY, 0)
-		if err != nil {
-			slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
-			return
+		var file *os.File
+		var err error
+
+		if useNonBlocking {
+			// Open the named pipe for reading in non-blocking mode first
+			// This prevents blocking the process startup when no writers are present
+			// Used for Claude commands which need stdin connected immediately
+			file, err = os.OpenFile(pipePath, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+			if err != nil {
+				slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
+				return
+			}
+
+			// Switch back to blocking mode for actual reading
+			// This allows us to block on read() calls but not on open()
+			if err := syscall.SetNonblock(int(file.Fd()), false); err != nil {
+				slog.Warn("Failed to set stdin pipe to blocking mode", "error", err)
+				_ = file.Close()
+				return
+			}
+		} else {
+			// Open in blocking mode (traditional behavior)
+			// This will block until a writer opens the pipe
+			file, err = os.OpenFile(pipePath, os.O_RDONLY, 0)
+			if err != nil {
+				slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
+				return
+			}
 		}
 
 		// Read lines from the pipe until this writer closes it
