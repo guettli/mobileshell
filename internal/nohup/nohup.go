@@ -303,12 +303,29 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	return nil
 }
 
+// sendOutputLine sends an output line to the channel with a timeout to prevent blocking
+// Returns true if sent successfully, false if timed out
+func sendOutputLine(outputChan chan<- outputlog.OutputLine, line outputlog.OutputLine, stream string) bool {
+	select {
+	case outputChan <- line:
+		return true
+	case <-time.After(5 * time.Second):
+		// Channel is full and writer can't keep up - log warning and drop the line
+		slog.Warn("Output channel write timed out, dropping line", "stream", stream)
+		return false
+	}
+}
+
 // readLines reads lines from a reader and sends them to the output channel
 // This function flushes partial lines (without newlines) after a timeout to support
 // interactive programs that output prompts without trailing newlines (e.g., "Enter filename: ")
 func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}) {
 	defer func() {
-		done <- struct{}{}
+		select {
+		case done <- struct{}{}:
+		case <-time.After(1 * time.Second):
+			slog.Warn("Failed to send done signal", "stream", stream)
+		}
 	}()
 
 	br := bufio.NewReader(reader)
@@ -321,11 +338,11 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Outp
 		if err != nil {
 			// EOF or error - flush any remaining buffer
 			if len(buffer) > 0 {
-				outputChan <- outputlog.OutputLine{
+				sendOutputLine(outputChan, outputlog.OutputLine{
 					Stream:    stream,
 					Timestamp: time.Now().UTC(),
 					Line:      string(buffer),
-				}
+				}, stream)
 			}
 			break
 		}
@@ -337,8 +354,9 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Outp
 			shouldFlush = true
 		} else if len(buffer) > 0 && br.Buffered() == 0 {
 			// No more data available immediately, wait a bit for more
-			time.Sleep(flushTimeout)
-			// If still no data, flush what we have
+			timer := time.NewTimer(flushTimeout)
+			<-timer.C
+			// Timeout expired, check if we should flush
 			if br.Buffered() == 0 {
 				shouldFlush = true
 			}
@@ -349,11 +367,11 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Outp
 			// The length field in the output format will indicate if newline is included
 			line := string(buffer)
 
-			outputChan <- outputlog.OutputLine{
+			sendOutputLine(outputChan, outputlog.OutputLine{
 				Stream:    stream,
 				Timestamp: time.Now().UTC(),
 				Line:      line,
-			}
+			}, stream)
 			buffer = buffer[:0] // Reset buffer
 		}
 	}
@@ -406,20 +424,34 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			// Write to process stdin
-			_, err := stdinWriter.Write([]byte(line + "\n"))
-			if err != nil {
-				// Process stdin closed, stop reading
+			// Write to process stdin with timeout to avoid blocking
+			stdinData := []byte(line + "\n")
+			writeDone := make(chan error, 1)
+			go func() {
+				_, err := stdinWriter.Write(stdinData)
+				writeDone <- err
+			}()
+
+			select {
+			case err := <-writeDone:
+				if err != nil {
+					// Process stdin closed, stop reading
+					_ = file.Close()
+					return
+				}
+			case <-time.After(5 * time.Second):
+				// Write timed out
+				slog.Warn("Stdin write timed out", "line", line)
 				_ = file.Close()
 				return
 			}
 
-			// Also log to output.log
-			outputChan <- outputlog.OutputLine{
+			// Also log to output.log (non-blocking)
+			sendOutputLine(outputChan, outputlog.OutputLine{
 				Stream:    "stdin",
 				Timestamp: time.Now().UTC(),
 				Line:      line,
-			}
+			}, "stdin")
 		}
 
 		// Close this instance of the pipe
