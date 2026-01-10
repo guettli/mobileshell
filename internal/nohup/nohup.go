@@ -49,6 +49,44 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	outputChan := make(chan outputlog.OutputLine, 100)
 	writerDone := make(chan struct{})
 
+	// Capture nohup subprocess's own stdout and stderr
+	// Save original stdout/stderr
+	origStdout := os.Stdout
+	origStderr := os.Stderr
+
+	// Create pipes for capturing nohup's own output
+	nohupStdoutReader, nohupStdoutWriter, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("failed to create nohup stdout pipe: %w", err)
+	}
+	nohupStderrReader, nohupStderrWriter, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("failed to create nohup stderr pipe: %w", err)
+	}
+
+	// Redirect os.Stdout and os.Stderr to our pipes
+	os.Stdout = nohupStdoutWriter
+	os.Stderr = nohupStderrWriter
+
+	// Also redirect slog to use the new stderr
+	slog.SetDefault(slog.New(slog.NewTextHandler(nohupStderrWriter, nil)))
+
+	// Start goroutines to read from nohup's own stdout/stderr
+	nohupReadersDone := make(chan struct{}, 2)
+	go readLines(nohupStdoutReader, "nohup-stdout", outputChan, nohupReadersDone)
+	go readLines(nohupStderrReader, "nohup-stderr", outputChan, nohupReadersDone)
+
+	// Defer cleanup: restore original stdout/stderr and close pipes
+	defer func() {
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+		_ = nohupStdoutWriter.Close()
+		_ = nohupStderrWriter.Close()
+		// Wait for nohup readers to finish draining
+		<-nohupReadersDone
+		<-nohupReadersDone
+	}()
+
 	// Create output type detector
 	typeDetector := outputtype.NewDetector()
 

@@ -1295,11 +1295,13 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 	}
 
 	// Read full output
-	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(proc.OutputFile)
+	stdout, stderr, stdin, nohupStdout, nohupStderr, err := outputlog.ReadCombinedOutputWithNohup(proc.OutputFile)
 	if err != nil {
 		stdout = ""
 		stderr = ""
 		stdin = ""
+		nohupStdout = ""
+		nohupStderr = ""
 	}
 
 	// Read content type and render markdown if needed
@@ -1328,6 +1330,8 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		"StdoutHTML":    template.HTML(stdoutHTML),
 		"Stderr":        stderr,
 		"Stdin":         stdin,
+		"NohupStdout":   nohupStdout,
+		"NohupStderr":   nohupStderr,
 		"IsBinary":      isBinary,
 		"ContentType":   contentType,
 		"BasePath":      s.getBasePath(r),
@@ -1363,13 +1367,15 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 }
 
 type processOutputData struct {
-	stdout      string
-	stdoutHTML  string // Rendered HTML from markdown
-	stderr      string
-	stdin       string
-	needsExpand bool
-	isBinary    bool
-	contentType string // Content type from output-type file
+	stdout       string
+	stdoutHTML   string // Rendered HTML from markdown
+	stderr       string
+	stdin        string
+	nohupStdout  string
+	nohupStderr  string
+	needsExpand  bool
+	isBinary     bool
+	contentType  string // Content type from output-type file
 }
 
 func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOutputData, error) {
@@ -1382,11 +1388,13 @@ func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOu
 	}
 
 	// Read combined output from single file
-	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(outputFile)
+	stdout, stderr, stdin, nohupStdout, nohupStderr, err := outputlog.ReadCombinedOutputWithNohup(outputFile)
 	if err != nil {
 		stdout = ""
 		stderr = ""
 		stdin = ""
+		nohupStdout = ""
+		nohupStderr = ""
 	}
 
 	// Calculate total size and lines
@@ -1433,6 +1441,8 @@ func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOu
 		stdoutHTML:  stdoutHTML,
 		stderr:      stderr,
 		stdin:       stdin,
+		nohupStdout: nohupStdout,
+		nohupStderr: nohupStderr,
 		needsExpand: needsExpand,
 		isBinary:    isBinary,
 		contentType: contentType,
@@ -1447,18 +1457,20 @@ func (s *Server) renderProcessOutput(proc *executor.Process, workspaceID string,
 
 	var buf bytes.Buffer
 	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
-		"Process":     proc,
-		"Stdout":      outputData.stdout,
-		"StdoutHTML":  template.HTML(outputData.stdoutHTML), // Mark as safe HTML
-		"Stderr":      outputData.stderr,
-		"Stdin":       outputData.stdin,
-		"Type":        "combined",
-		"NeedsExpand": outputData.needsExpand,
-		"Expanded":    expand,
-		"IsBinary":    outputData.isBinary,
-		"ContentType": outputData.contentType,
-		"BasePath":    s.getBasePath(r),
-		"WorkspaceID": workspaceID,
+		"Process":      proc,
+		"Stdout":       outputData.stdout,
+		"StdoutHTML":   template.HTML(outputData.stdoutHTML), // Mark as safe HTML
+		"Stderr":       outputData.stderr,
+		"Stdin":        outputData.stdin,
+		"NohupStdout":  outputData.nohupStdout,
+		"NohupStderr":  outputData.nohupStderr,
+		"Type":         "combined",
+		"NeedsExpand":  outputData.needsExpand,
+		"Expanded":     expand,
+		"IsBinary":     outputData.isBinary,
+		"ContentType":  outputData.contentType,
+		"BasePath":     s.getBasePath(r),
+		"WorkspaceID":  workspaceID,
 	})
 	if err != nil {
 		return "", err
