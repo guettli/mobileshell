@@ -32,7 +32,7 @@ STDERR_TMP=$(mktemp)
 echo "$PASSWORD" | go run ./cmd/mobileshell add-password --state-dir "$TEMP_STATE_DIR" --from-stdin 2>"$STDERR_TMP" || exit_code=$?
 [ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
 rm -f "$STDERR_TMP"
-[ "${exit_code:-0}" -ne 0 ] && exit $exit_code
+[ "${exit_code:-0}" -ne 0 ] && exit "$exit_code"
 [[ -z "${CI:-}" ]] && echo "✓ Password added"
 
 # Build the server
@@ -41,7 +41,7 @@ STDERR_TMP=$(mktemp)
 go build -o "$TEMP_STATE_DIR/mobileshell" ./cmd/mobileshell 2>"$STDERR_TMP" || exit_code=$?
 [ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
 rm -f "$STDERR_TMP"
-[ "${exit_code:-0}" -ne 0 ] && exit $exit_code
+[ "${exit_code:-0}" -ne 0 ] && exit "$exit_code"
 [[ -z "${CI:-}" ]] && echo "✓ Server built"
 
 # Find a free port
