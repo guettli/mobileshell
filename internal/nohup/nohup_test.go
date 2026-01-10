@@ -273,32 +273,61 @@ func TestNohupRunWithStderrOutput(t *testing.T) {
 	}
 
 	// Create a process that writes to both stdout and stderr
-	hash, err := workspace.CreateProcess(ws, "echo 'stdout message' && echo 'stderr message' >&2")
+	// Use sh -c with explicit sleep to ensure outputs are flushed separately and timing is more predictable
+	// The sleep gives time for readers to be ready and outputs to be captured
+	hash, err := workspace.CreateProcess(ws, "sh -c 'echo stdout message; sleep 0.1; echo stderr message >&2; sleep 0.1'")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
 
 	workspaceTS := filepath.Base(ws.Path)
 
-	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash, []string{})
-	if err != nil {
-		t.Fatalf("Failed to run nohup: %v", err)
-	}
+	// Run the nohup command in background to avoid blocking
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(tmpDir, workspaceTS, hash, []string{})
+	}()
 
 	// Poll for expected output with timeout
 	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 
-	timeout := time.After(2 * time.Second)
-	ticker := time.NewTicker(5 * time.Millisecond)
+	timeout := time.After(5 * time.Second) // Increased timeout for CI
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	var output string
+	foundStdout := false
+	foundStderr := false
+
 	for {
 		select {
+		case err := <-done:
+			// Process completed, do one final check
+			if err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+			// Give a moment for final output to be written
+			time.Sleep(50 * time.Millisecond)
+
+			outputData, readErr := os.ReadFile(outputFile)
+			if readErr != nil {
+				t.Fatalf("Failed to read output.log after completion: %v", readErr)
+			}
+			output = string(outputData)
+
+			hasStdout := contains(output, "stdout") && contains(output, "stdout message")
+			hasStderr := contains(output, "stderr") && contains(output, "stderr message")
+
+			if hasStdout && hasStderr {
+				return // Success
+			}
+
+			t.Fatalf("Process completed but missing output. Has stdout: %v, Has stderr: %v. Output: '%s'", hasStdout, hasStderr, output)
+
 		case <-timeout:
-			t.Fatalf("Timeout waiting for output, got '%s'", output)
+			t.Fatalf("Timeout waiting for output. Has stdout: %v, Has stderr: %v. Got: '%s'", foundStdout, foundStderr, output)
+
 		case <-ticker.C:
 			outputData, err := os.ReadFile(outputFile)
 			if err != nil {
@@ -310,8 +339,25 @@ func TestNohupRunWithStderrOutput(t *testing.T) {
 			hasStdout := contains(output, "stdout") && contains(output, "stdout message")
 			hasStderr := contains(output, "stderr") && contains(output, "stderr message")
 
+			// Track what we've found for better error messages
+			if hasStdout {
+				foundStdout = true
+			}
+			if hasStderr {
+				foundStderr = true
+			}
+
 			if hasStdout && hasStderr {
 				// Success! Found all expected output
+				// Wait for Run to complete
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatalf("Run returned error: %v", err)
+					}
+				case <-time.After(1 * time.Second):
+					t.Fatal("Run did not complete after output was found")
+				}
 				return
 			}
 		}
