@@ -16,13 +16,16 @@ func TestBuildCommand_Basic(t *testing.T) {
 
 	result := BuildCommand(prompt, opts)
 
-	// Should have at least -p flag and the prompt
-	if len(result) < 2 {
-		t.Errorf("Expected at least 2 arguments, got %d", len(result))
+	// Should have at least the prompt
+	if len(result) < 1 {
+		t.Errorf("Expected at least 1 argument, got %d", len(result))
 	}
 
-	if result[0] != "-p" {
-		t.Errorf("Expected first arg to be '-p', got '%s'", result[0])
+	// Should NOT have -p flag (always dialog mode)
+	for _, arg := range result {
+		if arg == "-p" {
+			t.Error("Should not have -p flag (always interactive dialog mode)")
+		}
 	}
 
 	if result[len(result)-1] != prompt {
@@ -94,12 +97,11 @@ func TestBuildCommand_AllOptions(t *testing.T) {
 
 	result := BuildCommand(prompt, opts)
 
-	// Verify all flags are present
+	// Verify all flags are present (no -p flag in dialog mode)
 	expectedFlags := map[string]bool{
-		"-p":                         false,
 		"--output-format=stream-json": false,
-		"--verbose":                  false,
-		"--no-session-persistence":   false,
+		"--verbose":                   false,
+		"--no-session-persistence":    false,
 	}
 
 	for _, arg := range result {
@@ -129,9 +131,9 @@ func TestBuildCommand_OrderMatters(t *testing.T) {
 
 	result := BuildCommand(prompt, opts)
 
-	// First arg should be -p
-	if result[0] != "-p" {
-		t.Errorf("Expected first arg to be '-p', got '%s'", result[0])
+	// Should not have -p flag
+	if len(result) > 0 && result[0] == "-p" {
+		t.Error("Should not have -p flag (always dialog mode)")
 	}
 
 	// Last arg should be prompt

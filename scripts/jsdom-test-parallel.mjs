@@ -882,59 +882,43 @@ async function testClaudeIntegration() {
   const workspaceId = await createWorkspace(sessionCookie, workspaceName);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
-  // Create a simple process to get a process page
-  const executeResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
-    headers: {
-      Cookie: sessionCookie,
-      'HX-Request': 'true',
-    },
-    body: 'command=echo "test process"',
-  });
-
-  assert.equal(executeResponse.status, 200, 'Should execute command');
-  const processMatch = executeResponse.text.match(/processes\/([^\/]+)/);
-  assert.ok(processMatch, 'Should have process ID in response');
-  const processId = processMatch[1];
-  console.log(`✓ Test process created: ${processId}`);
-
-  // Navigate to the process page
-  const processPageResponse = await request('GET', `/workspaces/${workspaceId}/processes/${processId}`, {
+  // Navigate to the workspace page
+  const workspacePageResponse = await request('GET', `/workspaces/${workspaceId}`, {
     headers: {
       Cookie: sessionCookie,
     },
   });
 
-  assert.equal(processPageResponse.status, 200, 'Should load process page');
-  assert.ok(processPageResponse.text.includes('Ask Claude'), 'Page should have "Ask Claude" section');
-  console.log('✓ Process page loaded with Claude form');
+  assert.equal(workspacePageResponse.status, 200, 'Should load workspace page');
+  assert.ok(workspacePageResponse.text.includes('Start Claude'), 'Page should have "Start Claude" button');
+  console.log('✓ Workspace page loaded with Claude button');
 
-  // Parse the page to verify the Claude form
-  const processDoc = parseHTML(processPageResponse.text);
-  const claudeForm = processDoc.querySelector('form[hx-post*="hx-execute-claude"]');
-  assert.ok(claudeForm, 'Should have Claude form with hx-post to hx-execute-claude endpoint');
+  // Parse the page to verify the Claude button
+  const workspaceDoc = parseHTML(workspacePageResponse.text);
+  const claudeButton = workspaceDoc.querySelector('button[onclick*="startClaudeSession"]');
+  assert.ok(claudeButton, 'Should have Start Claude button');
+  assert.ok(claudeButton.textContent.includes('Start Claude'), 'Button should say "Start Claude"');
 
-  const promptTextarea = claudeForm.querySelector('textarea[name="prompt"]');
-  assert.ok(promptTextarea, 'Should have prompt textarea');
-  assert.equal(promptTextarea.getAttribute('required'), '', 'Prompt should be required');
-  assert.ok(promptTextarea.placeholder.toLowerCase().includes('claude'), 'Placeholder should mention Claude');
+  // Verify button is next to Interactive Terminal button
+  const interactiveTerminalButton = workspaceDoc.querySelector('button[onclick*="launchInteractiveTerminal"]');
+  assert.ok(interactiveTerminalButton, 'Should have Interactive Terminal button');
 
-  const submitButton = claudeForm.querySelector('button[type="submit"]');
-  assert.ok(submitButton, 'Should have submit button');
-  assert.ok(submitButton.textContent.includes('Ask Claude'), 'Button should say "Ask Claude"');
-  console.log('✓ Claude form structure validated');
+  // Both buttons should be in the same button group
+  const buttonGroup = claudeButton.closest('.d-flex');
+  assert.ok(buttonGroup, 'Claude button should be in button group');
+  assert.ok(buttonGroup.contains(interactiveTerminalButton), 'Both buttons should be in same group');
+  console.log('✓ Claude button found on workspace page next to Interactive Terminal');
 
-  // Verify HTMX attributes
-  const hxTarget = claudeForm.getAttribute('hx-target');
-  assert.equal(hxTarget, '#claude-output', 'Form should target #claude-output');
+  // Verify the startClaudeSession JavaScript function exists in the page
+  assert.ok(workspacePageResponse.text.includes('function startClaudeSession()'),
+    'Page should have startClaudeSession function');
+  assert.ok(workspacePageResponse.text.includes('htmx.ajax'),
+    'startClaudeSession should use htmx.ajax');
+  assert.ok(workspacePageResponse.text.includes('hx-execute-claude'),
+    'startClaudeSession should call hx-execute-claude endpoint');
+  console.log('✓ JavaScript function verified');
 
-  const hxSwap = claudeForm.getAttribute('hx-swap');
-  assert.equal(hxSwap, 'afterbegin', 'Form should use afterbegin swap');
-
-  const claudeOutputDiv = processDoc.querySelector('#claude-output');
-  assert.ok(claudeOutputDiv, 'Should have #claude-output div for responses');
-  console.log('✓ HTMX attributes validated');
-
-  // Submit a Claude prompt
+  // Test submitting a Claude prompt via the endpoint
   const testPrompt = 'Explain what this command does: echo "hello world"';
   const claudeExecuteResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute-claude`, {
     headers: {
@@ -947,22 +931,23 @@ async function testClaudeIntegration() {
   assert.equal(claudeExecuteResponse.status, 200, 'Should execute Claude command');
   console.log('✓ Claude command submitted successfully');
 
-  // Parse the response to verify it's a process card
+  // Parse the response - should be a hidden div like other commands
   const claudeResponseDoc = parseHTML(claudeExecuteResponse.text);
-  const processCard = claudeResponseDoc.querySelector('.card');
-  assert.ok(processCard, 'Response should contain a process card');
+  const hiddenDiv = claudeResponseDoc.querySelector('div[data-process-id][style*="display:none"]');
+  assert.ok(hiddenDiv, 'Response should contain a hidden div with process ID');
 
   // Verify the command includes claude CLI with expected flags
   const commandText = claudeExecuteResponse.text;
   assert.ok(commandText.includes('claude'), 'Command should include "claude"');
-  assert.ok(commandText.includes('-p'), 'Command should include -p flag');
 
-  // The command may include streaming flags if Claude is configured
-  if (commandText.includes('stream-json')) {
-    assert.ok(commandText.includes('--output-format=stream-json'), 'Should include streaming JSON flag');
-    assert.ok(commandText.includes('--verbose'), 'Should include verbose flag');
-    console.log('✓ Claude command includes streaming flags');
-  }
+  // Should NOT include -p flag (always interactive dialog mode)
+  assert.ok(!commandText.includes(' -p ') && !commandText.includes(' -p"'),
+    'Should not include -p flag (always interactive dialog mode)');
+
+  // Should include streaming flags for interactive dialog
+  assert.ok(commandText.includes('--output-format=stream-json'), 'Should include streaming JSON flag');
+  assert.ok(commandText.includes('--verbose'), 'Should include verbose flag');
+  console.log('✓ Claude command always uses interactive dialog mode (no -p flag)');
 
   // Extract process ID from the response
   const claudeProcessMatch = claudeExecuteResponse.text.match(/processes\/([a-f0-9]+)/);

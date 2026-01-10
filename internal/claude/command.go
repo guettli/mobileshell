@@ -17,18 +17,24 @@ type CommandOptions struct {
 	WorkDir string
 }
 
-// BuildCommand creates a Claude CLI command for non-interactive execution.
+// BuildCommand creates a Claude CLI command for interactive dialog sessions.
 // It returns a slice of strings suitable for exec.Command().
 //
+// The command always runs in interactive dialog mode (no `-p` flag) to enable
+// multi-turn conversations via stdin.
+//
 // The command uses:
-// - `-p` flag for print mode (non-interactive, single response)
+// - Interactive dialog mode (no `-p` flag) for multi-turn conversations
 // - `--output-format=stream-json --verbose` for real-time streaming (if StreamJSON is true)
 // - `--no-session-persistence` to avoid creating session files (if NoSession is true)
 //
-// Example command structure:
-//   claude -p --output-format=stream-json --verbose --no-session-persistence "prompt text"
+// Example command:
+//   claude --output-format=stream-json --verbose --no-session-persistence "prompt text"
 func BuildCommand(prompt string, opts CommandOptions) []string {
-	args := []string{"-p"}
+	var args []string
+
+	// Always run in interactive dialog mode (no -p flag)
+	// This enables multi-turn conversations via stdin
 
 	// Add streaming JSON format if requested
 	if opts.StreamJSON {
