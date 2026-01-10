@@ -906,25 +906,13 @@ async function testClaudeIntegration() {
     // Create a bin directory in /tmp for the mock claude
     const mockCommand = 'mkdir -p /tmp/mock-claude-bin && cat > /tmp/mock-claude-bin/claude << ' + "'MOCKEOF'\n" +
       '#!/bin/bash\n' +
-      '# Mock Claude CLI that simulates interactive dialog mode\n' +
+      '# Mock Claude CLI that simulates stream-json output format\n' +
       '\n' +
-      '# Output a mock response in markdown format\n' +
+      '# Output mock stream-json format with markdown content\n' +
       'cat << ' + "'EOF'\n" +
-      '# Mock Claude Response\n' +
-      '\n' +
-      'I will explain the command you asked about.\n' +
-      '\n' +
-      'The echo hello world command is a simple shell command that:\n' +
-      '\n' +
-      '## What it does\n' +
-      '\n' +
-      '- Prints the text hello world to standard output\n' +
-      '- Uses the echo command which is a built-in shell utility\n' +
-      '- The quotes ensure the text is treated as a single argument\n' +
-      '\n' +
-      'This is commonly used for testing, simple output, and script debugging.\n' +
-      '\n' +
-      'Let me know if you would like more details!\n' +
+      '{"type":"system","subtype":"init","session_id":"mock-test-session"}\n' +
+      '{"type":"assistant","message":{"content":[{"type":"text","text":"# Mock Claude Response\\n\\nI will explain the command you asked about.\\n\\nThe echo hello world command is a simple shell command that:\\n\\n## What it does\\n\\n- Prints the text hello world to standard output\\n- Uses the echo command which is a built-in shell utility\\n- The quotes ensure the text is treated as a single argument\\n\\nThis is commonly used for testing, simple output, and script debugging.\\n\\nLet me know if you would like more details!"}]}}\n' +
+      '{"type":"result","subtype":"success"}\n' +
       'EOF\n' +
       'MOCKEOF\n' +
       'chmod +x /tmp/mock-claude-bin/claude';
@@ -1064,14 +1052,36 @@ async function testClaudeIntegration() {
     if (outputText.length > 100) {
       outputReceived = true;
 
-      // If using mock, verify mock response content
-      if (!isRealClaude) {
-        assert.ok(outputText.includes('Mock Claude Response') || outputText.includes('echo'),
-          'Mock Claude should output expected response');
-        console.log('✓ Mock Claude output received and verified');
+      // Verify that output is rendered as markdown HTML
+      const outputDoc = parseHTML(outputText);
+      const markdownContainer = outputDoc.querySelector('.markdown-container');
+
+      if (markdownContainer) {
+        console.log('✓ Output is rendered as markdown (found markdown-container)');
+
+        // If using mock, verify the markdown content is properly rendered
+        if (!isRealClaude) {
+          // Mock should have markdown headers converted to HTML
+          const headers = markdownContainer.querySelectorAll('h1, h2');
+          assert.ok(headers.length > 0, 'Mock Claude markdown should have headers rendered as HTML');
+
+          // Mock should have lists converted to HTML
+          const lists = markdownContainer.querySelectorAll('ul, ol');
+          assert.ok(lists.length > 0, 'Mock Claude markdown should have lists rendered as HTML');
+
+          console.log('✓ Mock Claude output rendered as markdown with proper HTML elements');
+        } else {
+          console.log('✓ Real Claude output rendered as markdown');
+        }
       } else {
-        console.log('✓ Real Claude output received');
+        // No markdown container - this might be raw output
+        console.log('⚠ Output not rendered as markdown (no markdown-container found)');
+        if (!isRealClaude) {
+          // For mock, we expect markdown rendering
+          assert.fail('Expected mock Claude output to be rendered as markdown');
+        }
       }
+
       break;
     }
   }
