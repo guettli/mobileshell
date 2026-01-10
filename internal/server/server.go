@@ -1811,7 +1811,7 @@ func GetStateDir(stateDir string, createIfMissing bool) (string, error) {
 	return stateDir, nil
 }
 
-// setupServerLog sets up logging to both stdout/stderr and server.log file
+// setupServerLog redirects stdout/stderr to both their original destinations and server.log file
 // Returns the log file handle (to be closed by caller) and any error
 func setupServerLog(stateDir string) (*os.File, error) {
 	logPath := filepath.Join(stateDir, "server.log")
@@ -1822,15 +1822,41 @@ func setupServerLog(stateDir string) (*os.File, error) {
 		return nil, fmt.Errorf("failed to open server log file: %w", err)
 	}
 
-	// Create multi-writers for stdout and stderr
-	stdoutWriter := io.MultiWriter(os.Stdout, logFile)
-	stderrWriter := io.MultiWriter(os.Stderr, logFile)
+	// Save original stdout and stderr
+	origStdout := os.Stdout
+	origStderr := os.Stderr
 
-	// Redirect standard logger output to both stdout and file
-	log.SetOutput(stdoutWriter)
+	// Create pipes for stdout
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
 
-	// Redirect slog default logger to both stderr and file
-	slog.SetDefault(slog.New(slog.NewTextHandler(stderrWriter, nil)))
+	// Create pipes for stderr
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Redirect os.Stdout and os.Stderr
+	os.Stdout = stdoutWriter
+	os.Stderr = stderrWriter
+
+	// Start goroutine to tee stdout
+	go func() {
+		mw := io.MultiWriter(origStdout, logFile)
+		_, _ = io.Copy(mw, stdoutReader)
+	}()
+
+	// Start goroutine to tee stderr
+	go func() {
+		mw := io.MultiWriter(origStderr, logFile)
+		_, _ = io.Copy(mw, stderrReader)
+	}()
 
 	return logFile, nil
 }
