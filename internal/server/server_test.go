@@ -3,6 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -767,4 +770,61 @@ func TestBinaryDownload(t *testing.T) {
 	}
 
 	t.Logf("Successfully verified binary data message is shown on process page")
+}
+
+func TestServerLogCapture(t *testing.T) {
+	// Create a temporary directory for state
+	stateDir := t.TempDir()
+
+	// Set up server logging
+	logFile, err := setupServerLog(stateDir)
+	if err != nil {
+		t.Fatalf("Failed to setup server log: %v", err)
+	}
+	defer func() {
+		if err := logFile.Close(); err != nil {
+			t.Errorf("Failed to close log file: %v", err)
+		}
+	}()
+
+	// Write to log package
+	log.Println("Test log message")
+
+	// Write to slog package
+	slog.Info("Test slog message")
+
+	// Write directly to stdout and stderr
+	_, _ = fmt.Fprintln(os.Stdout, "Direct stdout message")
+	_, _ = fmt.Fprintln(os.Stderr, "Direct stderr message")
+
+	// Give goroutines time to copy data
+	time.Sleep(100 * time.Millisecond)
+
+	// Read server.log
+	logPath := filepath.Join(stateDir, "server.log")
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read server.log: %v", err)
+	}
+
+	contentStr := string(content)
+	t.Logf("server.log content:\n%s", contentStr)
+
+	// Verify all messages are captured
+	if !strings.Contains(contentStr, "Test log message") {
+		t.Error("server.log should contain 'Test log message' from log package")
+	}
+	if !strings.Contains(contentStr, "Test slog message") {
+		t.Error("server.log should contain 'Test slog message' from slog package")
+	}
+	if !strings.Contains(contentStr, "Direct stdout message") {
+		t.Error("server.log should contain 'Direct stdout message' from stdout")
+	}
+	if !strings.Contains(contentStr, "Direct stderr message") {
+		t.Error("server.log should contain 'Direct stderr message' from stderr")
+	}
+
+	if len(content) == 0 {
+		t.Error("server.log should not be empty")
+	}
 }
