@@ -48,6 +48,8 @@ func HandleProcessList(tmpl *template.Template, ctx context.Context, r *http.Req
 		order = "desc"
 	}
 
+	search := r.URL.Query().Get("search")
+
 	// Get current user's UID for filtering
 	currentUID := uint32(os.Getuid())
 
@@ -55,6 +57,17 @@ func HandleProcessList(tmpl *template.Template, ctx context.Context, r *http.Req
 	processes, err := GetUserProcesses(currentUID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get processes: %w", err)
+	}
+
+	// Filter by search term
+	if search != "" {
+		var filtered []*ProcessInfo
+		for _, p := range processes {
+			if matchesSearch(p.Name, search) || matchesSearch(p.Cmdline, search) {
+				filtered = append(filtered, p)
+			}
+		}
+		processes = filtered
 	}
 
 	// Sort processes
@@ -66,12 +79,91 @@ func HandleProcessList(tmpl *template.Template, ctx context.Context, r *http.Req
 		"SortBy":    sortBy,
 		"Order":     order,
 		"BasePath":  basePath,
+		"Search":    search,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to render template: %w", err)
 	}
 	return buf.Bytes(), nil
 }
+
+func matchesSearch(text, query string) bool {
+	terms := strings.Fields(strings.ToLower(query))
+	lowerText := strings.ToLower(text)
+	for _, term := range terms {
+		if !strings.Contains(lowerText, term) {
+			return false
+		}
+	}
+	return true
+}
+
+// HandleBulkSignal sends a signal to multiple processes (POST only)
+func HandleBulkSignal(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodPost {
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
+	}
+
+	if err := r.ParseForm(); err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
+	}
+
+	signalStr := r.FormValue("signal")
+	if signalStr == "" {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "No signal provided"}
+	}
+
+	signalNum, err := strconv.Atoi(signalStr)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Invalid signal number"}
+	}
+
+	pids := r.Form["pids"]
+	if len(pids) == 0 {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "No processes selected"}
+	}
+
+	currentUID := uint32(os.Getuid())
+	count := 0
+	var lastErr error
+
+	for _, pidStr := range pids {
+		pid, err := strconv.ParseInt(pidStr, 10, 32)
+		if err != nil {
+			continue
+		}
+
+		err = SendSignalToProcess(int32(pid), signalNum, currentUID)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		count++
+	}
+
+	signalName := "signal"
+	if sig := GetAllSignals(); sig != nil {
+		for _, s := range sig {
+			if s.Number == signalNum {
+				signalName = s.Name
+				break
+			}
+		}
+	}
+
+	if count == 0 && lastErr != nil {
+		return []byte(fmt.Sprintf(`<div class="alert alert-danger alert-dismissible fade show" role="alert">
+			Failed to send %s: %v
+			<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+		</div>`, signalName, lastErr)), nil
+	}
+
+	return []byte(fmt.Sprintf(`<div class="alert alert-success alert-dismissible fade show" role="alert">
+		%s sent to %d processes.
+		<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+	</div>`, signalName, count)), nil
+}
+
 
 // HandleProcessDetail renders the process detail page
 func HandleProcessDetail(tmpl *template.Template, ctx context.Context, r *http.Request, basePath string, pidStr string) ([]byte, error) {

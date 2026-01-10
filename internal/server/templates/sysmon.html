@@ -64,15 +64,43 @@
     </nav>
 
     <div class="container-fluid mt-4">
+        <div id="alert-container"></div>
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">System Monitor - My Processes</h5>
                 <p class="text-muted small mb-3">Showing processes owned by current user. Auto-refresh every 2 seconds.</p>
 
+                <div class="d-flex gap-2 mb-3">
+                    <input type="text" class="form-control" id="process-search" name="search" 
+                           placeholder="Filter processes (e.g. 'python script')..."
+                           hx-get="{{.BasePath}}/sysmon/hx-processes?sort={{.SortBy}}&order={{.Order}}"
+                           hx-trigger="keyup changed delay:500ms"
+                           hx-target="#process-list"
+                           hx-include="[name='search']">
+                    
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="bulkActions" data-bs-toggle="dropdown" aria-expanded="false">
+                            Actions
+                        </button>
+                        <ul class="dropdown-menu shadow" aria-labelledby="bulkActions">
+                            <li><h6 class="dropdown-header">Send Signal to Selected</h6></li>
+                            <li><button class="dropdown-item" onclick="sendBulkSignal(15)">SIGTERM (15)</button></li>
+                            <li><button class="dropdown-item" onclick="sendBulkSignal(9)">SIGKILL (9)</button></li>
+                            <li><button class="dropdown-item" onclick="sendBulkSignal(2)">SIGINT (2)</button></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="select-all-processes" onchange="toggleAllProcesses(this)">
+                    <label class="form-check-label" for="select-all-processes">Select All</label>
+                </div>
+
                 <div id="process-list"
                      hx-get="{{.BasePath}}/sysmon/hx-processes?sort={{.SortBy}}&order={{.Order}}"
                      hx-trigger="load, every 2s"
-                     hx-swap="innerHTML">
+                     hx-swap="innerHTML"
+                     hx-include="[name='search']">
                     <div class="text-center py-5">
                         <div class="spinner-border text-primary" role="status">
                             <span class="visually-hidden">Loading...</span>
@@ -83,6 +111,66 @@
             </div>
         </div>
     </div>
+
+    <script>
+        function toggleAllProcesses(checkbox) {
+            const checkboxes = document.querySelectorAll('.process-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+            });
+        }
+
+        function sendBulkSignal(signal) {
+            const selected = Array.from(document.querySelectorAll('.process-checkbox:checked'))
+                .map(cb => cb.value);
+            
+            if (selected.length === 0) {
+                alert('No processes selected');
+                return;
+            }
+
+            if (!confirm(`Send signal ${signal} to ${selected.length} processes?`)) {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('signal', signal);
+            selected.forEach(pid => formData.append('pids', pid));
+
+            fetch('{{.BasePath}}/sysmon/hx-bulk-signal', {
+                method: 'POST',
+                body: formData
+            }).then(response => response.text())
+              .then(html => {
+                  const alertContainer = document.getElementById('alert-container');
+                  alertContainer.innerHTML = html;
+                  // Refresh process list immediately
+                  htmx.trigger('#process-search', 'changed');
+              })
+              .catch(error => {
+                  console.error('Error sending bulk signal:', error);
+                  alert('Failed to send signal');
+              });
+        }
+
+        // Preserve selections across HTMX updates
+        document.body.addEventListener('htmx:beforeSwap', function(evt) {
+            if (evt.detail.target.id === 'process-list') {
+                const selectedPids = Array.from(document.querySelectorAll('.process-checkbox:checked'))
+                    .map(cb => cb.value);
+                evt.detail.selectedPids = selectedPids;
+            }
+        });
+
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            if (evt.detail.target.id === 'process-list' && evt.detail.selectedPids) {
+                evt.detail.selectedPids.forEach(pid => {
+                    const cb = document.querySelector(`.process-checkbox[value="${pid}"]`);
+                    if (cb) cb.checked = true;
+                });
+            }
+        });
+    </script>
 </body>
 
 </html>
