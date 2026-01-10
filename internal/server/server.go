@@ -714,7 +714,7 @@ func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, 
 	// Build Claude command for interactive dialog session
 	claudeArgs := claude.BuildCommand(prompt, claude.CommandOptions{
 		StreamJSON: true,
-		NoSession:  true,
+		NoSession:  false, // --no-session-persistence only works with --print mode
 		WorkDir:    ws.Directory,
 	})
 

@@ -104,7 +104,6 @@ to provide AI assistance directly from the process detail page.
   - No `-p` flag (interactive mode, not one-time print mode)
   - `--output-format=stream-json`: Real-time streaming JSON output
   - `--verbose`: Verbose output for debugging
-  - `--no-session-persistence`: No session files created
 - Initial prompt starts the conversation
 - Continue the dialog by sending messages via stdin on the process page
 - Responses are rendered as Markdown with HTML sanitization
