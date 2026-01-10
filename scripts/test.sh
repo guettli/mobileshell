@@ -11,10 +11,10 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     trap 'rm -f "$STDERR_FILE"' EXIT
 
     # Run command with stderr redirected to temp file
-    set +e  # Temporarily disable exit on error to capture exit code
+    # Disable ERR trap temporarily to capture exit code properly
+    trap - ERR
     nix develop --command "$0" "$@" 2>"$STDERR_FILE"
     exit_code=$?
-    set -e
 
     # Display filtered stderr
     if [ -s "$STDERR_FILE" ]; then
