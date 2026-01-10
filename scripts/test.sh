@@ -6,23 +6,7 @@ set -Eeuo pipefail
 # Ensure Nix environment is active, or run this script via nix develop
 if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     echo "Nix environment not active. Running via 'nix develop'..."
-    # Capture stderr to filter out "copying path" messages
-    STDERR_FILE=$(mktemp)
-    trap 'rm -f "$STDERR_FILE"' EXIT
-
-    # Run command with stderr redirected to temp file
-    # Disable ERR trap temporarily to capture exit code properly
-    trap - ERR
-    nix develop --command "$0" "$@" 2>"$STDERR_FILE"
-    exit_code=$?
-
-    # Display filtered stderr
-    if [ -s "$STDERR_FILE" ]; then
-        grep -v "copying path" "$STDERR_FILE" >&2 || true
-    fi
-
-    rm -f "$STDERR_FILE"
-    exit $exit_code
+    exec nix develop --quiet --command "$0" "$@"
 fi
 
 # Create temp directory for results
