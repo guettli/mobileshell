@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"log/slog"
 	"mime"
@@ -321,6 +322,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/", s.wrapHandler(s.handleIndex))
 	mux.HandleFunc("/login", s.wrapHandler(s.handleLogin))
 	mux.HandleFunc("/logout", s.wrapHandler(s.handleLogout))
+	mux.HandleFunc("/server-log", s.authMiddleware(s.wrapHandler(s.handleServerLog)))
 
 	// Workspace routes
 	mux.HandleFunc("/workspaces/hx-create", s.authMiddleware(s.wrapHandler(s.hxHandleWorkspaceCreate)))
@@ -450,6 +452,48 @@ func (s *Server) handleLogout(ctx context.Context, r *http.Request) ([]byte, err
 		redirect:   redirectPath,
 		statusCode: http.StatusSeeOther,
 	}
+}
+
+func (s *Server) handleServerLog(ctx context.Context, r *http.Request) ([]byte, error) {
+	if r.Method != http.MethodGet {
+		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
+	}
+
+	basePath := s.getBasePath(r)
+	logPath := filepath.Join(s.stateDir, "server.log")
+
+	// Read the file
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			content = []byte("Server log file does not exist yet.")
+		} else {
+			return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: fmt.Sprintf("Failed to read server log: %v", err)}
+		}
+	}
+
+	// Get file info
+	var size int64
+	var modTime time.Time
+	info, err := os.Stat(logPath)
+	if err == nil {
+		size = info.Size()
+		modTime = info.ModTime()
+	}
+
+	var buf bytes.Buffer
+	err = s.tmpl.ExecuteTemplate(&buf, "file-view.html", map[string]interface{}{
+		"BasePath": basePath,
+		"Path":     logPath,
+		"Content":  string(content),
+		"Size":     size,
+		"ModTime":  modTime,
+		"DirURL":   basePath + "/sysmon",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func (s *Server) handleWorkspaces(ctx context.Context, r *http.Request) ([]byte, error) {
@@ -1767,6 +1811,56 @@ func GetStateDir(stateDir string, createIfMissing bool) (string, error) {
 	return stateDir, nil
 }
 
+// setupServerLog redirects stdout/stderr to both their original destinations and server.log file
+// Returns the log file handle (to be closed by caller) and any error
+func setupServerLog(stateDir string) (*os.File, error) {
+	logPath := filepath.Join(stateDir, "server.log")
+
+	// Open log file in append mode with create flag
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open server log file: %w", err)
+	}
+
+	// Save original stdout and stderr
+	origStdout := os.Stdout
+	origStderr := os.Stderr
+
+	// Create pipes for stdout
+	stdoutReader, stdoutWriter, err := os.Pipe()
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	// Create pipes for stderr
+	stderrReader, stderrWriter, err := os.Pipe()
+	if err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Redirect os.Stdout and os.Stderr
+	os.Stdout = stdoutWriter
+	os.Stderr = stderrWriter
+
+	// Start goroutine to tee stdout
+	go func() {
+		mw := io.MultiWriter(origStdout, logFile)
+		_, _ = io.Copy(mw, stdoutReader)
+	}()
+
+	// Start goroutine to tee stderr
+	go func() {
+		mw := io.MultiWriter(origStderr, logFile)
+		_, _ = io.Copy(mw, stderrReader)
+	}()
+
+	return logFile, nil
+}
+
 // Run starts the server with the given configuration
 func Run(stateDir, port string) error {
 	var err error
@@ -1774,6 +1868,17 @@ func Run(stateDir, port string) error {
 	if err != nil {
 		return err
 	}
+
+	// Set up server logging to both stdout/stderr and server.log
+	logFile, err := setupServerLog(stateDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := logFile.Close(); err != nil {
+			slog.Error("failed to close server log file", "error", err)
+		}
+	}()
 
 	// Create hashed-passwords directory if it doesn't exist
 	passwordDir := filepath.Join(stateDir, "hashed-passwords")
