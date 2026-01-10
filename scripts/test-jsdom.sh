@@ -15,11 +15,8 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     exec nix develop --command "$0" "$@"
 fi
 
-# Only show verbose output if not in CI
-if [[ -z "${CI:-}" ]]; then
-    echo "MobileShell JSDOM Integration Test"
-    echo "===================================="
-fi
+log "MobileShell JSDOM Integration Test"
+log "===================================="
 
 # Create temporary state directory
 TEMP_STATE_DIR=$(mktemp -d)
@@ -34,20 +31,12 @@ log "Generated test password (length: ${#PASSWORD})"
 
 # Add password using the CLI
 log "Adding password via add-password command..."
-STDERR_TMP=$(mktemp)
-echo "$PASSWORD" | go run ./cmd/mobileshell add-password --state-dir "$TEMP_STATE_DIR" --from-stdin 2>"$STDERR_TMP" || exit_code=$?
-[ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
-rm -f "$STDERR_TMP"
-[ "${exit_code:-0}" -ne 0 ] && exit "$exit_code"
+echo "$PASSWORD" | go run ./cmd/mobileshell add-password --state-dir "$TEMP_STATE_DIR" --from-stdin
 log "✓ Password added"
 
 # Build the server
 log "Building server..."
-STDERR_TMP=$(mktemp)
-go build -o "$TEMP_STATE_DIR/mobileshell" ./cmd/mobileshell 2>"$STDERR_TMP" || exit_code=$?
-[ -s "$STDERR_TMP" ] && grep -v "copying path" "$STDERR_TMP" >&2 || true
-rm -f "$STDERR_TMP"
-[ "${exit_code:-0}" -ne 0 ] && exit "$exit_code"
+go build -o "$TEMP_STATE_DIR/mobileshell" ./cmd/mobileshell
 log "✓ Server built"
 
 # Find a free port
