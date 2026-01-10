@@ -118,6 +118,36 @@
         }
         </script>
 
+        <!-- Process Filter & Actions -->
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex gap-2">
+                    <input type="text" class="form-control" id="process-search" name="search" 
+                           placeholder="Filter processes (e.g. 'python script')..."
+                           hx-get="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-finished-processes?offset=0"
+                           hx-trigger="keyup changed delay:500ms"
+                           hx-target="#finished-processes"
+                           hx-include="[name='search']">
+                    
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="bulkActions" data-bs-toggle="dropdown" aria-expanded="false">
+                            Actions
+                        </button>
+                        <ul class="dropdown-menu" aria-labelledby="bulkActions">
+                            <li><h6 class="dropdown-header">Send Signal</h6></li>
+                            <li><button class="dropdown-item" onclick="sendBulkSignal(15)">SIGTERM (15)</button></li>
+                            <li><button class="dropdown-item" onclick="sendBulkSignal(9)">SIGKILL (9)</button></li>
+                            <li><button class="dropdown-item" onclick="sendBulkSignal(2)">SIGINT (2)</button></li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="select-all-processes" onchange="toggleAllProcesses(this)">
+                    <label class="form-check-label" for="select-all-processes">Select All</label>
+                </div>
+            </div>
+        </div>
+
         <!-- Running Processes Section -->
         <div class="card mb-3">
             <div class="card-body">
@@ -376,6 +406,75 @@
             };
         })();
         {{end}}
+
+        // Process Filtering and Bulk Actions
+        const searchInput = document.getElementById('process-search');
+        if (searchInput) {
+            searchInput.addEventListener('keyup', function() {
+                filterRunningProcesses(this.value);
+            });
+        }
+
+        function filterRunningProcesses(query) {
+            const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 0);
+            const cards = document.querySelectorAll('#running-processes .process-card');
+            cards.forEach(card => {
+                const cmdElement = card.querySelector('code');
+                if (!cmdElement) return;
+                const cmd = cmdElement.textContent.toLowerCase();
+                // Check if all terms are present in the command
+                const match = terms.every(term => cmd.includes(term));
+                card.style.display = match ? 'block' : 'none';
+            });
+        }
+
+        function toggleAllProcesses(checkbox) {
+            const checkboxes = document.querySelectorAll('.process-checkbox');
+            checkboxes.forEach(cb => {
+                // Only toggle visible ones (checking display property of closest card)
+                const card = cb.closest('.process-card');
+                if (card && card.style.display !== 'none') {
+                    cb.checked = checkbox.checked;
+                }
+            });
+        }
+
+        function sendBulkSignal(signal) {
+            const selected = Array.from(document.querySelectorAll('.process-checkbox:checked'))
+                .map(cb => cb.value);
+            
+            if (selected.length === 0) {
+                alert('No processes selected');
+                return;
+            }
+
+            if (!confirm(`Send signal ${signal} to ${selected.length} processes?`)) {
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('signal', signal);
+            selected.forEach(id => formData.append('process_ids', id));
+
+            fetch('{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-bulk-signal', {
+                method: 'POST',
+                body: formData
+            }).then(response => response.text())
+              .then(html => {
+                  const div = document.createElement('div');
+                  div.innerHTML = html;
+                  const container = document.querySelector('.container');
+                  if (container && div.firstElementChild) {
+                      container.prepend(div.firstElementChild);
+                  }
+                  // Refresh finished processes
+                  htmx.trigger('#process-search', 'changed');
+              })
+              .catch(error => {
+                  console.error('Error sending bulk signal:', error);
+                  alert('Failed to send signal');
+              });
+        }
     </script>
 
     <script src="{{.BasePath}}/static/static/url-links.js"></script>

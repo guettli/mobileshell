@@ -25,17 +25,22 @@
 <div class="card process-card mb-2">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-start">
-            <div>
-                <h6 class="card-subtitle mb-2">
-                    <a href="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}" class="text-decoration-none">
-                        {{template "finished-process-badge" .}}
-                    </a>
-                </h6>
-                <p class="card-text">
-                    <strong>Command:</strong> <code>{{.Command}}</code><br>
-                    <small class="text-muted">Started: {{.StartTime.Format "2006-01-02 15:04:05"}}{{$duration :=
-                        formatDuration .StartTime .EndTime}}{{if $duration}} ({{$duration}}){{end}}</small>
-                </p>
+            <div class="d-flex align-items-start flex-grow-1">
+                <div class="me-2 mt-1">
+                    <input class="form-check-input process-checkbox" type="checkbox" value="{{.ID}}">
+                </div>
+                <div>
+                    <h6 class="card-subtitle mb-2">
+                        <a href="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}" class="text-decoration-none">
+                            {{template "finished-process-badge" .}}
+                        </a>
+                    </h6>
+                    <p class="card-text">
+                        <strong>Command:</strong> <code>{{.Command}}</code><br>
+                        <small class="text-muted">Started: {{.StartTime.Format "2006-01-02 15:04:05"}}{{$duration :=
+                            formatDuration .StartTime .EndTime}}{{if $duration}} ({{$duration}}){{end}}</small>
+                    </p>
+                </div>
             </div>
             <div>
                 <form hx-post="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/hx-execute" hx-target="#running-processes" hx-swap="beforeend" hx-on::after-request="this.reset();" style="display: inline;">
@@ -54,7 +59,9 @@
 
 {{if .HasMore}}
 <div id="load-more-trigger"
-    hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/hx-finished-processes?offset={{.Offset}}" hx-trigger="revealed"
+    hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/hx-finished-processes?offset={{.Offset}}"
+    hx-include="[name='search']"
+    hx-trigger="revealed"
     hx-swap="afterend">
     <div class="text-center text-muted py-2">
         <small>Scroll down to load more...</small>

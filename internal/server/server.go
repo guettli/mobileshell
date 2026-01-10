@@ -335,6 +335,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-output", s.authMiddleware(s.wrapHandler(s.hxHandleOutput)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSendSignal)))
+	mux.HandleFunc("/workspaces/{id}/hx-bulk-signal", s.authMiddleware(s.wrapHandler(s.hxHandleBulkSendSignal)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/download", s.authMiddleware(s.wrapHandler(s.handleDownloadOutput)))
 	
 	// Interactive terminal routes
@@ -1135,6 +1136,9 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 		_, _ = fmt.Sscanf(offsetStr, "%d", &offset)
 	}
 
+	// Get search term
+	search := r.URL.Query().Get("search")
+
 	// Get the workspace
 	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
@@ -1150,6 +1154,9 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	var finishedProcesses []*executor.Process
 	for _, p := range allProcesses {
 		if p.Completed {
+			if search != "" && !matchesSearch(p.Command, search) {
+				continue
+			}
 			finishedProcesses = append(finishedProcesses, p)
 		}
 	}
@@ -1189,11 +1196,91 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 		"Offset":            newOffset,
 		"BasePath":          s.getBasePath(r),
 		"WorkspaceID":       workspaceID,
+		"Search":            search,
 	})
 	if err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func matchesSearch(text, query string) bool {
+	terms := strings.Fields(strings.ToLower(query))
+	lowerText := strings.ToLower(text)
+	for _, term := range terms {
+		if !strings.Contains(lowerText, term) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) hxHandleBulkSendSignal(ctx context.Context, r *http.Request) ([]byte, error) {
+	workspaceID := r.PathValue("id")
+	if workspaceID == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "Workspace ID is required")
+	}
+
+	if err := r.ParseForm(); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Failed to parse form")
+	}
+
+	signalStr := r.FormValue("signal")
+	if signalStr == "" {
+		return nil, newHTTPError(http.StatusBadRequest, "No signal provided")
+	}
+
+	var signalNum int
+	if _, err := fmt.Sscanf(signalStr, "%d", &signalNum); err != nil {
+		return nil, newHTTPError(http.StatusBadRequest, "Invalid signal number")
+	}
+	signalName := syscall.Signal(signalNum).String()
+
+	processIDs := r.Form["process_ids"]
+	if len(processIDs) == 0 {
+		return nil, newHTTPError(http.StatusBadRequest, "No processes selected")
+	}
+
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, newHTTPError(http.StatusNotFound, "Workspace not found")
+	}
+
+	count := 0
+	for _, processID := range processIDs {
+		proc, ok := executor.GetProcess(s.stateDir, processID)
+		if !ok || proc.PID == 0 {
+			continue
+		}
+
+		process, err := os.FindProcess(proc.PID)
+		if err != nil {
+			continue
+		}
+
+		if err := process.Signal(syscall.Signal(signalNum)); err != nil {
+			slog.Error("Failed to send signal to process", "error", err, "pid", proc.PID, "id", proc.ID)
+			continue
+		}
+
+		// Log signal
+		processDir := workspace.GetProcessDir(ws, processID)
+		outputFile := filepath.Join(processDir, "output.log")
+		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+		content := fmt.Sprintf("%d %s (bulk)", signalNum, signalName)
+		logLine := fmt.Sprintf("signal-sent %s %d: %s\n", timestamp, len(content), content)
+		if f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0600); err == nil {
+			f.WriteString(logLine)
+			f.Close()
+		}
+		count++
+	}
+
+	// Return toast or notification
+	return []byte(fmt.Sprintf(`<div class="alert alert-success alert-dismissible fade show" role="alert">
+		Signal %s sent to %d processes.
+		<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+	</div>`, signalName, count)), nil
 }
 
 func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte, error) {

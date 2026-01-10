@@ -1,8 +1,12 @@
 <div class="card process-card mb-2" id="process-{{.Process.ID}}">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-start">
-            <div>
-                <h6 class="card-subtitle mb-2">
+            <div class="d-flex align-items-start flex-grow-1">
+                <div class="me-2 mt-1">
+                    <input class="form-check-input process-checkbox" type="checkbox" value="{{.Process.ID}}">
+                </div>
+                <div>
+                    <h6 class="card-subtitle mb-2">
                     <a href="{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}" class="text-decoration-none">
                         <span class="badge bg-primary">
                             Running
