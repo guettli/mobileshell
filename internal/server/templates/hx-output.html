@@ -22,7 +22,11 @@
         {{if .Stdout}}
         <div class="output-section">
             <h6>Stdout:</h6>
+            {{if eq .ContentType "markdown"}}
+            <div class="markdown-container">{{.StdoutHTML}}</div>
+            {{else}}
             <div class="output-container">{{.Stdout}}</div>
+            {{end}}
         </div>
         {{end}}
         {{if .Stderr}}
