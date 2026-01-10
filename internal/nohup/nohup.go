@@ -105,9 +105,9 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// to prevent Claude from detecting a terminal and showing its TUI interface
 	isClaudeCommand := strings.Contains(proc.Command, "claude")
 
-	var stderrPipe, stdoutPipe, stdinPipe io.ReadCloser
+	var stderrPipe, stdoutPipe io.ReadCloser
+	var stdinPipe io.WriteCloser
 	var ptmx, tty *os.File
-	var err error
 
 	if isClaudeCommand {
 		// Use regular pipes for Claude to prevent TUI activation
