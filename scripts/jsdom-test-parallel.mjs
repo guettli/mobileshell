@@ -947,22 +947,23 @@ async function testClaudeIntegration() {
   assert.equal(claudeExecuteResponse.status, 200, 'Should execute Claude command');
   console.log('✓ Claude command submitted successfully');
 
-  // Parse the response to verify it's a process card
+  // Parse the response - should be a hidden div like other commands
   const claudeResponseDoc = parseHTML(claudeExecuteResponse.text);
-  const processCard = claudeResponseDoc.querySelector('.card');
-  assert.ok(processCard, 'Response should contain a process card');
+  const hiddenDiv = claudeResponseDoc.querySelector('div[data-process-id][style*="display:none"]');
+  assert.ok(hiddenDiv, 'Response should contain a hidden div with process ID');
 
-  // Verify the command includes claude CLI with expected flags
+  // Verify the command includes claude CLI with expected flags for dialog mode
   const commandText = claudeExecuteResponse.text;
   assert.ok(commandText.includes('claude'), 'Command should include "claude"');
-  assert.ok(commandText.includes('-p'), 'Command should include -p flag');
 
-  // The command may include streaming flags if Claude is configured
-  if (commandText.includes('stream-json')) {
-    assert.ok(commandText.includes('--output-format=stream-json'), 'Should include streaming JSON flag');
-    assert.ok(commandText.includes('--verbose'), 'Should include verbose flag');
-    console.log('✓ Claude command includes streaming flags');
-  }
+  // Dialog mode should NOT include -p flag (interactive mode, not one-time)
+  assert.ok(!commandText.includes(' -p ') && !commandText.includes(' -p"'),
+    'Dialog mode should not include -p flag');
+
+  // Should include streaming flags for interactive dialog
+  assert.ok(commandText.includes('--output-format=stream-json'), 'Should include streaming JSON flag');
+  assert.ok(commandText.includes('--verbose'), 'Should include verbose flag');
+  console.log('✓ Claude command uses dialog mode (no -p flag)');
 
   // Extract process ID from the response
   const claudeProcessMatch = claudeExecuteResponse.text.match(/processes\/([a-f0-9]+)/);

@@ -89,27 +89,35 @@ to provide AI assistance directly from the process detail page.
 
 1. Navigate to any process detail page in MobileShell
 2. Find the "Ask Claude" form
-3. Enter your question or prompt
+3. Enter your initial question or prompt
    (e.g., "Explain what this command does")
 4. Click "Ask Claude"
-5. Claude will execute as a background process and display the response
+5. Claude starts as an interactive dialog session running in the background
+6. You can continue the conversation by sending additional input to the process
 
 ### How It Works
 
-- Questions are sent to Claude using the CLI with the following flags:
-  - `-p`: Print mode (non-interactive, single response)
+- Claude runs as an interactive dialog session, similar to other commands
+- Started via `nohup` as a background process for persistent execution
+- Uses the following Claude CLI flags:
+  - Interactive mode (no `-p` flag) for multi-turn conversations
   - `--output-format=stream-json`: Real-time streaming JSON output
   - `--verbose`: Verbose output for debugging
   - `--no-session-persistence`: No session files created
+- Initial prompt starts the conversation, additional input continues it
 - Responses are rendered as Markdown with HTML sanitization
-- Each Claude query runs as a separate process that you can view
-  and download
+- Each Claude session runs as a separate process that you can view,
+  interact with, and download
 
 ### Notes
 
 - Claude integration is optional - MobileShell works without it
-- If the `claude` command is not found, the form will still submit but the process will fail
-- Claude queries run in the context of the workspace directory
+- If the `claude` command is not found, the form will still submit
+  but the process will fail
+- Claude sessions run in the context of the workspace directory
+- Each Claude session is a persistent interactive dialog, not a one-time query
+- You can send additional messages to continue the conversation using
+  the stdin input form on the process page
 
 ## Features
 
@@ -119,12 +127,13 @@ to provide AI assistance directly from the process detail page.
   programs (see [TTY_SUPPORT.md](TTY_SUPPORT.md) for details)
 - **Process Management**: View running and completed processes
 - **Output Viewing**: View stdout and stderr for each process
-- **Claude Integration**: Ask Claude questions about your code and
-  commands directly from the process page
+- **Claude Integration**: Interactive AI dialog sessions with Claude
+  directly from the process page
   - Integrated AI assistance using the Claude CLI
+  - Persistent interactive sessions for multi-turn conversations
   - Markdown rendering for formatted responses
   - Real-time streaming output
-  - No session persistence for one-off queries
+  - Continue conversations via stdin input
 - **File Editor**: Create and edit files directly in the workspace with conflict detection
   - Auto-creates parent directories
   - Detects external file modifications

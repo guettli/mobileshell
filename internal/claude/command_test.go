@@ -10,6 +10,7 @@ import (
 func TestBuildCommand_Basic(t *testing.T) {
 	prompt := "Explain this code"
 	opts := CommandOptions{
+		DialogMode: false,
 		StreamJSON: false,
 		NoSession:  false,
 	}
@@ -22,9 +23,32 @@ func TestBuildCommand_Basic(t *testing.T) {
 	}
 
 	if result[0] != "-p" {
-		t.Errorf("Expected first arg to be '-p', got '%s'", result[0])
+		t.Errorf("Expected first arg to be '-p' in print mode, got '%s'", result[0])
 	}
 
+	if result[len(result)-1] != prompt {
+		t.Errorf("Expected last arg to be prompt '%s', got '%s'", prompt, result[len(result)-1])
+	}
+}
+
+func TestBuildCommand_DialogMode(t *testing.T) {
+	prompt := "Start a conversation"
+	opts := CommandOptions{
+		DialogMode: true,
+		StreamJSON: false,
+		NoSession:  false,
+	}
+
+	result := BuildCommand(prompt, opts)
+
+	// Should NOT have -p flag in dialog mode
+	for _, arg := range result {
+		if arg == "-p" {
+			t.Error("Dialog mode should not have -p flag")
+		}
+	}
+
+	// Should have the prompt
 	if result[len(result)-1] != prompt {
 		t.Errorf("Expected last arg to be prompt '%s', got '%s'", prompt, result[len(result)-1])
 	}
@@ -33,6 +57,7 @@ func TestBuildCommand_Basic(t *testing.T) {
 func TestBuildCommand_WithStreamJSON(t *testing.T) {
 	prompt := "Test prompt"
 	opts := CommandOptions{
+		DialogMode: false,
 		StreamJSON: true,
 		NoSession:  false,
 	}
@@ -64,6 +89,7 @@ func TestBuildCommand_WithStreamJSON(t *testing.T) {
 func TestBuildCommand_WithNoSession(t *testing.T) {
 	prompt := "Test prompt"
 	opts := CommandOptions{
+		DialogMode: false,
 		StreamJSON: false,
 		NoSession:  true,
 	}
@@ -87,6 +113,7 @@ func TestBuildCommand_WithNoSession(t *testing.T) {
 func TestBuildCommand_AllOptions(t *testing.T) {
 	prompt := "Complex prompt"
 	opts := CommandOptions{
+		DialogMode: false,
 		StreamJSON: true,
 		NoSession:  true,
 		WorkDir:    "/some/path",
@@ -123,6 +150,7 @@ func TestBuildCommand_AllOptions(t *testing.T) {
 func TestBuildCommand_OrderMatters(t *testing.T) {
 	prompt := "Test order"
 	opts := CommandOptions{
+		DialogMode: false,
 		StreamJSON: true,
 		NoSession:  true,
 	}
@@ -219,6 +247,7 @@ EOF
 
 	// Build command
 	opts := CommandOptions{
+		DialogMode: false,
 		StreamJSON: false,
 		NoSession:  true,
 	}

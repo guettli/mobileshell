@@ -711,8 +711,9 @@ func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, 
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	// Build Claude command
+	// Build Claude command in dialog mode for interactive session
 	claudeArgs := claude.BuildCommand(prompt, claude.CommandOptions{
+		DialogMode: true,
 		StreamJSON: true,
 		NoSession:  true,
 		WorkDir:    ws.Directory,
@@ -721,19 +722,19 @@ func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, 
 	// Join args to create command string
 	command := "claude " + strings.Join(claudeArgs, " ")
 
-	// Execute as background process
+	// Execute as background process via nohup (like other commands)
 	proc, err := executor.Execute(s.stateDir, ws, command)
 	if err != nil {
 		return nil, err
 	}
 
-	// Render the process card for HTMX
-	snippet, err := s.renderRunningProcessSnippet(proc, workspaceID, r)
-	if err != nil {
-		return nil, err
-	}
-
-	return []byte(snippet), nil
+	// Return minimal hidden div that triggers immediate JSON polling via hx-on::after-request
+	// The polling will fetch and display the full process details from the JSON endpoint
+	var buf bytes.Buffer
+	basePath := s.getBasePath(r)
+	fmt.Fprintf(&buf, `<div data-process-id="%s" style="display:none" data-output-url="%s/workspaces/%s/processes/%s/hx-output">%s</div>`,
+		proc.ID, basePath, workspaceID, proc.ID, command)
+	return buf.Bytes(), nil
 }
 
 func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) ([]byte, error) {
