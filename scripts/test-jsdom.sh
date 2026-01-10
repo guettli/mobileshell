@@ -3,53 +3,59 @@
 trap 'echo -e "\n🤷 🚨 🔥 Warning: A command has failed. Exiting the script. Line was ($0:$LINENO): $(sed -n "${LINENO}p" "$0" 2>/dev/null || true) 🔥 🚨 🤷 "; exit 3' ERR
 set -Eeuo pipefail
 
+# Log function - only outputs if not in CI
+log() {
+    [[ -z "${CI:-}" ]] && echo "$@"
+    return 0
+}
+
 # Ensure Nix environment is active, or run this script via nix develop
 if [[ -z "${IN_NIX_SHELL:-}" ]]; then
     echo "Nix environment not active. Running via 'nix develop'..."
     exec nix develop --command "$0" "$@"
 fi
 
-echo "MobileShell JSDOM Integration Test"
-echo "===================================="
+log "MobileShell JSDOM Integration Test"
+log "===================================="
 
 # Create temporary state directory
 TEMP_STATE_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_STATE_DIR"' EXIT
-echo "Using temporary state directory: $TEMP_STATE_DIR"
+log "Using temporary state directory: $TEMP_STATE_DIR"
 
 # Generate test password (must be at least 36 characters)
 PASSWORD_FILE="$TEMP_STATE_DIR/test-password.txt"
 openssl rand -base64 32 | tr -d '/+=' | head -c 32 > "$PASSWORD_FILE"
 PASSWORD="test-password-$(cat "$PASSWORD_FILE")"
-echo "Generated test password (length: ${#PASSWORD})"
+log "Generated test password (length: ${#PASSWORD})"
 
 # Add password using the CLI
-echo "Adding password via add-password command..."
+log "Adding password via add-password command..."
 echo "$PASSWORD" | go run ./cmd/mobileshell add-password --state-dir "$TEMP_STATE_DIR" --from-stdin
-echo "✓ Password added"
+log "✓ Password added"
 
 # Build the server
-echo "Building server..."
+log "Building server..."
 go build -o "$TEMP_STATE_DIR/mobileshell" ./cmd/mobileshell
-echo "✓ Server built"
+log "✓ Server built"
 
 # Find a free port
-echo "Finding free port..."
+log "Finding free port..."
 PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
-echo "✓ Using port $PORT"
+log "✓ Using port $PORT"
 
 # Start server
-echo "Starting server..."
+log "Starting server..."
 SERVER_LOG="$TEMP_STATE_DIR/server.log"
 "$TEMP_STATE_DIR/mobileshell" run --state-dir "$TEMP_STATE_DIR" --port "$PORT" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TEMP_STATE_DIR"' EXIT
 
 # Wait for server to start
-echo "Waiting for server to start..."
+log "Waiting for server to start..."
 for i in {1..30}; do
   if grep -q "Starting server" "$SERVER_LOG" 2>/dev/null; then
-    echo "✓ Server started (PID: $SERVER_PID)"
+    log "✓ Server started (PID: $SERVER_PID)"
     break
   fi
   if [ "$i" -eq 30 ]; then
@@ -64,7 +70,7 @@ done
 # Verify server is responding
 for i in {1..30}; do
   if curl -s -o /dev/null "http://localhost:$PORT/login"; then
-    echo "✓ Server is responding"
+    log "✓ Server is responding"
     break
   fi
   if [ "$i" -eq 30 ]; then
@@ -77,15 +83,15 @@ done
 # Install pnpm dependencies if needed
 cd "$(dirname "$0")/.."
 if [ ! -d "node_modules" ]; then
-  echo "Installing pnpm dependencies..."
+  log "Installing pnpm dependencies..."
   pnpm install > /dev/null 2>&1
-  echo "✓ Dependencies installed"
+  log "✓ Dependencies installed"
 fi
 cd "$(dirname "$0")"
 
 # Run the JSDOM tests in parallel
-echo "Running JSDOM tests in parallel..."
-echo ""
+log "Running JSDOM tests in parallel..."
+log ""
 if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test-parallel.mjs; then
   echo ""
   echo "Test failed. Server log (last 100 lines):"
@@ -94,9 +100,10 @@ if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test-pa
 fi
 
 # Cleanup
-echo ""
-echo "Stopping server..."
+log ""
+log "Stopping server..."
 kill $SERVER_PID 2>/dev/null || true
 wait $SERVER_PID 2>/dev/null || true
 
-echo "✓ Test completed successfully"
+log "✓ Test completed successfully"
+exit 0

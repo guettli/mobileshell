@@ -39,7 +39,7 @@ runs:
           ${{ runner.os }}-pnpm-
 
     - name: Install pnpm dependencies
-      run: pnpm install
+      run: pnpm install --reporter=silent
       shell: bash
 
     - name: Run tests
