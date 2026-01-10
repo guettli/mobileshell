@@ -1812,6 +1812,7 @@ func GetStateDir(stateDir string, createIfMissing bool) (string, error) {
 }
 
 // setupServerLog redirects stdout/stderr to both their original destinations and server.log file
+// Uses syscall-level file descriptor duplication to ensure all output is captured
 // Returns the log file handle (to be closed by caller) and any error
 func setupServerLog(stateDir string) (*os.File, error) {
 	logPath := filepath.Join(stateDir, "server.log")
@@ -1822,13 +1823,29 @@ func setupServerLog(stateDir string) (*os.File, error) {
 		return nil, fmt.Errorf("failed to open server log file: %w", err)
 	}
 
-	// Save original stdout and stderr
-	origStdout := os.Stdout
-	origStderr := os.Stderr
+	// Duplicate original stdout (FD 1) and stderr (FD 2) to save them
+	origStdoutFD, err := syscall.Dup(int(os.Stdout.Fd()))
+	if err != nil {
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to dup stdout: %w", err)
+	}
+
+	origStderrFD, err := syscall.Dup(int(os.Stderr.Fd()))
+	if err != nil {
+		_ = syscall.Close(origStdoutFD)
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to dup stderr: %w", err)
+	}
+
+	// Create new File objects from the duplicated FDs
+	origStdout := os.NewFile(uintptr(origStdoutFD), "/dev/stdout")
+	origStderr := os.NewFile(uintptr(origStderrFD), "/dev/stderr")
 
 	// Create pipes for stdout
 	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
+		_ = origStdout.Close()
+		_ = origStderr.Close()
 		_ = logFile.Close()
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
@@ -1838,24 +1855,48 @@ func setupServerLog(stateDir string) (*os.File, error) {
 	if err != nil {
 		_ = stdoutReader.Close()
 		_ = stdoutWriter.Close()
+		_ = origStdout.Close()
+		_ = origStderr.Close()
 		_ = logFile.Close()
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
-	// Redirect os.Stdout and os.Stderr
-	os.Stdout = stdoutWriter
-	os.Stderr = stderrWriter
+	// Redirect FD 1 (stdout) to the write end of stdout pipe
+	if err := syscall.Dup2(int(stdoutWriter.Fd()), int(os.Stdout.Fd())); err != nil {
+		_ = stderrReader.Close()
+		_ = stderrWriter.Close()
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
+		_ = origStdout.Close()
+		_ = origStderr.Close()
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to dup2 stdout: %w", err)
+	}
+
+	// Redirect FD 2 (stderr) to the write end of stderr pipe
+	if err := syscall.Dup2(int(stderrWriter.Fd()), int(os.Stderr.Fd())); err != nil {
+		_ = stderrReader.Close()
+		_ = stderrWriter.Close()
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
+		_ = origStdout.Close()
+		_ = origStderr.Close()
+		_ = logFile.Close()
+		return nil, fmt.Errorf("failed to dup2 stderr: %w", err)
+	}
 
 	// Start goroutine to tee stdout
 	go func() {
 		mw := io.MultiWriter(origStdout, logFile)
 		_, _ = io.Copy(mw, stdoutReader)
+		_ = origStdout.Close()
 	}()
 
 	// Start goroutine to tee stderr
 	go func() {
 		mw := io.MultiWriter(origStderr, logFile)
 		_, _ = io.Copy(mw, stderrReader)
+		_ = origStderr.Close()
 	}()
 
 	return logFile, nil
