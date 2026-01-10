@@ -304,8 +304,15 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 }
 
 // sendOutputLine sends an output line to the channel with a timeout to prevent blocking
-// Returns true if sent successfully, false if timed out
+// Returns true if sent successfully, false if timed out or channel is closed
 func sendOutputLine(outputChan chan<- outputlog.OutputLine, line outputlog.OutputLine, stream string) bool {
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was closed while we were trying to send
+			slog.Debug("Output channel closed during send", "stream", stream)
+		}
+	}()
+
 	select {
 	case outputChan <- line:
 		return true
