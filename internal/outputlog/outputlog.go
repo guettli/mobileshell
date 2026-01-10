@@ -28,7 +28,7 @@ func FormatOutputLine(line OutputLine) string {
 }
 
 // ReadCombinedOutput reads and parses the combined output.log file
-// Returns stdout, stderr, and stdin lines separately
+// Returns stdout, stderr, stdin, nohupStdout, nohupStderr lines separately
 func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin string, err error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -58,7 +58,7 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 			stream := string(data[streamStart:streamEnd])
 
 			// Only process if it's a valid stream type
-			if stream == "stdout" || stream == "stderr" || stream == "stdin" || stream == "signal-sent" {
+			if stream == "stdout" || stream == "stderr" || stream == "stdin" || stream == "signal-sent" || stream == "nohup-stdout" || stream == "nohup-stderr" {
 				// Extract length from the format
 				// Find the space before the colon to get the length field
 				lengthStart := -1
@@ -88,6 +88,9 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 								// Signal events are prefixed and shown in stdin
 								stdinParts = append(stdinParts, "Signal sent: "+content)
 								stdinParts = append(stdinParts, "\n")
+							case "nohup-stdout", "nohup-stderr":
+								// Ignore nohup streams in this function for backwards compatibility
+								// They are handled separately by ReadCombinedOutputWithNohup
 							}
 
 							// Move past content
@@ -116,6 +119,103 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 	stdin = strings.Join(stdinParts, "")
 
 	return stdout, stderr, stdin, nil
+}
+
+// ReadCombinedOutputWithNohup reads and parses the combined output.log file
+// Returns stdout, stderr, stdin, nohupStdout, nohupStderr lines separately
+func ReadCombinedOutputWithNohup(filename string) (stdout string, stderr string, stdin string, nohupStdout string, nohupStderr string, err error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+
+	var stdoutParts, stderrParts, stdinParts, nohupStdoutParts, nohupStderrParts []string
+	i := 0
+
+	for i < len(data) {
+		// Find the ": " separator
+		separatorIdx := -1
+		for j := i; j < len(data)-1; j++ {
+			if data[j] == ':' && data[j+1] == ' ' {
+				separatorIdx = j + 2
+				break
+			}
+		}
+
+		if separatorIdx != -1 {
+			// Extract the stream type from the beginning to the first space
+			streamStart := i
+			streamEnd := streamStart
+			for streamEnd < len(data) && data[streamEnd] != ' ' {
+				streamEnd++
+			}
+			stream := string(data[streamStart:streamEnd])
+
+			// Only process if it's a valid stream type
+			if stream == "stdout" || stream == "stderr" || stream == "stdin" || stream == "signal-sent" || stream == "nohup-stdout" || stream == "nohup-stderr" {
+				// Extract length from the format
+				// Find the space before the colon to get the length field
+				lengthStart := -1
+				for j := separatorIdx - 3; j >= i; j-- {
+					if data[j] == ' ' {
+						lengthStart = j + 1
+						break
+					}
+				}
+
+				if lengthStart != -1 {
+					lengthStr := string(data[lengthStart : separatorIdx-2])
+					var length int
+					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
+						// Read exactly 'length' bytes of content
+						if separatorIdx+length <= len(data) {
+							content := string(data[separatorIdx : separatorIdx+length])
+
+							switch stream {
+							case "stdout":
+								stdoutParts = append(stdoutParts, content)
+							case "stderr":
+								stderrParts = append(stderrParts, content)
+							case "stdin":
+								stdinParts = append(stdinParts, content)
+							case "signal-sent":
+								// Signal events are prefixed and shown in stdin
+								stdinParts = append(stdinParts, "Signal sent: "+content)
+								stdinParts = append(stdinParts, "\n")
+							case "nohup-stdout":
+								nohupStdoutParts = append(nohupStdoutParts, content)
+							case "nohup-stderr":
+								nohupStderrParts = append(nohupStderrParts, content)
+							}
+
+							// Move past content
+							i = separatorIdx + length
+							// Skip separator \n if present (only if content doesn't end with \n)
+							if i < len(data) && data[i] == '\n' {
+								i++
+							}
+							continue
+						}
+					}
+				}
+			}
+		}
+
+		// If parsing failed or not a recognized format, skip to next line
+		for i < len(data) && data[i] != '\n' {
+			i++
+		}
+		i++ // Skip the newline
+	}
+
+	// Concatenate parts as-is (they already include newlines where appropriate)
+	stdout = strings.Join(stdoutParts, "")
+	stderr = strings.Join(stderrParts, "")
+	stdin = strings.Join(stdinParts, "")
+	nohupStdout = strings.Join(nohupStdoutParts, "")
+	nohupStderr = strings.Join(nohupStderrParts, "")
+
+	return stdout, stderr, stdin, nohupStdout, nohupStderr, nil
 }
 
 // ReadRawStdout extracts raw stdout bytes from the combined output log file

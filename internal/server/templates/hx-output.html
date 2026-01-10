@@ -18,7 +18,7 @@
     </div>
     {{end}}
 {{else}}
-    {{if or .Stdout .Stderr .Stdin}}
+    {{if or .Stdout .Stderr .Stdin .NohupStdout .NohupStderr}}
         {{if .Stdout}}
         <div class="output-section">
             <h6>Stdout:</h6>
@@ -39,6 +39,18 @@
         <div class="output-section">
             <h6>Stdin:</h6>
             <div class="output-container stdin">{{.Stdin}}</div>
+        </div>
+        {{end}}
+        {{if .NohupStdout}}
+        <div class="output-section">
+            <h6>Nohup Stdout:</h6>
+            <div class="output-container nohup-stdout">{{.NohupStdout}}</div>
+        </div>
+        {{end}}
+        {{if .NohupStderr}}
+        <div class="output-section">
+            <h6>Nohup Stderr:</h6>
+            <div class="output-container nohup-stderr">{{.NohupStderr}}</div>
         </div>
         {{end}}
     {{else}}
