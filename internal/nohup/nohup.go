@@ -171,11 +171,7 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	if isClaudeCommand {
 		// For Claude commands using pipes
 		stdoutReader = stdoutPipe
-
-		// Close stdin immediately - Claude gets prompt from command line args
-		// Keeping stdin open causes Claude to wait for input before streaming output
-		_ = stdinPipe.Close()
-		// stdinWriter remains nil to prevent readStdinPipe from being started
+		stdinWriter = stdinPipe
 	} else {
 		// For regular commands using PTY
 		// Close tty in parent process (child has its own copy)
@@ -202,15 +198,9 @@ func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string)
 	// Start goroutine to read from named pipe and forward to stdin
 	// Started IMMEDIATELY after process starts, before any file I/O
 	// to minimize the window where a writer might try to connect before reader is ready
-	// Skip this for commands that don't need stdin (like Claude with prompt in args)
 	stdinDone := make(chan struct{})
 	namedPipePath := filepath.Join(processDir, "stdin.pipe")
-	if stdinWriter != nil {
-		go readStdinPipe(namedPipePath, stdinWriter, outputChan, stdinDone)
-	} else {
-		// No stdin pipe needed, close the done channel immediately
-		close(stdinDone)
-	}
+	go readStdinPipe(namedPipePath, stdinWriter, outputChan, stdinDone)
 
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
