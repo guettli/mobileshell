@@ -36,7 +36,7 @@ func TestTTYSupport(t *testing.T) {
 	workspaceTS := filepath.Base(ws.Path)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash, []string{})
+	err = Run(tmpDir, workspaceTS, hash)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestTTYEcho(t *testing.T) {
 	// Start nohup in background
 	done := make(chan error)
 	go func() {
-		done <- Run(tmpDir, workspaceTS, hash, []string{})
+		done <- Run(tmpDir, workspaceTS, hash)
 	}()
 
 	// Wait for process to start by polling for PID file
@@ -184,7 +184,7 @@ func TestColorOutput(t *testing.T) {
 	workspaceTS := filepath.Base(ws.Path)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash, []string{})
+	err = Run(tmpDir, workspaceTS, hash)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}

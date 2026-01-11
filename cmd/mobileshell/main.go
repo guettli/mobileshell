@@ -110,7 +110,7 @@ var nohupCmd = &cobra.Command{
 		workspaceTimestamp := args[0]
 		processHash := args[1]
 
-		return nohup.Run(dir, workspaceTimestamp, processHash, args[2:])
+		return nohup.Run(dir, workspaceTimestamp, processHash)
 	},
 }
 

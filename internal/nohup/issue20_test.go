@@ -59,7 +59,7 @@ exit 0
 	// Run the nohup process
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- Run(stateDir, ws.ID, hash, []string{"sh", scriptPath})
+		runDone <- Run(stateDir, ws.ID, hash)
 	}()
 
 	// Give the process some time to start and output the prompt
@@ -219,7 +219,7 @@ exit 0
 	// Run the nohup process
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- Run(stateDir, ws.ID, hash, []string{"sh", scriptPath})
+		runDone <- Run(stateDir, ws.ID, hash)
 	}()
 
 	// Check output at different time points
