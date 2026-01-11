@@ -22,7 +22,7 @@ import (
 
 // Run executes a command in nohup mode within a workspace
 // This function is called by the `mobileshell nohup` command
-func Run(stateDir, workspaceTimestamp, processHash string, commandArgs []string) error {
+func Run(stateDir, workspaceTimestamp, processHash string) error {
 	// Get the workspace
 	ws, err := workspace.GetWorkspace(stateDir, workspaceTimestamp)
 	if err != nil {
