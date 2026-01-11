@@ -96,21 +96,40 @@ var addPasswordCmd = &cobra.Command{
 }
 
 var nohupCmd = &cobra.Command{
-	Use:    "nohup WORKSPACE_TIMESTAMP PROCESS_HASH",
-	Short:  "Execute a process in nohup mode (internal use)",
-	Long:   `Execute a process in nohup mode within a workspace. This command is used internally by the server.`,
+	Use:   "nohup WORKSPACE_ID PROCESS_HASH",
+	Short: "Execute a process in nohup mode (internal use)",
+	Long: `Execute a process in nohup mode within a workspace.
+
+This command is used internally by the MobileShell server to run processes
+in detached mode (nohup). It handles process execution, output capture,
+and maintains process state in the workspace directory.
+
+Arguments:
+  WORKSPACE_ID    The unique identifier of the workspace (URL-safe ID)
+  PROCESS_HASH    The hash identifier of the process to execute
+
+This command should not be called directly by users. It is automatically
+invoked by the server when executing processes in nohup mode.`,
 	Hidden: true, // Hide from help since it's for internal use
-	Args:   cobra.ExactArgs(2),
+	Args: func(cmd *cobra.Command, args []string) error {
+		if err := cobra.ExactArgs(2)(cmd, args); err != nil {
+			// Show the long description when args are missing
+			cmd.Println(cmd.Long)
+			cmd.Println()
+			return err
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		dir, err := server.GetStateDir(stateDir, false)
 		if err != nil {
 			return err
 		}
 
-		workspaceTimestamp := args[0]
+		workspaceID := args[0]
 		processHash := args[1]
 
-		return nohup.Run(dir, workspaceTimestamp, processHash)
+		return nohup.Run(dir, workspaceID, processHash)
 	},
 }
 
