@@ -96,7 +96,7 @@ var addPasswordCmd = &cobra.Command{
 }
 
 var nohupCmd = &cobra.Command{
-	Use:   "nohup WORKSPACE_TIMESTAMP PROCESS_HASH",
+	Use:   "nohup WORKSPACE_ID PROCESS_HASH",
 	Short: "Execute a process in nohup mode (internal use)",
 	Long: `Execute a process in nohup mode within a workspace.
 
@@ -105,8 +105,8 @@ in detached mode (nohup). It handles process execution, output capture,
 and maintains process state in the workspace directory.
 
 Arguments:
-  WORKSPACE_TIMESTAMP  The timestamp identifier of the workspace
-  PROCESS_HASH        The hash identifier of the process to execute
+  WORKSPACE_ID    The unique identifier of the workspace (URL-safe ID)
+  PROCESS_HASH    The hash identifier of the process to execute
 
 This command should not be called directly by users. It is automatically
 invoked by the server when executing processes in nohup mode.`,
@@ -126,10 +126,10 @@ invoked by the server when executing processes in nohup mode.`,
 			return err
 		}
 
-		workspaceTimestamp := args[0]
+		workspaceID := args[0]
 		processHash := args[1]
 
-		return nohup.Run(dir, workspaceTimestamp, processHash)
+		return nohup.Run(dir, workspaceID, processHash)
 	},
 }
 
