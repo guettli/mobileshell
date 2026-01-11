@@ -28,21 +28,17 @@ func TestTTYSupport(t *testing.T) {
 
 	// Test 1: Verify that stdin is a TTY using the `test -t 0` command
 	// This command returns exit code 0 if stdin is a TTY, 1 otherwise
-	hash, err := workspace.CreateProcess(ws, "test -t 0 && echo 'stdin is a tty' || echo 'stdin is NOT a tty'")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "test -t 0 && echo 'stdin is a tty' || echo 'stdin is NOT a tty'"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
+	err = Run(processDir, command, ws.Directory, ws.PreCommand)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
 	// Read output
-	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
@@ -75,19 +71,15 @@ func TestTTYEcho(t *testing.T) {
 	}
 
 	// Create a cat process that will echo input
-	hash, err := workspace.CreateProcess(ws, "cat")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "cat"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
 	processDir := workspace.GetProcessDir(ws, hash)
 	pipePath := filepath.Join(processDir, "stdin.pipe")
 
 	// Start nohup in background
 	done := make(chan error)
 	go func() {
-		done <- Run(tmpDir, workspaceTS, hash)
+		done <- Run(processDir, command, ws.Directory, ws.PreCommand)
 	}()
 
 	// Wait for process to start by polling for PID file
@@ -176,21 +168,17 @@ func TestColorOutput(t *testing.T) {
 
 	// Use printf to output ANSI color codes
 	// Many tools like ls --color=auto check isatty() and only output colors with a TTY
-	hash, err := workspace.CreateProcess(ws, "printf '\\033[31mRED TEXT\\033[0m\\n'")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "printf '\\033[31mRED TEXT\\033[0m\\n'"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
+	err = Run(processDir, command, ws.Directory, ws.PreCommand)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
 	// Read output
-	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
 	if err != nil {

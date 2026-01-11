@@ -85,35 +85,47 @@ Key functions:
   - **Validates directory exists** before creating
   - Generates URL-safe ID from name
   - Returns error if directory doesn't exist
-  - Returns error if workspace with same ID already exists for today
-- `GetWorkspaceByID(id)`: Gets workspace by ID (returns most recent if multiple exist)
+  - Returns error if workspace with same ID already exists
+- `GetWorkspaceByID(id)`: Gets workspace by ID
 - `ListWorkspaces()`: Lists all workspaces
-- `CreateProcess(ws, command)`: Creates a new process in a workspace
-- `UpdateProcessPID(ws, hash, pid)`: Updates process PID when started
-- `UpdateProcessExit(ws, hash, exitCode)`: Updates process when completed
 - `ListProcesses(ws)`: Lists all processes in a workspace
 
-All metadata is read/written as individual files, not JSON.
+All metadata is read from individual files, not JSON.
 
-### 2. Nohup Package (`internal/nohup/`)
+### 2. Process Package (`internal/process/`)
+
+A low-level package shared by `workspace` and `nohup` that handles writing process state files:
+
+- `InitializeProcessDir(processDir, command)`: Creates the process directory and initial metadata
+  files (`cmd`, `starttime`, `completed`, `stdin.pipe`, `output.log`)
+- `UpdateProcessPIDInDir(processDir, pid)`: Writes the PID file and updates status to "running"
+- `UpdateProcessExitInDir(processDir, exitCode, signal)`: Writes exit status, signal, end time and
+  marks as completed
+
+### 3. Nohup Package (`internal/nohup/`)
 
 Handles actual process execution in detached mode:
 
-- `Run(stateDir, workspaceTimestamp, processHash, args)`: Executes a command in nohup mode
-  - Runs in the workspace's directory
-  - Executes pre-command before the actual command
+- `Run(processDir, command, workDir, preCommand)`: Executes a command in nohup mode
+  - **Creates the process directory** and initializes files (via `process` package)
+  - Runs in the specified `workDir`
+  - Executes `preCommand` before the actual command
   - Detaches from parent process using `Setsid`
-  - Writes PID, exit status to individual files
-  - Updates process metadata files
+  - Updates PID, exit status, and metadata files (via `process` package)
 
-### 3. Nohup Command
+### 4. Nohup Command
 
-CLI command: `mobileshell nohup WORKSPACE_DIR_NAME PROCESS_HASH`
+CLI command: `mobileshell nohup [flags] PROCESS_DIR COMMAND`
+
+Flags:
+
+- `--work-dir DIR`: Working directory for the process
+- `--pre-command SCRIPT`: Script to run before the command
 
 This command is used internally by the executor to spawn processes. It's hidden
 from the help menu as it's for internal use only.
 
-### 4. Updated Executor (`internal/executor/`)
+### 5. Updated Executor (`internal/executor/`)
 
 The executor now:
 
@@ -132,7 +144,7 @@ Key methods:
 - `ListProcesses()`: Returns processes from all workspaces
 - `GetProcess(id)`: Searches all workspaces for a process
 
-### 5. Updated Server (`internal/server/`)
+### 6. Updated Server (`internal/server/`)
 
 Major UI and workflow changes:
 
@@ -168,7 +180,7 @@ Major UI and workflow changes:
 - Workspaces themselves are global (not per-session)
 - All sessions can see and select from all workspaces
 
-### 6. New Templates
+### 7. New Templates
 
 - **`workspaces.html`**: Main workspaces page with conditional rendering
   - Shows workspace creation form + workspace list when no workspace selected
@@ -183,17 +195,17 @@ Major UI and workflow changes:
 4. Server validates workspace ID is selected for session
 5. Server calls `executor.SelectWorkspaceByID(id)` to ensure correct workspace
 6. Server calls `executor.Execute(command)`
-7. Executor creates process metadata files in workspace
-8. Executor spawns `mobileshell nohup WORKSPACE_DIR_NAME HASH` as subprocess
+7. Executor generates process hash and determines directory path
+8. Executor spawns `mobileshell nohup --work-dir ... PROCESS_DIR COMMAND` as subprocess
 9. Nohup subprocess:
-   - Changes to workspace directory
+   - **Creates process directory and initializes metadata files**
+   - Changes to specified working directory
    - Runs pre-command (if specified)
    - Runs actual command
-   - Captures stdout/stderr to files
-   - Writes PID to file
+   - Captures stdout/stderr/stdin to files
+   - Updates PID and status files
    - Waits for completion
-   - Writes exit status to file
-   - Updates process completed file to "true"
+   - Updates exit status, end time, and marks as completed
 
 ## Benefits
 

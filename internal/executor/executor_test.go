@@ -1,14 +1,59 @@
 package executor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"mobileshell/internal/nohup"
 	"mobileshell/internal/outputlog"
 )
+
+func TestMain(m *testing.M) {
+	// Handle 'nohup' subcommand when running as a subprocess in tests
+	if len(os.Args) > 1 && os.Args[1] == "nohup" {
+		// Simple arg parsing for the nohup subcommand in tests
+		// Expected args: nohup --work-dir DIR --pre-command CMD PROCESS_DIR COMMAND
+		var workDir, preCommand string
+		var processDir, command string
+
+		for i := 2; i < len(os.Args); i++ {
+			switch os.Args[i] {
+			case "--work-dir":
+				if i+1 < len(os.Args) {
+					workDir = os.Args[i+1]
+					i++
+				}
+			case "--pre-command":
+				if i+1 < len(os.Args) {
+					preCommand = os.Args[i+1]
+					i++
+				}
+			default:
+				if processDir == "" {
+					processDir = os.Args[i]
+				} else if command == "" {
+					command = os.Args[i]
+				}
+			}
+		}
+
+		if processDir == "" || command == "" {
+			fmt.Fprintf(os.Stderr, "Missing required arguments for nohup test helper\n")
+			os.Exit(1)
+		}
+
+		if err := nohup.Run(processDir, command, workDir, preCommand); err != nil {
+			fmt.Fprintf(os.Stderr, "nohup test helper failed: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 func TestInitExecutor(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -171,7 +216,14 @@ func TestListWorkspaceProcesses(t *testing.T) {
 	}
 
 	// Give the system a moment to create the process
-	time.Sleep(10 * time.Millisecond)
+	// Use polling since nohup process creation is asynchronous
+	for start := time.Now(); time.Since(start) < 2*time.Second; {
+		procs, err = ListWorkspaceProcesses(ws)
+		if err == nil && len(procs) > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	// List workspace processes
 	procs, err = ListWorkspaceProcesses(ws)
@@ -226,10 +278,18 @@ func TestGetProcess(t *testing.T) {
 	}
 
 	// Give the system a moment to create the process
-	time.Sleep(10 * time.Millisecond)
+	// Use polling since nohup process creation is asynchronous
+	var retrievedProc *Process
+	var found bool
+	for start := time.Now(); time.Since(start) < 2*time.Second; {
+		retrievedProc, found = GetProcess(tmpDir, proc.Hash)
+		if found {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	// Get the process by ID
-	retrievedProc, found := GetProcess(tmpDir, proc.Hash)
 	if !found {
 		t.Fatal("Process should be found")
 	}

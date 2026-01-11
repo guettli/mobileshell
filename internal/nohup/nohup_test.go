@@ -30,22 +30,18 @@ func TestNohupRun(t *testing.T) {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
-	// Create a process
-	hash, err := workspace.CreateProcess(ws, "echo 'Hello, World!'")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	// Create a process hash and directory
+	command := "echo 'Hello, World!'"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
+	err = Run(processDir, command, ws.Directory, ws.PreCommand)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
 	// Verify PID file was created
-	processDir := workspace.GetProcessDir(ws, hash)
 	pidFile := filepath.Join(processDir, "pid")
 	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
 		t.Errorf("PID file does not exist: %s", pidFile)
@@ -121,21 +117,17 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 	}
 
 	// Create a process that uses the environment variable
-	hash, err := workspace.CreateProcess(ws, "echo $TEST_VAR")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "echo $TEST_VAR"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
+	err = Run(processDir, command, ws.Directory, ws.PreCommand)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
 	// Verify output.log contains the environment variable value
-	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
@@ -163,21 +155,17 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 	}
 
 	// Create a process that will fail
-	hash, err := workspace.CreateProcess(ws, "exit 42")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "exit 42"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
+	err = Run(processDir, command, ws.Directory, ws.PreCommand)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
 	// Verify exit status
-	processDir := workspace.GetProcessDir(ws, hash)
 	exitStatusFile := filepath.Join(processDir, "exit-status")
 	exitStatusData, err := os.ReadFile(exitStatusFile)
 	if err != nil {
@@ -228,15 +216,12 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	}
 
 	// Create a process that reads the file
-	hash, err := workspace.CreateProcess(ws, "cat test.txt")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "cat test.txt"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
+	err = Run(processDir, command, ws.Directory, ws.PreCommand)
 	if err != nil {
 		t.Fatalf("Failed to run nohup: %v", err)
 	}
@@ -245,7 +230,6 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify output.log contains the file content
-	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
@@ -275,21 +259,17 @@ func TestNohupRunWithStderrOutput(t *testing.T) {
 	// Create a process that writes to both stdout and stderr
 	// Use sh -c with explicit sleep to ensure outputs are flushed separately and timing is more predictable
 	// The sleep gives time for readers to be ready and outputs to be captured
-	hash, err := workspace.CreateProcess(ws, "sh -c 'echo stdout message; sleep 0.1; echo stderr message >&2; sleep 0.1'")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "sh -c 'echo stdout message; sleep 0.1; echo stderr message >&2; sleep 0.1'"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
 
 	// Run the nohup command in background to avoid blocking
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(tmpDir, workspaceTS, hash)
+		done <- Run(processDir, command, ws.Directory, ws.PreCommand)
 	}()
 
 	// Poll for expected output with timeout
-	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 
 	timeout := time.After(5 * time.Second) // Increased timeout for CI
@@ -379,23 +359,37 @@ func TestNohupRunWithStdin(t *testing.T) {
 	}
 
 	// Create a cat process
-	hash, err := workspace.CreateProcess(ws, "cat")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
+	command := "cat"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
 	processDir := workspace.GetProcessDir(ws, hash)
 	pipePath := filepath.Join(processDir, "stdin.pipe")
 
 	// Start nohup in background
 	done := make(chan error)
 	go func() {
-		done <- Run(tmpDir, workspaceTS, hash)
+		done <- Run(processDir, command, ws.Directory, ws.PreCommand)
 	}()
 
-	// Wait for process to start
-	time.Sleep(500 * time.Millisecond)
+	// Wait for process to start and create pipe
+	startTimeout := time.After(2 * time.Second)
+	pipeCreated := false
+	for {
+		select {
+		case <-startTimeout:
+			t.Fatal("Timeout waiting for stdin pipe creation")
+		default:
+			if _, err := os.Stat(pipePath); err == nil {
+				pipeCreated = true
+			}
+			if pipeCreated {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if pipeCreated {
+			break
+		}
+	}
 
 	// Send first input
 	func() {
@@ -428,6 +422,8 @@ func TestNohupRunWithStdin(t *testing.T) {
 	// Kill the cat process
 	proc, err := workspace.GetProcess(ws, hash)
 	if err != nil {
+		// Process might not be fully written to disk yet if GetProcess relies on it
+		// But Run writes files early.
 		t.Fatalf("Failed to get process: %v", err)
 	}
 	if proc.PID > 0 {

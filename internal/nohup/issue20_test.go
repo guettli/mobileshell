@@ -47,19 +47,15 @@ exit 0
 		t.Fatalf("Failed to create test script: %v", err)
 	}
 
-	// Create a process that runs the script
-	hash, err := workspace.CreateProcess(ws, "sh "+scriptPath)
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
+	command := "sh " + scriptPath
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
 	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 
 	// Run the nohup process
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- Run(stateDir, ws.ID, hash)
+		runDone <- Run(processDir, command, ws.Directory, ws.PreCommand)
 	}()
 
 	// Give the process some time to start and output the prompt
@@ -208,18 +204,16 @@ exit 0
 		t.Fatalf("Failed to create test script: %v", err)
 	}
 
-	hash, err := workspace.CreateProcess(ws, "sh "+scriptPath)
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
+	// Create a process that runs the script
+	command := "sh " + scriptPath
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
 	processDir := workspace.GetProcessDir(ws, hash)
 	outputFile := filepath.Join(processDir, "output.log")
 
 	// Run the nohup process
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- Run(stateDir, ws.ID, hash)
+		runDone <- Run(processDir, command, ws.Directory, ws.PreCommand)
 	}()
 
 	// Check output at different time points

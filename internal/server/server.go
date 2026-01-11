@@ -30,6 +30,7 @@ import (
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/process"
 	"mobileshell/internal/sysmon"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
@@ -829,13 +830,14 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 				found = true
 				// Check if process is actually still running
 				if !p.Completed && p.PID > 0 {
-					process, err := os.FindProcess(p.PID)
+					procObj, err := os.FindProcess(p.PID)
 					if err == nil {
-						err = process.Signal(syscall.Signal(0))
+						err = procObj.Signal(syscall.Signal(0))
 						if err != nil {
 							// Process doesn't exist anymore, mark as completed
 							slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
-							_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
+							processDir := workspace.GetProcessDir(ws, p.Hash)
+							_ = process.UpdateProcessExitInDir(processDir, -1, "")
 							p.Completed = true
 						}
 					}
@@ -886,9 +888,9 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 		if !p.Completed && !receivedIDs[p.ID] {
 			// Check if actually running
 			if p.PID > 0 {
-				process, err := os.FindProcess(p.PID)
+				procObj, err := os.FindProcess(p.PID)
 				if err == nil {
-					err = process.Signal(syscall.Signal(0))
+					err = procObj.Signal(syscall.Signal(0))
 					if err != nil {
 						// Dead process, skip
 						continue
@@ -1129,13 +1131,14 @@ func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Works
 		if !p.Completed {
 			// Check if actually running
 			if p.PID > 0 {
-				process, err := os.FindProcess(p.PID)
+				procObj, err := os.FindProcess(p.PID)
 				if err == nil {
-					err = process.Signal(syscall.Signal(0))
+					err = procObj.Signal(syscall.Signal(0))
 					if err != nil {
 						// Process died, mark as completed and log any update errors
 						slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
-						if err := workspace.UpdateProcessExit(ws, p.Hash, -1, ""); err != nil {
+						processDir := workspace.GetProcessDir(ws, p.Hash)
+						if err := process.UpdateProcessExitInDir(processDir, -1, ""); err != nil {
 							slog.Error("Failed to update dead process status", "error", err, "pid", p.PID, "id", p.ID)
 						}
 						p.Completed = true
