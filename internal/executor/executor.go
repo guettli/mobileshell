@@ -56,11 +56,8 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 		return nil, fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	// Create process in workspace
-	hash, err := workspace.CreateProcess(ws, command)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create process: %w", err)
-	}
+	// Generate hash for the process
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
 
 	// Get workspace timestamp from path
 	workspaceTS := filepath.Base(ws.Path)
@@ -70,7 +67,7 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 	outputFile := filepath.Join(processDir, "output.log")
 
 	// Spawn the process using `mobileshell nohup` in the background
-	cmd := exec.Command(execPath, "nohup", "--state-dir", stateDir, workspaceTS, hash)
+	cmd := exec.Command(execPath, "nohup", "--work-dir", ws.Directory, "--pre-command", ws.PreCommand, processDir, command)
 
 	// Capture stdout and stderr from the nohup subprocess
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -86,13 +83,41 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 		return nil, fmt.Errorf("failed to spawn nohup process: %w", err)
 	}
 
+	// Wait for process initialization (files to be created by nohup)
+	// We check for 'starttime' file which is created early
+	starttimeFile := filepath.Join(processDir, "starttime")
+	initialized := false
+	for i := 0; i < 40; i++ { // Wait up to 2 seconds (50ms * 40)
+		if _, err := os.Stat(starttimeFile); err == nil {
+			initialized = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !initialized {
+		// Log warning but continue - the process might just be slow or failed immediately
+		// The background reader will handle output
+		fmt.Printf("Warning: Process state files not created in time for %s\n", hash)
+	}
+
 	// Read and log nohup subprocess output in the background
 	go func() {
 		defer func() { _ = stdoutPipe.Close() }()
 		defer func() { _ = stderrPipe.Close() }()
 
-		// Open output.log for appending
-		outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0600)
+		// Wait for output.log to be created by nohup
+		var outFile *os.File
+		var err error
+		// Retry for up to 2 seconds
+		for i := 0; i < 20; i++ {
+			outFile, err = os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0600)
+			if err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+
 		if err != nil {
 			// If we can't open the file, just drain the pipes silently
 			_, _ = io.Copy(io.Discard, stdoutPipe)

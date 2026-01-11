@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mobileshell/internal/process"
 )
 
 func TestWorkspaceCreation(t *testing.T) {
@@ -92,9 +94,11 @@ func TestProcessCreation(t *testing.T) {
 	}
 
 	// Create a process
-	hash, err := CreateProcess(ws, "echo hello")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
+	command := "echo hello"
+	hash := GenerateProcessHash(command, time.Now().UTC())
+	processDir := GetProcessDir(ws, hash)
+	if err := process.InitializeProcessDir(processDir, command); err != nil {
+		t.Fatalf("Failed to initialize process directory: %v", err)
 	}
 
 	if hash == "" {
@@ -102,7 +106,6 @@ func TestProcessCreation(t *testing.T) {
 	}
 
 	// Verify process directory exists
-	processDir := GetProcessDir(ws, hash)
 	if _, err := os.Stat(processDir); os.IsNotExist(err) {
 		t.Errorf("Process directory does not exist: %s", processDir)
 	}
@@ -156,13 +159,15 @@ func TestProcessUpdate(t *testing.T) {
 		t.Fatalf("Failed to create workspace: %v", err)
 	}
 
-	hash, err := CreateProcess(ws, "sleep 1")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
+	command := "sleep 1"
+	hash := GenerateProcessHash(command, time.Now().UTC())
+	processDir := GetProcessDir(ws, hash)
+	if err := process.InitializeProcessDir(processDir, command); err != nil {
+		t.Fatalf("Failed to initialize process directory: %v", err)
 	}
 
 	// Update PID
-	err = UpdateProcessPID(ws, hash, 12345)
+	err = process.UpdateProcessPIDInDir(processDir, 12345)
 	if err != nil {
 		t.Fatalf("Failed to update PID: %v", err)
 	}
@@ -181,7 +186,7 @@ func TestProcessUpdate(t *testing.T) {
 	}
 
 	// Update exit
-	err = UpdateProcessExit(ws, hash, 0, "")
+	err = process.UpdateProcessExitInDir(processDir, 0, "")
 	if err != nil {
 		t.Fatalf("Failed to update exit: %v", err)
 	}
@@ -247,13 +252,17 @@ func TestListProcesses(t *testing.T) {
 	}
 
 	// Create multiple processes
-	_, err = CreateProcess(ws, "echo 1")
-	if err != nil {
+	cmd1 := "echo 1"
+	h1 := GenerateProcessHash(cmd1, time.Now().UTC())
+	if err := process.InitializeProcessDir(GetProcessDir(ws, h1), cmd1); err != nil {
 		t.Fatalf("Failed to create process 1: %v", err)
 	}
 
-	_, err = CreateProcess(ws, "echo 2")
-	if err != nil {
+	time.Sleep(time.Millisecond) // Different timestamps
+
+	cmd2 := "echo 2"
+	h2 := GenerateProcessHash(cmd2, time.Now().UTC())
+	if err := process.InitializeProcessDir(GetProcessDir(ws, h2), cmd2); err != nil {
 		t.Fatalf("Failed to create process 2: %v", err)
 	}
 
@@ -408,12 +417,12 @@ func TestPreCommandWithCRLFExecutes(t *testing.T) {
 	}
 
 	// Create a process to simulate what happens in nohup
-	hash, err := CreateProcess(ws, "echo $TEST_VAR")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
+	command := "echo $TEST_VAR"
+	hash := GenerateProcessHash(command, time.Now().UTC())
 	processDir := GetProcessDir(ws, hash)
+	if err := process.InitializeProcessDir(processDir, command); err != nil {
+		t.Fatalf("Failed to initialize process directory: %v", err)
+	}
 
 	// Write pre-command to a script file (simulating what nohup.go does)
 	preScriptPath := filepath.Join(processDir, "pre-command.sh")

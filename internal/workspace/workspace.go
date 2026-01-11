@@ -4,15 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
-
-	"mobileshell/internal/outputlog"
 )
 
 // Workspace represents a workspace with a name, directory, and pre-command
@@ -177,42 +173,6 @@ func ListWorkspaces(stateDir string) ([]*Workspace, error) {
 	return workspaces, nil
 }
 
-// CreateProcess creates a new process in a workspace
-func CreateProcess(ws *Workspace, command string) (string, error) {
-	// Generate hash for the process
-	hash := generateProcessHash(command, time.Now().UTC())
-
-	processDir := filepath.Join(ws.Path, "processes", hash)
-	if err := os.MkdirAll(processDir, 0700); err != nil {
-		return "", fmt.Errorf("failed to create process directory: %w", err)
-	}
-
-	proc := &Process{
-		Hash:      hash,
-		Command:   command,
-		StartTime: time.Now().UTC(),
-		Completed: false,
-	}
-
-	// Save process metadata as individual files
-	if err := saveProcessFiles(processDir, proc); err != nil {
-		return "", err
-	}
-
-	// Create empty output.log file
-	if err := os.WriteFile(filepath.Join(processDir, "output.log"), []byte{}, 0600); err != nil {
-		return "", fmt.Errorf("failed to create output.log file: %w", err)
-	}
-
-	// Create named pipe for stdin
-	stdinPipe := filepath.Join(processDir, "stdin.pipe")
-	if err := syscall.Mkfifo(stdinPipe, 0600); err != nil {
-		return "", fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
-
-	return hash, nil
-}
-
 // GetProcess retrieves a process from a workspace
 func GetProcess(ws *Workspace, hash string) (*Process, error) {
 	processDir := filepath.Join(ws.Path, "processes", hash)
@@ -227,62 +187,6 @@ func GetProcess(ws *Workspace, hash string) (*Process, error) {
 	}
 
 	return proc, nil
-}
-
-// UpdateProcessPID updates the PID of a running process
-func UpdateProcessPID(ws *Workspace, hash string, pid int) error {
-	processDir := filepath.Join(ws.Path, "processes", hash)
-
-	// Write PID file
-	if err := os.WriteFile(filepath.Join(processDir, "pid"), []byte(strconv.Itoa(pid)), 0600); err != nil {
-		return fmt.Errorf("failed to write pid file: %w", err)
-	}
-
-	// Update status file
-	if err := os.WriteFile(filepath.Join(processDir, "status"), []byte("running"), 0600); err != nil {
-		return fmt.Errorf("failed to write status file: %w", err)
-	}
-
-	return nil
-}
-
-// UpdateProcessExit updates a process when it exits
-func UpdateProcessExit(ws *Workspace, hash string, exitCode int, signal string) error {
-	processDir := filepath.Join(ws.Path, "processes", hash)
-
-	// Write exit-status file
-	if err := os.WriteFile(filepath.Join(processDir, "exit-status"), []byte(strconv.Itoa(exitCode)), 0600); err != nil {
-		return fmt.Errorf("failed to write exit-status file: %w", err)
-	}
-
-	// Write signal file if process was terminated by signal
-	if signal != "" {
-		if err := os.WriteFile(filepath.Join(processDir, "signal"), []byte(signal), 0600); err != nil {
-			return fmt.Errorf("failed to write signal file: %w", err)
-		}
-	}
-
-	// Detect and write content type
-	outputFile := filepath.Join(processDir, "output.log")
-	if data, err := outputlog.ReadRawStdout(outputFile); err == nil && len(data) > 0 {
-		contentType := detectContentType(data)
-		if err := os.WriteFile(filepath.Join(processDir, "content-type"), []byte(contentType), 0600); err != nil {
-			return fmt.Errorf("failed to write content-type file: %w", err)
-		}
-	}
-
-	// Write endtime file
-	endTime := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := os.WriteFile(filepath.Join(processDir, "endtime"), []byte(endTime), 0600); err != nil {
-		return fmt.Errorf("failed to write endtime file: %w", err)
-	}
-
-	// Update completed file
-	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("true"), 0600); err != nil {
-		return fmt.Errorf("failed to write completed file: %w", err)
-	}
-
-	return nil
 }
 
 // ListProcesses returns all processes in a workspace
@@ -398,31 +302,6 @@ func loadWorkspaceFiles(ws *Workspace) error {
 	return nil
 }
 
-// saveProcessFiles saves process data as individual files
-func saveProcessFiles(processDir string, proc *Process) error {
-	// Write command file
-	if err := os.WriteFile(filepath.Join(processDir, "cmd"), []byte(proc.Command), 0600); err != nil {
-		return fmt.Errorf("failed to write cmd file: %w", err)
-	}
-
-	// Write starttime file
-	startTime := proc.StartTime.Format(time.RFC3339Nano)
-	if err := os.WriteFile(filepath.Join(processDir, "starttime"), []byte(startTime), 0600); err != nil {
-		return fmt.Errorf("failed to write starttime file: %w", err)
-	}
-
-	// Write completed file
-	completedStr := "false"
-	if proc.Completed {
-		completedStr = "true"
-	}
-	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte(completedStr), 0600); err != nil {
-		return fmt.Errorf("failed to write completed file: %w", err)
-	}
-
-	return nil
-}
-
 // loadProcessFiles loads process data from individual files
 func loadProcessFiles(processDir string, proc *Process) error {
 	// Read command file
@@ -486,8 +365,8 @@ func loadProcessFiles(processDir string, proc *Process) error {
 	return nil
 }
 
-// generateProcessHash generates a unique hash for a process
-func generateProcessHash(command string, timestamp time.Time) string {
+// GenerateProcessHash generates a unique hash for a process
+func GenerateProcessHash(command string, timestamp time.Time) string {
 	data := fmt.Sprintf("%s:%d", command, timestamp.UnixNano())
 	hash := sha256.Sum256([]byte(data))
 	return hex.EncodeToString(hash[:])[:16] // Use first 16 characters
@@ -592,13 +471,4 @@ func generateWorkspaceID(name string) (string, error) {
 	}
 
 	return id, nil
-}
-
-// detectContentType detects the MIME type of stdout data
-func detectContentType(data []byte) string {
-	// http.DetectContentType uses at most the first 512 bytes
-	if len(data) > 512 {
-		data = data[:512]
-	}
-	return http.DetectContentType(data)
 }

@@ -17,6 +17,7 @@ import (
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
 	"mobileshell/pkg/httperror"
 )
@@ -629,14 +630,15 @@ func TestBinaryDownload(t *testing.T) {
 		binaryData[i] = byte(i)
 	}
 
-	// Create a fake process by directly setting up the process directory structure
-	// This avoids issues with running actual commands in the test environment
-	hash, err := workspace.CreateProcess(ws, "test binary command")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
+	// Create a process in the workspace
+	command := "test binary command"
+	hash := workspace.GenerateProcessHash(command, time.Now().UTC())
+	processDir := workspace.GetProcessDir(ws, hash)
+	if err := process.InitializeProcessDir(processDir, command); err != nil {
+		t.Fatalf("Failed to initialize process directory: %v", err)
 	}
 
-	processDir := workspace.GetProcessDir(ws, hash)
+	processDir = workspace.GetProcessDir(ws, hash)
 
 	// Create output.log file with binary data in stdout format
 	// Use the same formatting function as nohup to ensure consistency
@@ -665,8 +667,9 @@ func TestBinaryDownload(t *testing.T) {
 		t.Fatalf("Failed to write binary-data marker: %v", err)
 	}
 
-	// Mark process as completed
-	if err := workspace.UpdateProcessExit(ws, hash, 0, ""); err != nil {
+	// Update the process to be completed
+	processDir = workspace.GetProcessDir(ws, hash)
+	if err := process.UpdateProcessExitInDir(processDir, 0, ""); err != nil {
 		t.Fatalf("Failed to update process exit: %v", err)
 	}
 

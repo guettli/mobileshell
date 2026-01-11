@@ -47,6 +47,8 @@ var runCmd = &cobra.Command{
 
 var (
 	fromStdin bool
+	nohupWorkDir    string
+	nohupPreCommand string
 )
 
 var addPasswordCmd = &cobra.Command{
@@ -96,7 +98,7 @@ var addPasswordCmd = &cobra.Command{
 }
 
 var nohupCmd = &cobra.Command{
-	Use:   "nohup WORKSPACE_ID PROCESS_HASH",
+	Use:   "nohup PROCESS_DIR COMMAND",
 	Short: "Execute a process in nohup mode (internal use)",
 	Long: `Execute a process in nohup mode within a workspace.
 
@@ -105,8 +107,8 @@ in detached mode (nohup). It handles process execution, output capture,
 and maintains process state in the workspace directory.
 
 Arguments:
-  WORKSPACE_ID    The unique identifier of the workspace (URL-safe ID)
-  PROCESS_HASH    The hash identifier of the process to execute
+  PROCESS_DIR     The directory where process state files will be stored
+  COMMAND         The command to execute
 
 This command should not be called directly by users. It is automatically
 invoked by the server when executing processes in nohup mode.`,
@@ -121,15 +123,9 @@ invoked by the server when executing processes in nohup mode.`,
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dir, err := server.GetStateDir(stateDir, false)
-		if err != nil {
-			return err
-		}
-
-		workspaceID := args[0]
-		processHash := args[1]
-
-		return nohup.Run(dir, workspaceID, processHash)
+		processDir := args[0]
+		command := args[1]
+		return nohup.Run(processDir, command, nohupWorkDir, nohupPreCommand)
 	},
 }
 
@@ -143,6 +139,8 @@ func init() {
 	addPasswordCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
 
 	nohupCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
+	nohupCmd.Flags().StringVarP(&nohupWorkDir, "work-dir", "w", "", "Working directory for the process")
+	nohupCmd.Flags().StringVar(&nohupPreCommand, "pre-command", "", "Pre-command script content (e.g. environment setup)")
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(addPasswordCmd)
