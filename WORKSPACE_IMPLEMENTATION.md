@@ -1,5 +1,7 @@
 # Workspace Implementation
 
+TODO: Clean up. Too long, too much outdate.
+
 ## Overview
 
 Every process in mobileshell is now part of a workspace. A workspace has:
@@ -78,20 +80,6 @@ New package that handles workspace and process management using individual files
 - `Manager`: Manages workspaces and processes
 - `Workspace`: Represents a workspace with ID, name, directory, and pre-command
 - `Process`: Represents a process within a workspace
-
-Key functions:
-
-- `CreateWorkspace(name, directory, preCommand)`: Creates a new workspace
-  - **Validates directory exists** before creating
-  - Generates URL-safe ID from name
-  - Returns error if directory doesn't exist
-  - Returns error if workspace with same ID already exists for today
-- `GetWorkspaceByID(id)`: Gets workspace by ID (returns most recent if multiple exist)
-- `ListWorkspaces()`: Lists all workspaces
-- `CreateProcess(ws, command)`: Creates a new process in a workspace
-- `UpdateProcessPID(ws, hash, pid)`: Updates process PID when started
-- `UpdateProcessExit(ws, hash, exitCode)`: Updates process when completed
-- `ListProcesses(ws)`: Lists all processes in a workspace
 
 All metadata is read/written as individual files, not JSON.
 

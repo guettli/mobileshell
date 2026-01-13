@@ -8,26 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
 )
-
-type Process struct {
-	ID          string    `json:"id"`
-	Command     string    `json:"command"`
-	StartTime   time.Time `json:"start_time"`
-	OutputFile  string    `json:"output_file"`
-	PID         int       `json:"pid"`
-	Completed   bool      `json:"completed"`           // true if process has finished
-	WorkspaceTS string    `json:"workspace_timestamp"`
-	Hash        string    `json:"hash"`
-	ExitCode    int       `json:"exit_code"`           // 0 if not exited yet or exited successfully
-	Signal      string    `json:"signal,omitempty"`
-	EndTime     time.Time `json:"end_time,omitempty"`
-	ContentType string    `json:"content_type,omitempty"` // MIME type of stdout output
-}
 
 func InitExecutor(stateDir string) error {
 	// Initialize workspace storage
@@ -45,7 +32,7 @@ func GetWorkspaceByID(stateDir, id string) (*workspace.Workspace, error) {
 }
 
 // Execute spawns a new process in the given workspace
-func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process, error) {
+func Execute(stateDir string, ws *workspace.Workspace, command string) (*process.Process, error) {
 	if ws == nil {
 		return nil, fmt.Errorf("workspace is nil")
 	}
@@ -56,148 +43,67 @@ func Execute(stateDir string, ws *workspace.Workspace, command string) (*Process
 		return nil, fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	// Create process in workspace
-	hash, err := workspace.CreateProcess(ws, command)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create process: %w", err)
+	// Generate hash for the process
+	now := time.Now().UTC()
+	commandId := now.Format(time.RFC3339Nano)
+
+	processDir := filepath.Join(ws.Path, "processes", commandId)
+	if err := os.MkdirAll(processDir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create process directory: %w", err)
 	}
 
-	// Get workspace timestamp from path
-	workspaceTS := filepath.Base(ws.Path)
+	proc := &process.Process{
+		CommandId: commandId,
+		Command:   command,
+		StartTime: now,
+		Completed: false,
+	}
 
-	// Get process directory for file paths
-	processDir := workspace.GetProcessDir(ws, hash)
-	outputFile := filepath.Join(processDir, "output.log")
+	// Create named pipe for stdin
+	stdinPipe := filepath.Join(processDir, "stdin.pipe")
+	if err := syscall.Mkfifo(stdinPipe, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	// Write command file
+	if err := os.WriteFile(filepath.Join(processDir, "cmd"), []byte(proc.Command), 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write cmd file: %w", err)
+	}
+
+	// Write starttime file
+	startTime := proc.StartTime.Format(time.RFC3339Nano)
+	if err := os.WriteFile(filepath.Join(processDir, "starttime"), []byte(startTime), 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write starttime file: %w", err)
+	}
+
+	// Write completed file
+	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("false"), 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write completed file: %w", err)
+	}
+
+	// Create script
+	var nohupCommand string
+	if ws.PreCommand == "" {
+		nohupCommand = "#!/usr/bin/env bash"
+	} else {
+		nohupCommand = ws.PreCommand
+	}
+
+	nohupCommandPath := filepath.Join(processDir, "nohup-command")
+	if err := os.WriteFile(nohupCommandPath,
+		[]byte(nohupCommand+"\n"+command), 0o700); err != nil {
+		return nil, fmt.Errorf("failed to write nohup-command file: %w", err)
+	}
 
 	// Spawn the process using `mobileshell nohup` in the background
-	cmd := exec.Command(execPath, "nohup", "--state-dir", stateDir, workspaceTS, hash)
-
-	// Capture stdout and stderr from the nohup subprocess
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe for nohup: %w", err)
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stderr pipe for nohup: %w", err)
-	}
+	cmd := exec.Command(execPath, "nohup", nohupCommandPath)
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to spawn nohup process: %w", err)
 	}
 
-	// Read and log nohup subprocess output in the background
-	go func() {
-		defer func() { _ = stdoutPipe.Close() }()
-		defer func() { _ = stderrPipe.Close() }()
-
-		// Open output.log for appending
-		outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0600)
-		if err != nil {
-			// If we can't open the file, just drain the pipes silently
-			_, _ = io.Copy(io.Discard, stdoutPipe)
-			_, _ = io.Copy(io.Discard, stderrPipe)
-			_ = cmd.Wait()
-			return
-		}
-		defer func() { _ = outFile.Close() }()
-
-		// Read from both pipes and write to output.log
-		done := make(chan struct{}, 2)
-
-		go readNohupStream(stdoutPipe, "nohup-stdout", outFile, done)
-		go readNohupStream(stderrPipe, "nohup-stderr", outFile, done)
-
-		// Wait for both readers to finish
-		<-done
-		<-done
-
-		_ = cmd.Wait()
-	}()
-
-	proc := &Process{
-		ID:          hash,
-		Command:     command,
-		StartTime:   time.Now().UTC(),
-		OutputFile:  filepath.Join(processDir, "output.log"),
-		Completed:   false,
-		WorkspaceTS: workspaceTS,
-		Hash:        hash,
-	}
-
 	return proc, nil
 }
-
-// convertWorkspaceProcess converts a workspace.Process to an executor.Process
-func convertWorkspaceProcess(ws *workspace.Workspace, wp *workspace.Process) *Process {
-	workspaceTS := filepath.Base(ws.Path)
-	processDir := workspace.GetProcessDir(ws, wp.Hash)
-
-	// Read content-type if available
-	contentType := ""
-	contentTypeFile := filepath.Join(processDir, "content-type")
-	if data, err := os.ReadFile(contentTypeFile); err == nil {
-		contentType = string(data)
-	}
-
-	return &Process{
-		ID:          wp.Hash,
-		Command:     wp.Command,
-		StartTime:   wp.StartTime,
-		EndTime:     wp.EndTime,
-		OutputFile:  filepath.Join(processDir, "output.log"),
-		PID:         wp.PID,
-		Completed:   wp.Completed,
-		WorkspaceTS: workspaceTS,
-		Hash:        wp.Hash,
-		ExitCode:    wp.ExitCode,
-		Signal:      wp.Signal,
-		ContentType: contentType,
-	}
-}
-
-// ListWorkspaceProcesses returns processes from a specific workspace
-func ListWorkspaceProcesses(ws *workspace.Workspace) ([]*Process, error) {
-	if ws == nil {
-		return nil, fmt.Errorf("workspace is nil")
-	}
-
-	var processes []*Process
-
-	workspaceProcs, err := workspace.ListProcesses(ws)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, wp := range workspaceProcs {
-		proc := convertWorkspaceProcess(ws, wp)
-		processes = append(processes, proc)
-	}
-
-	return processes, nil
-}
-
-// GetProcess retrieves a process by ID (hash)
-func GetProcess(stateDir, id string) (*Process, bool) {
-	// Search through all workspaces for the process
-	workspaces, err := workspace.ListWorkspaces(stateDir)
-	if err != nil {
-		return nil, false
-	}
-
-	for _, ws := range workspaces {
-		wp, err := workspace.GetProcess(ws, id)
-		if err != nil {
-			continue
-		}
-
-		proc := convertWorkspaceProcess(ws, wp)
-		return proc, true
-	}
-
-	return nil, false
-}
-
 
 // DetectContentType detects the MIME type of stdout data
 func DetectContentType(data []byte) string {
@@ -213,7 +119,7 @@ func ListWorkspaces(stateDir string) ([]*workspace.Workspace, error) {
 	return workspace.ListWorkspaces(stateDir)
 }
 
-// readNohupStream reads from a nohup subprocess stream and writes it to output.log
+// readNohupStream reads from a nohup subprocess stream and writes it to output.log. TODO: No, all writes to output.log to through the channel.
 func readNohupStream(reader io.Reader, streamName string, outFile *os.File, done chan<- struct{}) {
 	defer func() { done <- struct{}{} }()
 

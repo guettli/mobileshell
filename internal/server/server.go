@@ -24,19 +24,21 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"mobileshell/internal/auth"
 	"mobileshell/internal/claude"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/process"
 	"mobileshell/internal/sysmon"
 	"mobileshell/internal/terminal"
 	"mobileshell/internal/workspace"
 	"mobileshell/internal/wshub"
+	"mobileshell/pkg/httperror"
 	"mobileshell/pkg/markdown"
 	"mobileshell/pkg/outputtype"
-	"mobileshell/pkg/httperror"
+
+	"github.com/gorilla/websocket"
 )
 
 //go:embed templates/*
@@ -212,7 +214,6 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 	}
 }
 
-
 // redirectError represents an HTTP redirect
 type redirectError struct {
 	url        string
@@ -338,7 +339,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-stdin", s.authMiddleware(s.wrapHandler(s.hxHandleSendStdin)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/hx-send-signal", s.authMiddleware(s.wrapHandler(s.hxHandleSendSignal)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/download", s.authMiddleware(s.wrapHandler(s.handleDownloadOutput)))
-	
+
 	// Interactive terminal routes
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/terminal", s.authMiddleware(s.wrapHandler(s.handleTerminal)))
 	mux.HandleFunc("/workspaces/{id}/processes/{processID}/ws-terminal", s.authMiddleware(s.handleWebSocketTerminal))
@@ -724,7 +725,7 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 	var buf bytes.Buffer
 	basePath := s.getBasePath(r)
 	fmt.Fprintf(&buf, `<div data-process-id="%s" style="display:none" data-output-url="%s/workspaces/%s/processes/%s/hx-output">%s</div>`,
-		proc.ID, basePath, workspaceID, proc.ID, command)
+		proc.CommandId, basePath, workspaceID, proc.CommandId, command)
 	return buf.Bytes(), nil
 }
 
@@ -776,7 +777,7 @@ func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, 
 	var buf bytes.Buffer
 	basePath := s.getBasePath(r)
 	fmt.Fprintf(&buf, `<div data-process-id="%s" style="display:none" data-output-url="%s/workspaces/%s/processes/%s/hx-output">%s</div>`,
-		proc.ID, basePath, workspaceID, proc.ID, command)
+		proc.CommandId, basePath, workspaceID, proc.CommandId, command)
 	return buf.Bytes(), nil
 }
 
@@ -800,7 +801,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	allProcesses, err := workspace.ListProcesses(ws)
 	if err != nil {
 		return nil, err
 	}
@@ -825,27 +826,14 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 	for _, id := range processIDs {
 		found := false
 		for _, p := range allProcesses {
-			if p.ID == id {
+			if p.CommandId == id {
 				found = true
-				// Check if process is actually still running
-				if !p.Completed && p.PID > 0 {
-					process, err := os.FindProcess(p.PID)
-					if err == nil {
-						err = process.Signal(syscall.Signal(0))
-						if err != nil {
-							// Process doesn't exist anymore, mark as completed
-							slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
-							_ = workspace.UpdateProcessExit(ws, p.Hash, -1, "")
-							p.Completed = true
-						}
-					}
-				}
 
 				if p.Completed {
 					// Render finished process HTML (view only, like initial page load)
 					html, err := s.renderFinishedProcessSnippet(p, workspaceID, r)
 					if err != nil {
-						slog.Error("Failed to render finished process", "error", err, "id", p.ID)
+						slog.Error("Failed to render finished process", "error", err, "id", p.CommandId)
 						continue
 					}
 					updates = append(updates, ProcessUpdate{
@@ -857,7 +845,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 					// Process is still running - send output update
 					outputHTML, err := s.renderProcessOutputHTML(p, workspaceID, r)
 					if err != nil {
-						slog.Error("Failed to render process output", "error", err, "id", p.ID)
+						slog.Error("Failed to render process output", "error", err, "id", p.CommandId)
 						continue
 					}
 					updates = append(updates, ProcessUpdate{
@@ -881,9 +869,9 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 	}
 
 	// Check for new running processes not in the received list
-	var runningProcesses []*executor.Process
+	var runningProcesses []*process.Process
 	for _, p := range allProcesses {
-		if !p.Completed && !receivedIDs[p.ID] {
+		if !p.Completed && !receivedIDs[p.CommandId] {
 			// Check if actually running
 			if p.PID > 0 {
 				process, err := os.FindProcess(p.PID)
@@ -908,11 +896,11 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 	for _, p := range runningProcesses {
 		html, err := s.renderRunningProcessSnippet(p, workspaceID, r)
 		if err != nil {
-			slog.Error("Failed to render new running process", "error", err, "id", p.ID)
+			slog.Error("Failed to render new running process", "error", err, "id", p.CommandId)
 			continue
 		}
 		updates = append(updates, ProcessUpdate{
-			ID:     p.ID,
+			ID:     p.CommandId,
 			Status: "new",
 			HTML:   html,
 		})
@@ -929,7 +917,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 	return responseData, nil
 }
 
-func (s *Server) renderRunningProcessSnippet(p *executor.Process, workspaceID string, r *http.Request) (string, error) {
+func (s *Server) renderRunningProcessSnippet(p *process.Process, workspaceID string, r *http.Request) (string, error) {
 	var buf bytes.Buffer
 	err := s.tmpl.ExecuteTemplate(&buf, "hx-running-process-single.html", map[string]interface{}{
 		"Process":     p,
@@ -942,7 +930,7 @@ func (s *Server) renderRunningProcessSnippet(p *executor.Process, workspaceID st
 	return buf.String(), nil
 }
 
-func (s *Server) renderFinishedProcessSnippet(p *executor.Process, workspaceID string, r *http.Request) (string, error) {
+func (s *Server) renderFinishedProcessSnippet(p *process.Process, workspaceID string, r *http.Request) (string, error) {
 	var buf bytes.Buffer
 	err := s.tmpl.ExecuteTemplate(&buf, "hx-finished-process-single.html", map[string]interface{}{
 		"Process":     p,
@@ -1046,13 +1034,13 @@ func (s *Server) handleWSProcessUpdates(w http.ResponseWriter, r *http.Request) 
 // sendReconciliationEvents sends the full current state to a new SSE client
 // sendWSReconciliation sends the full current state to a new WebSocket client
 func (s *Server) sendWSReconciliation(client *wshub.Client, ws *workspace.Workspace, r *http.Request) error {
-	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	allProcesses, err := workspace.ListProcesses(ws)
 	if err != nil {
 		return fmt.Errorf("failed to list processes: %w", err)
 	}
 
 	// Send running processes
-	var runningProcesses []*executor.Process
+	var runningProcesses []*process.Process
 	for _, p := range allProcesses {
 		if !p.Completed {
 			// Check if actually running
@@ -1086,7 +1074,7 @@ func (s *Server) sendWSReconciliation(client *wshub.Client, ws *workspace.Worksp
 		msg := wshub.Message{
 			Type: "reconcile_running",
 			Data: map[string]interface{}{
-				"id":   p.ID,
+				"id":   p.CommandId,
 				"html": html,
 			},
 		}
@@ -1117,7 +1105,7 @@ func (s *Server) sendWSReconciliation(client *wshub.Client, ws *workspace.Worksp
 
 // checkWSProcessUpdates checks for process state changes and sends updates via WebSocket
 func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Workspace, r *http.Request, knownProcesses map[string]bool) error {
-	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	allProcesses, err := workspace.ListProcesses(ws)
 	if err != nil {
 		return fmt.Errorf("failed to list processes: %w", err)
 	}
@@ -1126,28 +1114,11 @@ func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Works
 	currentProcesses := make(map[string]bool) // processID -> completed status
 
 	for _, p := range allProcesses {
-		if !p.Completed {
-			// Check if actually running
-			if p.PID > 0 {
-				process, err := os.FindProcess(p.PID)
-				if err == nil {
-					err = process.Signal(syscall.Signal(0))
-					if err != nil {
-						// Process died, mark as completed and log any update errors
-						slog.Info("Detected dead process, updating status", "pid", p.PID, "id", p.ID)
-						if err := workspace.UpdateProcessExit(ws, p.Hash, -1, ""); err != nil {
-							slog.Error("Failed to update dead process status", "error", err, "pid", p.PID, "id", p.ID)
-						}
-						p.Completed = true
-					}
-				}
-			}
-		}
 
-		currentProcesses[p.ID] = p.Completed
+		currentProcesses[p.CommandId] = p.Completed
 
-		wasKnown, existed := knownProcesses[p.ID]
-		
+		wasKnown, existed := knownProcesses[p.CommandId]
+
 		if !existed {
 			// New process - we haven't seen it before
 			if !p.Completed {
@@ -1161,7 +1132,7 @@ func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Works
 				msg := wshub.Message{
 					Type: "process_started",
 					Data: map[string]interface{}{
-						"id":   p.ID,
+						"id":   p.CommandId,
 						"html": html,
 					},
 				}
@@ -1179,7 +1150,7 @@ func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Works
 			msg := wshub.Message{
 				Type: "process_finished",
 				Data: map[string]interface{}{
-					"id": p.ID,
+					"id": p.CommandId,
 				},
 			}
 
@@ -1191,7 +1162,7 @@ func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Works
 		} else if !p.Completed {
 			// Running process - check if we should send update (rate limiting)
 			minInterval := 500 * time.Millisecond // 2 updates per second max per process
-			if s.wsHub.ShouldSendUpdate(p.ID, minInterval) {
+			if s.wsHub.ShouldSendUpdate(p.CommandId, minInterval) {
 				outputHTML, err := s.renderProcessOutputHTML(p, ws.ID, r)
 				if err != nil {
 					slog.Error("Failed to render process output", "error", err)
@@ -1201,7 +1172,7 @@ func (s *Server) checkWSProcessUpdates(client *wshub.Client, ws *workspace.Works
 				msg := wshub.Message{
 					Type: "process_output",
 					Data: map[string]interface{}{
-						"id":          p.ID,
+						"id":          p.CommandId,
 						"output_html": outputHTML,
 					},
 				}
@@ -1250,13 +1221,13 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	allProcesses, err := executor.ListWorkspaceProcesses(ws)
+	allProcesses, err := workspace.ListProcesses(ws)
 	if err != nil {
 		return nil, err
 	}
 
 	// Filter for finished processes only
-	var finishedProcesses []*executor.Process
+	var finishedProcesses []*process.Process
 	for _, p := range allProcesses {
 		if p.Completed {
 			finishedProcesses = append(finishedProcesses, p)
@@ -1307,7 +1278,7 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 
 func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte, error) {
 	// Get process ID from path parameter
-	processID := r.PathValue("processID")
+	processID := r.PathValue("processID") // todo: use commandId
 	if processID == "" {
 		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Process ID is required"}
 	}
@@ -1325,7 +1296,7 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 	}
 
 	// Get the process
-	proc, ok := executor.GetProcess(s.stateDir, processID)
+	proc, ok := process.LoadProcessFromDir(s.stateDir, processID)
 	if !ok {
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
 	}
@@ -1411,15 +1382,15 @@ func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, e
 }
 
 type processOutputData struct {
-	stdout       string
-	stdoutHTML   string // Rendered HTML from markdown
-	stderr       string
-	stdin        string
-	nohupStdout  string
-	nohupStderr  string
-	needsExpand  bool
-	isBinary     bool
-	contentType  string // Content type from output-type file
+	stdout      string
+	stdoutHTML  string // Rendered HTML from markdown
+	stderr      string
+	stdin       string
+	nohupStdout string
+	nohupStderr string
+	needsExpand bool
+	isBinary    bool
+	contentType string // Content type from output-type file
 }
 
 func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOutputData, error) {
@@ -1501,20 +1472,20 @@ func (s *Server) renderProcessOutput(proc *executor.Process, workspaceID string,
 
 	var buf bytes.Buffer
 	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
-		"Process":      proc,
-		"Stdout":       outputData.stdout,
-		"StdoutHTML":   template.HTML(outputData.stdoutHTML), // Mark as safe HTML
-		"Stderr":       outputData.stderr,
-		"Stdin":        outputData.stdin,
-		"NohupStdout":  outputData.nohupStdout,
-		"NohupStderr":  outputData.nohupStderr,
-		"Type":         "combined",
-		"NeedsExpand":  outputData.needsExpand,
-		"Expanded":     expand,
-		"IsBinary":     outputData.isBinary,
-		"ContentType":  outputData.contentType,
-		"BasePath":     s.getBasePath(r),
-		"WorkspaceID":  workspaceID,
+		"Process":     proc,
+		"Stdout":      outputData.stdout,
+		"StdoutHTML":  template.HTML(outputData.stdoutHTML), // Mark as safe HTML
+		"Stderr":      outputData.stderr,
+		"Stdin":       outputData.stdin,
+		"NohupStdout": outputData.nohupStdout,
+		"NohupStderr": outputData.nohupStderr,
+		"Type":        "combined",
+		"NeedsExpand": outputData.needsExpand,
+		"Expanded":    expand,
+		"IsBinary":    outputData.isBinary,
+		"ContentType": outputData.contentType,
+		"BasePath":    s.getBasePath(r),
+		"WorkspaceID": workspaceID,
 	})
 	if err != nil {
 		return "", err
@@ -1818,7 +1789,7 @@ func setupServerLog(stateDir string) (*os.File, error) {
 	logPath := filepath.Join(stateDir, "server.log")
 
 	// Open log file in append mode with create flag
-	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open server log file: %w", err)
 	}
@@ -1967,20 +1938,20 @@ var upgrader = websocket.Upgrader{
 			// Allow requests without Origin header (e.g., from native apps)
 			return true
 		}
-		
+
 		// Parse origin and compare with expected host
 		host := r.Host
 		expectedOrigins := []string{
 			"http://" + host,
 			"https://" + host,
 		}
-		
+
 		for _, expected := range expectedOrigins {
 			if origin == expected {
 				return true
 			}
 		}
-		
+
 		slog.Warn("Rejected WebSocket connection from unauthorized origin", "origin", origin, "host", host)
 		return false
 	},
@@ -1988,133 +1959,133 @@ var upgrader = websocket.Upgrader{
 
 // handleTerminal shows the interactive terminal page
 func (s *Server) handleTerminal(ctx context.Context, r *http.Request) ([]byte, error) {
-workspaceID := r.PathValue("id")
-processID := r.PathValue("processID")
+	workspaceID := r.PathValue("id")
+	processID := r.PathValue("processID")
 
-// Get workspace
-ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
-if err != nil {
-return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
-}
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
+	}
 
-// Get process
-proc, found := executor.GetProcess(s.stateDir, processID)
-if !found {
-return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
-}
+	// Get process
+	proc, found := executor.GetProcess(s.stateDir, processID)
+	if !found {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
+	}
 
-basePath := s.getBasePath(r)
+	basePath := s.getBasePath(r)
 
-data := struct {
-BasePath     string
-WorkspaceID  string
-WorkspaceName string
-Process      *executor.Process
-}{
-BasePath:     basePath,
-WorkspaceID:  workspaceID,
-WorkspaceName: ws.Name,
-Process:      proc,
-}
+	data := struct {
+		BasePath      string
+		WorkspaceID   string
+		WorkspaceName string
+		Process       *executor.Process
+	}{
+		BasePath:      basePath,
+		WorkspaceID:   workspaceID,
+		WorkspaceName: ws.Name,
+		Process:       proc,
+	}
 
-var buf bytes.Buffer
-if err := s.tmpl.ExecuteTemplate(&buf, "terminal.html", data); err != nil {
-return nil, err
-}
+	var buf bytes.Buffer
+	if err := s.tmpl.ExecuteTemplate(&buf, "terminal.html", data); err != nil {
+		return nil, err
+	}
 
-return buf.Bytes(), nil
+	return buf.Bytes(), nil
 }
 
 // handleTerminalExecute executes a command in interactive terminal mode
 func (s *Server) handleTerminalExecute(ctx context.Context, r *http.Request) ([]byte, error) {
-workspaceID := r.PathValue("id")
+	workspaceID := r.PathValue("id")
 
-// Parse form data
-if err := r.ParseForm(); err != nil {
-return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
-}
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
+	}
 
-// Get workspace
-ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
-if err != nil {
-return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
-}
+	// Get workspace
+	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
+	}
 
-command := r.FormValue("command")
-if command == "" {
-// Use workspace default if set, otherwise auto-detect
-if ws.DefaultTerminalCommand != "" {
-command = ws.DefaultTerminalCommand
-} else {
-// Check if tmux is available
-if _, err := exec.LookPath("tmux"); err == nil {
-command = "tmux"
-} else {
-command = "bash"
-}
-}
-}
+	command := r.FormValue("command")
+	if command == "" {
+		// Use workspace default if set, otherwise auto-detect
+		if ws.DefaultTerminalCommand != "" {
+			command = ws.DefaultTerminalCommand
+		} else {
+			// Check if tmux is available
+			if _, err := exec.LookPath("tmux"); err == nil {
+				command = "tmux"
+			} else {
+				command = "bash"
+			}
+		}
+	}
 
-// Create the process
-proc, err := executor.Execute(s.stateDir, ws, command)
-if err != nil {
-return nil, fmt.Errorf("failed to execute command: %w", err)
-}
+	// Create the process
+	proc, err := executor.Execute(s.stateDir, ws, command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute command: %w", err)
+	}
 
-// Redirect to terminal view
-basePath := s.getBasePath(r)
-redirectURL := fmt.Sprintf("%s/workspaces/%s/processes/%s/terminal", basePath, workspaceID, proc.ID)
-return nil, &redirectError{url: redirectURL, statusCode: http.StatusSeeOther}
+	// Redirect to terminal view
+	basePath := s.getBasePath(r)
+	redirectURL := fmt.Sprintf("%s/workspaces/%s/processes/%s/terminal", basePath, workspaceID, proc.CommandId)
+	return nil, &redirectError{url: redirectURL, statusCode: http.StatusSeeOther}
 }
 
 // handleWebSocketTerminal handles WebSocket connections for interactive terminals
 func (s *Server) handleWebSocketTerminal(w http.ResponseWriter, r *http.Request) {
-// Authenticate
-token := s.getSessionToken(r)
-if token == "" {
-http.Error(w, "Unauthorized", http.StatusUnauthorized)
-return
-}
+	// Authenticate
+	token := s.getSessionToken(r)
+	if token == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-valid, err := auth.ValidateSession(s.stateDir, token)
-if err != nil || !valid {
-http.Error(w, "Unauthorized", http.StatusUnauthorized)
-return
-}
+	valid, err := auth.ValidateSession(s.stateDir, token)
+	if err != nil || !valid {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-workspaceID := r.PathValue("id")
-processID := r.PathValue("processID")
+	workspaceID := r.PathValue("id")
+	processID := r.PathValue("processID")
 
-// Get the process to get the command
-proc, found := executor.GetProcess(s.stateDir, processID)
-if !found {
-http.Error(w, "Process not found", http.StatusNotFound)
-return
-}
+	// Get the process to get the command
+	proc, found := executor.GetProcess(s.stateDir, processID)
+	if !found {
+		http.Error(w, "Process not found", http.StatusNotFound)
+		return
+	}
 
-// Upgrade to WebSocket
-ws, err := upgrader.Upgrade(w, r, nil)
-if err != nil {
-slog.Error("Failed to upgrade to WebSocket", "error", err)
-return
-}
+	// Upgrade to WebSocket
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("Failed to upgrade to WebSocket", "error", err)
+		return
+	}
 
-// Create terminal session
-session, err := terminal.NewSession(ws, s.stateDir, workspaceID, proc.Command)
-if err != nil {
-slog.Error("Failed to create terminal session", "error", err)
-_ = ws.Close()
-return
-}
+	// Create terminal session
+	session, err := terminal.NewSession(ws, s.stateDir, workspaceID, proc.Command)
+	if err != nil {
+		slog.Error("Failed to create terminal session", "error", err)
+		_ = ws.Close()
+		return
+	}
 
-// Start the session
-session.Start()
+	// Start the session
+	session.Start()
 
-// Wait for session to complete
-session.Wait()
+	// Wait for session to complete
+	session.Wait()
 
-// Clean up
-_ = session.Close()
+	// Clean up
+	_ = session.Close()
 }
 
 // handleFileEditor shows the file editor page
@@ -2252,7 +2223,7 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 			ConflictDetected: true,
 			Message:          "File has been modified externally. Please review the current content and try again.",
 			// We can only show the diff between current and proposed since we don't have the original
-			ProposedDiff:     fileeditor.GenerateDiff(currentSession.OriginalContent, newContent),
+			ProposedDiff: fileeditor.GenerateDiff(currentSession.OriginalContent, newContent),
 		}
 
 		basePath := s.getBasePath(r)
@@ -2557,4 +2528,3 @@ func (s *Server) handleFileDownload(ctx context.Context, r *http.Request) ([]byt
 
 	return content, nil
 }
-

@@ -2,6 +2,7 @@ package nohup
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,33 +14,32 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
 	"mobileshell/internal/claude"
 	"mobileshell/internal/outputlog"
-	"mobileshell/internal/workspace"
 	"mobileshell/pkg/outputtype"
+
+	"github.com/creack/pty"
 )
 
 // Run executes a command in nohup mode within a workspace
 // This function is called by the `mobileshell nohup` command
-func Run(stateDir, workspaceID, processHash string) error {
-	// Get the workspace
-	ws, err := workspace.GetWorkspace(stateDir, workspaceID)
-	if err != nil {
-		return fmt.Errorf("failed to get workspace: %w", err)
+func Run(commandSlice []string) error {
+	if len(commandSlice) < 1 {
+		return fmt.Errorf("Not enough arguments")
 	}
-
-	// Get the process
-	proc, err := workspace.GetProcess(ws, processHash)
-	if err != nil {
-		return fmt.Errorf("failed to get process: %w", err)
-	}
-
-	processDir := workspace.GetProcessDir(ws, processHash)
-
+	command := filepath.Clean(commandSlice[0])
+	processDir := filepath.Dir(command)
 	// Open combined output file
 	outputFile := filepath.Join(processDir, "output.log")
-	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0600)
+	_, err := os.Stat(outputFile)
+	if err == nil {
+		return fmt.Errorf("%q does already exist. This is not supported", outputFile)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%q: %w", err)
+	}
+
+	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to open output.log file: %w", err)
 	}
@@ -106,7 +106,7 @@ func Run(stateDir, workspaceID, processHash string) error {
 					detectedType, detectionReason := typeDetector.GetDetectedType()
 					outputTypeFile := filepath.Join(processDir, "output-type")
 					outputTypeContent := fmt.Sprintf("%s,%s", detectedType, detectionReason)
-					if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
+					if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0o600); err != nil {
 						slog.Warn("Failed to write output-type file", "error", err)
 					}
 				}
@@ -114,34 +114,12 @@ func Run(stateDir, workspaceID, processHash string) error {
 		}
 	}()
 
-	// Build the full command with pre-command if specified
-	var fullCommand string
-	var shellCmd []string
-	if ws.PreCommand != "" {
-		// Write pre-command to a temporary script file
-		preScriptPath := filepath.Join(processDir, "pre-command.sh")
-		if err := os.WriteFile(preScriptPath, []byte(ws.PreCommand), 0700); err != nil {
-			return fmt.Errorf("failed to write pre-command script: %w", err)
-		}
-
-		// Extract shell from shebang (if present) to determine which shell to use
-		shell := workspace.ExtractShellFromShebang(ws.PreCommand)
-
-		// Source the pre-command script (to preserve environment) and then run user command
-		fullCommand = fmt.Sprintf(". %s && %s", preScriptPath, proc.Command)
-		shellCmd = []string{shell, "-c", fullCommand}
-	} else {
-		fullCommand = proc.Command
-		shellCmd = []string{"sh", "-c", fullCommand}
-	}
-
 	// Create the command
-	cmd := exec.Command(shellCmd[0], shellCmd[1:]...)
-	cmd.Dir = ws.Directory
+	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
 
 	// Check if this is a Claude command - if so, use pipes instead of PTY
 	// to prevent Claude from detecting a terminal and showing its TUI interface
-	isClaudeCommand := strings.Contains(proc.Command, "claude")
+	isClaudeCommand := strings.Contains(commandSlice[0], "claude")
 
 	var stderrPipe, stdoutPipe io.ReadCloser
 	var stdinPipe io.WriteCloser
@@ -242,13 +220,18 @@ func Run(stateDir, workspaceID, processHash string) error {
 
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0600); err != nil {
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		return fmt.Errorf("failed to write pid file: %w", err)
 	}
 
-	// Update process metadata with PID
-	if err := workspace.UpdateProcessPID(ws, processHash, pid); err != nil {
-		return fmt.Errorf("failed to update process PID: %w", err)
+	// Write PID file
+	if err := os.WriteFile(filepath.Join(processDir, "pid"), []byte(strconv.Itoa(pid)), 0o600); err != nil {
+		return fmt.Errorf("failed to write pid file: %w", err)
+	}
+
+	// Update status file
+	if err := os.WriteFile(filepath.Join(processDir, "status"), []byte("running"), 0o600); err != nil {
+		return fmt.Errorf("failed to write status file: %w", err)
 	}
 
 	// Wait for the process to complete
@@ -282,22 +265,40 @@ func Run(stateDir, workspaceID, processHash string) error {
 	<-writerDone
 
 	// Post-process Claude stream-json output if applicable
-	if err := postProcessClaudeOutput(processDir, proc.Command); err != nil {
+	if err := postProcessClaudeOutput(processDir, commandSlice); err != nil {
 		slog.Warn("Failed to post-process Claude output", "error", err)
 		// Continue anyway - this is not a fatal error
 	}
 
 	// Write exit status to file
 	exitStatusFile := filepath.Join(processDir, "exit-status")
-	if err := os.WriteFile(exitStatusFile, []byte(strconv.Itoa(exitCode)), 0600); err != nil {
+	if err := os.WriteFile(exitStatusFile, []byte(strconv.Itoa(exitCode)), 0o600); err != nil {
 		return fmt.Errorf("failed to write exit-status file: %w", err)
 	}
 
 	// Note: output-type file is written by the writer goroutine as soon as detection occurs
 
-	// Update process metadata with exit information
-	if err := workspace.UpdateProcessExit(ws, processHash, exitCode, signalName); err != nil {
-		return fmt.Errorf("failed to update process exit: %w", err)
+	// Write exit-status file
+	if err := os.WriteFile(filepath.Join(processDir, "exit-status"), []byte(strconv.Itoa(exitCode)), 0o600); err != nil {
+		return fmt.Errorf("failed to write exit-status file: %w", err)
+	}
+
+	// Write signal file if process was terminated by signal
+	if signalName != "" {
+		if err := os.WriteFile(filepath.Join(processDir, "signal"), []byte(signalName), 0o600); err != nil {
+			return fmt.Errorf("failed to write signal file: %w", err)
+		}
+	}
+
+	// Write endtime file
+	endTime := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := os.WriteFile(filepath.Join(processDir, "endtime"), []byte(endTime), 0o600); err != nil {
+		return fmt.Errorf("failed to write endtime file: %w", err)
+	}
+
+	// Update completed file
+	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("true"), 0o600); err != nil {
+		return fmt.Errorf("failed to write completed file: %w", err)
 	}
 
 	return nil
@@ -494,7 +495,7 @@ func postProcessClaudeOutput(processDir, command string) error {
 
 	// Write the processed markdown output back
 	// We need to reconstruct the output.log format with just stdout containing markdown
-	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_TRUNC, 0600)
+	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to open output file for writing: %w", err)
 	}
@@ -516,7 +517,7 @@ func postProcessClaudeOutput(processDir, command string) error {
 	// Force output-type to markdown
 	outputTypeFile := filepath.Join(processDir, "output-type")
 	outputTypeContent := fmt.Sprintf("%s,%s", outputtype.OutputTypeMarkdown, "Claude CLI output processed")
-	if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0600); err != nil {
+	if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0o600); err != nil {
 		return fmt.Errorf("failed to write output-type file: %w", err)
 	}
 

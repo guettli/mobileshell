@@ -144,66 +144,6 @@ func TestProcessCreation(t *testing.T) {
 	}
 }
 
-func TestProcessUpdate(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	if err := InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
-
-	ws, err := CreateWorkspace(tmpDir, "test", t.TempDir(), "")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
-
-	hash, err := CreateProcess(ws, "sleep 1")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	// Update PID
-	err = UpdateProcessPID(ws, hash, 12345)
-	if err != nil {
-		t.Fatalf("Failed to update PID: %v", err)
-	}
-
-	proc, err := GetProcess(ws, hash)
-	if err != nil {
-		t.Fatalf("Failed to get process: %v", err)
-	}
-
-	if proc.PID != 12345 {
-		t.Errorf("Expected PID 12345, got %d", proc.PID)
-	}
-
-	if proc.Completed {
-		t.Error("Expected process to not be completed yet")
-	}
-
-	// Update exit
-	err = UpdateProcessExit(ws, hash, 0, "")
-	if err != nil {
-		t.Fatalf("Failed to update exit: %v", err)
-	}
-
-	proc, err = GetProcess(ws, hash)
-	if err != nil {
-		t.Fatalf("Failed to get process: %v", err)
-	}
-
-	if proc.ExitCode != 0 {
-		t.Errorf("Expected exit code 0, got %d", proc.ExitCode)
-	}
-
-	if !proc.Completed {
-		t.Error("Expected process to be completed")
-	}
-
-	if proc.EndTime.IsZero() {
-		t.Error("End time should be set")
-	}
-}
-
 func TestListWorkspaces(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -417,7 +357,7 @@ func TestPreCommandWithCRLFExecutes(t *testing.T) {
 
 	// Write pre-command to a script file (simulating what nohup.go does)
 	preScriptPath := filepath.Join(processDir, "pre-command.sh")
-	if err := os.WriteFile(preScriptPath, []byte(ws.PreCommand), 0700); err != nil {
+	if err := os.WriteFile(preScriptPath, []byte(ws.PreCommand), 0o700); err != nil {
 		t.Fatalf("Failed to write pre-command script: %v", err)
 	}
 

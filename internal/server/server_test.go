@@ -33,7 +33,7 @@ func TestTemplateRendering(t *testing.T) {
 
 	// Test case 1: Process with zero exit code
 	proc1 := &executor.Process{
-		ID:        "test1",
+		CommandId: "test1",
 		Command:   "echo hello",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
@@ -44,7 +44,7 @@ func TestTemplateRendering(t *testing.T) {
 
 	// Test case 2: Process with non-zero exit code
 	proc2 := &executor.Process{
-		ID:        "test2",
+		CommandId: "test2",
 		Command:   "false",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
@@ -55,7 +55,7 @@ func TestTemplateRendering(t *testing.T) {
 
 	// Test case 3: Process still running
 	proc3 := &executor.Process{
-		ID:        "test3",
+		CommandId: "test3",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
 		Completed: false,
@@ -65,7 +65,7 @@ func TestTemplateRendering(t *testing.T) {
 
 	// Test case 4: Process terminated by signal
 	proc4 := &executor.Process{
-		ID:        "test4",
+		CommandId: "test4",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
@@ -77,7 +77,7 @@ func TestTemplateRendering(t *testing.T) {
 
 	// Test case 5: Process terminated by SIGTERM
 	proc5 := &executor.Process{
-		ID:        "test5",
+		CommandId: "test5",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
 		EndTime:   time.Now().UTC().Add(1 * time.Second),
@@ -655,13 +655,13 @@ func TestBinaryDownload(t *testing.T) {
 	}
 
 	outputFile := filepath.Join(processDir, "output.log")
-	if err := os.WriteFile(outputFile, outputLog.Bytes(), 0600); err != nil {
+	if err := os.WriteFile(outputFile, outputLog.Bytes(), 0o600); err != nil {
 		t.Fatalf("Failed to write output.log: %v", err)
 	}
 
 	// Create binary-data marker file (simulating what nohup would do)
 	binaryMarkerFile := filepath.Join(processDir, "binary-data")
-	if err := os.WriteFile(binaryMarkerFile, []byte("true"), 0600); err != nil {
+	if err := os.WriteFile(binaryMarkerFile, []byte("true"), 0o600); err != nil {
 		t.Fatalf("Failed to write binary-data marker: %v", err)
 	}
 

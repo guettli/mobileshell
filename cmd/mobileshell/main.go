@@ -45,9 +45,7 @@ var runCmd = &cobra.Command{
 	},
 }
 
-var (
-	fromStdin bool
-)
+var fromStdin bool
 
 var addPasswordCmd = &cobra.Command{
 	Use:           "add-password",
@@ -96,40 +94,35 @@ var addPasswordCmd = &cobra.Command{
 }
 
 var nohupCmd = &cobra.Command{
-	Use:   "nohup WORKSPACE_ID PROCESS_HASH",
+	Use:   "nohup cmd [args...]",
 	Short: "Execute a process in nohup mode (internal use)",
-	Long: `Execute a process in nohup mode within a workspace.
+	Long: `Execute a process in nohup mode.
 
 This command is used internally by the MobileShell server to run processes
 in detached mode (nohup). It handles process execution, output capture,
 and maintains process state in the workspace directory.
 
+This way the server can be restarted, and the new server process can re-connect to the running
+nohup processes.
+
 Arguments:
-  WORKSPACE_ID    The unique identifier of the workspace (URL-safe ID)
-  PROCESS_HASH    The hash identifier of the process to execute
+  cmd: The command which gets executed.
+
+
+The output will be written to the directory containing 'cmd'.
 
 This command should not be called directly by users. It is automatically
 invoked by the server when executing processes in nohup mode.`,
-	Hidden: true, // Hide from help since it's for internal use
-	Args: func(cmd *cobra.Command, args []string) error {
-		if err := cobra.ExactArgs(2)(cmd, args); err != nil {
-			// Show the long description when args are missing
-			cmd.Println(cmd.Long)
-			cmd.Println()
-			return err
-		}
-		return nil
-	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dir, err := server.GetStateDir(stateDir, false)
+		if len(args) < 1 {
+			return fmt.Errorf("Not enough arguments")
+		}
+		subCommand := args[0]
+		_, err := os.Stat(subCommand)
 		if err != nil {
 			return err
 		}
-
-		workspaceID := args[0]
-		processHash := args[1]
-
-		return nohup.Run(dir, workspaceID, processHash)
+		return nohup.Run(args)
 	},
 }
 
@@ -141,8 +134,6 @@ func init() {
 	addPasswordCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 	addPasswordCmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "Read password from stdin without prompting (for scripts)")
 	addPasswordCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
-
-	nohupCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(addPasswordCmd)
