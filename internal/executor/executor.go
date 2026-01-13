@@ -32,7 +32,7 @@ func GetWorkspaceByID(stateDir, id string) (*workspace.Workspace, error) {
 }
 
 // Execute spawns a new process in the given workspace
-func Execute(stateDir string, ws *workspace.Workspace, command string) (*process.Process, error) {
+func Execute(ws *workspace.Workspace, command string) (*process.Process, error) {
 	if ws == nil {
 		return nil, fmt.Errorf("workspace is nil")
 	}
@@ -112,11 +112,6 @@ func DetectContentType(data []byte) string {
 		data = data[:512]
 	}
 	return http.DetectContentType(data)
-}
-
-// ListWorkspaces returns all workspaces
-func ListWorkspaces(stateDir string) ([]*workspace.Workspace, error) {
-	return workspace.ListWorkspaces(stateDir)
 }
 
 // readNohupStream reads from a nohup subprocess stream and writes it to output.log. TODO: No, all writes to output.log to through the channel.

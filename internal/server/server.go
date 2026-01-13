@@ -501,7 +501,7 @@ func (s *Server) handleWorkspaces(ctx context.Context, r *http.Request) ([]byte,
 	basePath := s.getBasePath(r)
 
 	// Get all workspaces for the list
-	workspaces, _ := executor.ListWorkspaces(s.stateDir)
+	workspaces, _ := workspace.ListWorkspaces(s.stateDir)
 	var workspaceList []map[string]any
 	for _, ws := range workspaces {
 		workspaceList = append(workspaceList, map[string]any{
@@ -715,7 +715,7 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	proc, err := executor.Execute(s.stateDir, ws, command)
+	proc, err := executor.Execute(ws, command)
 	if err != nil {
 		return nil, err
 	}
@@ -767,7 +767,7 @@ func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, 
 	command := "claude " + strings.Join(claudeArgs, " ")
 
 	// Execute as background process via nohup (like other commands)
-	proc, err := executor.Execute(s.stateDir, ws, command)
+	proc, err := executor.Execute(ws, command)
 	if err != nil {
 		return nil, err
 	}
@@ -1295,14 +1295,13 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	// Get the process
-	proc, ok := process.LoadProcessFromDir(s.stateDir, processID)
-	if !ok {
-		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
+	processDir := filepath.Join(s.stateDir, "workspaces", workspaceID, "processes", processID)
+	proc, err := process.LoadProcessFromDir(processDir)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: err.Error()}
 	}
 
 	// Check for binary-data marker
-	processDir := filepath.Dir(proc.OutputFile)
 	binaryMarkerFile := filepath.Join(processDir, "binary-data")
 	isBinary := false
 	if _, err := os.Stat(binaryMarkerFile); err == nil {
@@ -1364,14 +1363,14 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 func (s *Server) hxHandleOutput(ctx context.Context, r *http.Request) ([]byte, error) {
 	// Get process ID from path parameter
 	processID := r.PathValue("processID")
-
-	proc, ok := executor.GetProcess(s.stateDir, processID)
-	if !ok {
-		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
+	workspaceID := r.PathValue("id")
+	processDir := filepath.Join(s.stateDir, "workspaces", workspaceID, "processes", processID)
+	proc, err := process.LoadProcessFromDir(processDir)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: err.Error()}
 	}
 
 	expand := r.URL.Query().Get("expand") == "true"
-	workspaceID := filepath.Base(filepath.Dir(filepath.Dir(proc.OutputFile)))
 
 	html, err := s.renderProcessOutput(proc, workspaceID, expand, r)
 	if err != nil {
@@ -1464,7 +1463,7 @@ func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOu
 	}, nil
 }
 
-func (s *Server) renderProcessOutput(proc *executor.Process, workspaceID string, expand bool, r *http.Request) (string, error) {
+func (s *Server) renderProcessOutput(proc *process.Process, workspaceID string, expand bool, r *http.Request) (string, error) {
 	outputData, err := s.prepareProcessOutput(proc.OutputFile, expand)
 	if err != nil {
 		return "", err
@@ -1494,7 +1493,7 @@ func (s *Server) renderProcessOutput(proc *executor.Process, workspaceID string,
 	return buf.String(), nil
 }
 
-func (s *Server) renderProcessOutputHTML(p *executor.Process, workspaceID string, r *http.Request) (string, error) {
+func (s *Server) renderProcessOutputHTML(p *process.Process, workspaceID string, r *http.Request) (string, error) {
 	return s.renderProcessOutput(p, workspaceID, false, r)
 }
 
@@ -1580,16 +1579,11 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 	// Get signal name
 	signalName := syscall.Signal(signalNum).String()
 
-	// Get workspace
-	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
-	if err != nil {
-		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
-	}
-
 	// Get process to find PID
-	proc, ok := executor.GetProcess(s.stateDir, processID)
-	if !ok {
-		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
+	processDir := filepath.Join(s.stateDir, "workspaces", workspaceID, "processes", processID)
+	proc, err := process.LoadProcessFromDir(processDir)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: err.Error()}
 	}
 
 	if proc.PID == 0 {
@@ -1609,7 +1603,6 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 	}
 
 	// Log the signal send to output.log
-	processDir := workspace.GetProcessDir(ws, processID)
 	outputFile := filepath.Join(processDir, "output.log")
 
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
@@ -1617,7 +1610,7 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 	logLine := fmt.Sprintf("signal-sent %s %d: %s\n", timestamp, len(content), content)
 
 	// Append to output.log
-	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0o600) // TODO: no, only per channel
 	if err == nil {
 		_, _ = f.WriteString(logLine)
 		_ = f.Close()
@@ -1969,9 +1962,10 @@ func (s *Server) handleTerminal(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	// Get process
-	proc, found := executor.GetProcess(s.stateDir, processID)
-	if !found {
-		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Process not found"}
+	processDir := filepath.Join(s.stateDir, "workspaces", workspaceID, "processes", processID)
+	proc, err := process.LoadProcessFromDir(processDir)
+	if err != nil {
+		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: err.Error()}
 	}
 
 	basePath := s.getBasePath(r)
@@ -1980,7 +1974,7 @@ func (s *Server) handleTerminal(ctx context.Context, r *http.Request) ([]byte, e
 		BasePath      string
 		WorkspaceID   string
 		WorkspaceName string
-		Process       *executor.Process
+		Process       *process.Process
 	}{
 		BasePath:      basePath,
 		WorkspaceID:   workspaceID,
@@ -2027,7 +2021,7 @@ func (s *Server) handleTerminalExecute(ctx context.Context, r *http.Request) ([]
 	}
 
 	// Create the process
-	proc, err := executor.Execute(s.stateDir, ws, command)
+	proc, err := executor.Execute(ws, command)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute command: %w", err)
 	}
@@ -2057,8 +2051,9 @@ func (s *Server) handleWebSocketTerminal(w http.ResponseWriter, r *http.Request)
 	processID := r.PathValue("processID")
 
 	// Get the process to get the command
-	proc, found := executor.GetProcess(s.stateDir, processID)
-	if !found {
+	processDir := filepath.Join(s.stateDir, "workspaces", workspaceID, "processes", processID)
+	proc, err := process.LoadProcessFromDir(processDir)
+	if err != nil {
 		http.Error(w, "Process not found", http.StatusNotFound)
 		return
 	}

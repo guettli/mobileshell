@@ -185,8 +185,8 @@ func ListProcesses(ws *Workspace) ([]*process.Process, error) {
 }
 
 // GetProcessDir returns the directory path for a process
-func GetProcessDir(ws *Workspace, hash string) string {
-	return filepath.Join(ws.Path, "processes", hash)
+func GetProcessDir(ws *Workspace, commandId string) string {
+	return filepath.Join(ws.Path, "processes", commandId)
 }
 
 // saveWorkspaceFiles saves workspace data as individual files

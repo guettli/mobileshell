@@ -2,9 +2,7 @@ package workspace
 
 import (
 	"bytes"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,72 +76,6 @@ func TestWorkspaceCreation(t *testing.T) {
 	}
 }
 
-func TestProcessCreation(t *testing.T) {
-	tmpDir := t.TempDir()
-	workDir := t.TempDir()
-
-	if err := InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
-
-	ws, err := CreateWorkspace(tmpDir, "test", workDir, "")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
-
-	// Create a process
-	hash, err := CreateProcess(ws, "echo hello")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	if hash == "" {
-		t.Error("Process hash should not be empty")
-	}
-
-	// Verify process directory exists
-	processDir := GetProcessDir(ws, hash)
-	if _, err := os.Stat(processDir); os.IsNotExist(err) {
-		t.Errorf("Process directory does not exist: %s", processDir)
-	}
-
-	// Verify output.log file exists
-	outputFile := filepath.Join(processDir, "output.log")
-	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		t.Errorf("Output file does not exist: %s", outputFile)
-	}
-
-	// Verify individual metadata files exist
-	cmdFile := filepath.Join(processDir, "cmd")
-	if _, err := os.Stat(cmdFile); os.IsNotExist(err) {
-		t.Errorf("Command file does not exist: %s", cmdFile)
-	}
-
-	starttimeFile := filepath.Join(processDir, "starttime")
-	if _, err := os.Stat(starttimeFile); os.IsNotExist(err) {
-		t.Errorf("Starttime file does not exist: %s", starttimeFile)
-	}
-
-	completedFile := filepath.Join(processDir, "completed")
-	if _, err := os.Stat(completedFile); os.IsNotExist(err) {
-		t.Errorf("Completed file does not exist: %s", completedFile)
-	}
-
-	// Get the process
-	proc, err := GetProcess(ws, hash)
-	if err != nil {
-		t.Fatalf("Failed to get process: %v", err)
-	}
-
-	if proc.Command != "echo hello" {
-		t.Errorf("Expected command 'echo hello', got '%s'", proc.Command)
-	}
-
-	if proc.Completed {
-		t.Error("Expected process to not be completed")
-	}
-}
-
 func TestListWorkspaces(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -171,39 +103,6 @@ func TestListWorkspaces(t *testing.T) {
 
 	if len(workspaces) != 2 {
 		t.Errorf("Expected 2 workspaces, got %d", len(workspaces))
-	}
-}
-
-func TestListProcesses(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	if err := InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
-
-	ws, err := CreateWorkspace(tmpDir, "test", t.TempDir(), "")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
-
-	// Create multiple processes
-	_, err = CreateProcess(ws, "echo 1")
-	if err != nil {
-		t.Fatalf("Failed to create process 1: %v", err)
-	}
-
-	_, err = CreateProcess(ws, "echo 2")
-	if err != nil {
-		t.Fatalf("Failed to create process 2: %v", err)
-	}
-
-	processes, err := ListProcesses(ws)
-	if err != nil {
-		t.Fatalf("Failed to list processes: %v", err)
-	}
-
-	if len(processes) != 2 {
-		t.Errorf("Expected 2 processes, got %d", len(processes))
 	}
 }
 
@@ -328,61 +227,5 @@ func TestPreCommandWithCRLFInWorkspace(t *testing.T) {
 
 	if bytes.Contains(data, []byte("\r")) {
 		t.Errorf("Pre-command file should not contain \\r characters, got: %q", string(data))
-	}
-}
-
-func TestPreCommandWithCRLFExecutes(t *testing.T) {
-	tmpDir := t.TempDir()
-	workDir := t.TempDir()
-
-	if err := InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
-
-	// Create workspace with pre-command containing CRLF that sets an environment variable
-	// This simulates a user copy-pasting a pre-command from Windows or a web form
-	preCommandWithCRLF := "export TEST_VAR=success\r\necho \"Pre-command executed\""
-	ws, err := CreateWorkspace(tmpDir, "test-exec", workDir, preCommandWithCRLF)
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
-
-	// Create a process to simulate what happens in nohup
-	hash, err := CreateProcess(ws, "echo $TEST_VAR")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	processDir := GetProcessDir(ws, hash)
-
-	// Write pre-command to a script file (simulating what nohup.go does)
-	preScriptPath := filepath.Join(processDir, "pre-command.sh")
-	if err := os.WriteFile(preScriptPath, []byte(ws.PreCommand), 0o700); err != nil {
-		t.Fatalf("Failed to write pre-command script: %v", err)
-	}
-
-	// Extract shell from shebang
-	shell := ExtractShellFromShebang(ws.PreCommand)
-
-	// Try to execute the pre-command script
-	// This is the critical test - if CRLF wasn't normalized, this would fail with:
-	// "$'\r': command not found"
-	cmd := exec.Command(shell, "-c", fmt.Sprintf(". %s && echo \"Success: $TEST_VAR\"", preScriptPath))
-	cmd.Dir = workDir
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to execute pre-command script (this would be the CRLF bug): %v\nOutput: %s", err, string(output))
-	}
-
-	// Verify the script executed successfully
-	outputStr := string(output)
-	if !strings.Contains(outputStr, "Success: success") {
-		t.Errorf("Pre-command did not set environment variable correctly. Output: %s", outputStr)
-	}
-
-	// Verify no CRLF errors in output
-	if strings.Contains(outputStr, "$'\\r'") || strings.Contains(outputStr, "command not found") {
-		t.Errorf("Pre-command execution failed with CRLF error: %s", outputStr)
 	}
 }

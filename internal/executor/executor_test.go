@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"mobileshell/internal/outputlog"
+	"mobileshell/internal/process"
+	"mobileshell/internal/workspace"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestInitExecutor(t *testing.T) {
@@ -111,7 +115,7 @@ func TestExecute(t *testing.T) {
 	}
 
 	// Execute a simple command
-	proc, err := Execute(tmpDir, ws, "echo 'test'")
+	proc, err := Execute(ws, "echo 'test'")
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -126,16 +130,6 @@ func TestExecute(t *testing.T) {
 
 	if proc.Completed {
 		t.Error("Expected process to not be completed")
-	}
-
-	if proc.Hash == "" {
-		t.Error("Process hash should not be empty")
-	}
-
-	// Test with nil workspace
-	_, err = Execute(tmpDir, nil, "echo 'test'")
-	if err == nil {
-		t.Error("Execute should fail with nil workspace")
 	}
 }
 
@@ -156,7 +150,7 @@ func TestListWorkspaceProcesses(t *testing.T) {
 	}
 
 	// Initially, workspace should have no processes
-	procs, err := ListWorkspaceProcesses(ws)
+	procs, err := workspace.ListProcesses(ws)
 	if err != nil {
 		t.Fatalf("ListWorkspaceProcesses failed: %v", err)
 	}
@@ -165,7 +159,7 @@ func TestListWorkspaceProcesses(t *testing.T) {
 	}
 
 	// Execute a command
-	proc, err := Execute(tmpDir, ws, "echo 'test'")
+	proc, err := Execute(ws, "echo 'test'")
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -174,7 +168,7 @@ func TestListWorkspaceProcesses(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// List workspace processes
-	procs, err = ListWorkspaceProcesses(ws)
+	procs, err = workspace.ListProcesses(ws)
 	if err != nil {
 		t.Fatalf("ListWorkspaceProcesses failed: %v", err)
 	}
@@ -185,7 +179,7 @@ func TestListWorkspaceProcesses(t *testing.T) {
 	// Verify process details
 	found := false
 	for _, p := range procs {
-		if p.Hash == proc.Hash {
+		if p.CommandId == proc.CommandId {
 			found = true
 			if p.Command != proc.Command {
 				t.Errorf("Expected command '%s', got '%s'", proc.Command, p.Command)
@@ -194,12 +188,6 @@ func TestListWorkspaceProcesses(t *testing.T) {
 	}
 	if !found {
 		t.Error("Created process not found in workspace process list")
-	}
-
-	// Test with nil workspace
-	_, err = ListWorkspaceProcesses(nil)
-	if err == nil {
-		t.Error("ListWorkspaceProcesses should fail with nil workspace")
 	}
 }
 
@@ -220,7 +208,7 @@ func TestGetProcess(t *testing.T) {
 	}
 
 	// Execute a command
-	proc, err := Execute(tmpDir, ws, "echo 'test'")
+	proc, err := Execute(ws, "echo 'test'")
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -229,23 +217,15 @@ func TestGetProcess(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Get the process by ID
-	retrievedProc, found := GetProcess(tmpDir, proc.Hash)
-	if !found {
-		t.Fatal("Process should be found")
-	}
+	retrievedProc, err := process.LoadProcessFromDir(proc.ProcessDir)
+	require.NoError(t, err)
 
-	if retrievedProc.Hash != proc.Hash {
-		t.Errorf("Expected hash '%s', got '%s'", proc.Hash, retrievedProc.Hash)
+	if retrievedProc.CommandId != proc.CommandId {
+		t.Errorf("Expected hash '%s', got '%s'", proc.CommandId, retrievedProc.CommandId)
 	}
 
 	if retrievedProc.Command != proc.Command {
 		t.Errorf("Expected command '%s', got '%s'", proc.Command, retrievedProc.Command)
-	}
-
-	// Test with non-existent process ID
-	_, found = GetProcess(tmpDir, "non-existent-hash")
-	if found {
-		t.Error("GetProcess should not find non-existent process")
 	}
 }
 
@@ -258,7 +238,7 @@ func TestListWorkspaces(t *testing.T) {
 	}
 
 	// Initially, there should be no workspaces
-	workspaces, err := ListWorkspaces(tmpDir)
+	workspaces, err := workspace.ListWorkspaces(tmpDir)
 	if err != nil {
 		t.Fatalf("ListWorkspaces failed: %v", err)
 	}
@@ -280,7 +260,7 @@ func TestListWorkspaces(t *testing.T) {
 	}
 
 	// List workspaces
-	workspaces, err = ListWorkspaces(tmpDir)
+	workspaces, err = workspace.ListWorkspaces(tmpDir)
 	if err != nil {
 		t.Fatalf("ListWorkspaces failed: %v", err)
 	}

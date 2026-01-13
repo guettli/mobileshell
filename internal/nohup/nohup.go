@@ -265,7 +265,7 @@ func Run(commandSlice []string) error {
 	<-writerDone
 
 	// Post-process Claude stream-json output if applicable
-	if err := postProcessClaudeOutput(processDir, commandSlice); err != nil {
+	if err := postProcessClaudeOutput(processDir, commandSlice[0]); err != nil {
 		slog.Warn("Failed to post-process Claude output", "error", err)
 		// Continue anyway - this is not a fatal error
 	}

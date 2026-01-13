@@ -8,7 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"mobileshell/internal/executor"
+	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Helper function to check if a string contains a substring
@@ -31,21 +35,13 @@ func TestNohupRun(t *testing.T) {
 	}
 
 	// Create a process
-	hash, err := workspace.CreateProcess(ws, "echo 'Hello, World!'")
+	proc, err := executor.Execute(ws, "echo 'Hello, World!'")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
 
-	workspaceTS := filepath.Base(ws.Path)
-
-	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
-	if err != nil {
-		t.Fatalf("Failed to run nohup: %v", err)
-	}
-
 	// Verify PID file was created
-	processDir := workspace.GetProcessDir(ws, hash)
+	processDir := workspace.GetProcessDir(ws, proc.CommandId)
 	pidFile := filepath.Join(processDir, "pid")
 	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
 		t.Errorf("PID file does not exist: %s", pidFile)
@@ -84,7 +80,7 @@ func TestNohupRun(t *testing.T) {
 	}
 
 	// Verify process metadata was updated
-	proc, err := workspace.GetProcess(ws, hash)
+	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
 	if err != nil {
 		t.Fatalf("Failed to get process: %v", err)
 	}
@@ -121,22 +117,11 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 	}
 
 	// Create a process that uses the environment variable
-	hash, err := workspace.CreateProcess(ws, "echo $TEST_VAR")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
-
-	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
-	if err != nil {
-		t.Fatalf("Failed to run nohup: %v", err)
-	}
+	proc, err := executor.Execute(ws, "echo $TEST_VAR")
+	require.NoError(t, err)
 
 	// Verify output.log contains the environment variable value
-	processDir := workspace.GetProcessDir(ws, hash)
-	outputFile := filepath.Join(processDir, "output.log")
+	outputFile := filepath.Join(proc.ProcessDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
 		t.Fatalf("Failed to read output.log: %v", err)
@@ -163,22 +148,9 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 	}
 
 	// Create a process that will fail
-	hash, err := workspace.CreateProcess(ws, "exit 42")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
-
-	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
-	if err != nil {
-		t.Fatalf("Failed to run nohup: %v", err)
-	}
-
-	// Verify exit status
-	processDir := workspace.GetProcessDir(ws, hash)
-	exitStatusFile := filepath.Join(processDir, "exit-status")
+	proc, err := executor.Execute(ws, "exit 42")
+	require.NoError(t, err)
+	exitStatusFile := filepath.Join(proc.ProcessDir, "exit-status")
 	exitStatusData, err := os.ReadFile(exitStatusFile)
 	if err != nil {
 		t.Fatalf("Failed to read exit status: %v", err)
@@ -192,7 +164,7 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 	}
 
 	// Verify process metadata
-	proc, err := workspace.GetProcess(ws, hash)
+	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
 	if err != nil {
 		t.Fatalf("Failed to get process: %v", err)
 	}
@@ -211,7 +183,7 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 
 	// Create a test file in tmpDir
 	testFile := filepath.Join(tmpDir, "test.txt")
-	err := os.WriteFile(testFile, []byte("test content"), 0644)
+	err := os.WriteFile(testFile, []byte("test content"), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -228,25 +200,16 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	}
 
 	// Create a process that reads the file
-	hash, err := workspace.CreateProcess(ws, "cat test.txt")
+	proc, err := executor.Execute(ws, "cat test.txt")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	workspaceTS := filepath.Base(ws.Path)
-
-	// Run the nohup command
-	err = Run(tmpDir, workspaceTS, hash)
-	if err != nil {
-		t.Fatalf("Failed to run nohup: %v", err)
 	}
 
 	// Give it a moment to complete
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify output.log contains the file content
-	processDir := workspace.GetProcessDir(ws, hash)
-	outputFile := filepath.Join(processDir, "output.log")
+	outputFile := filepath.Join(proc.ProcessDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
 	if err != nil {
 		t.Fatalf("Failed to read output.log: %v", err)
@@ -275,12 +238,10 @@ func TestNohupRunWithStderrOutput(t *testing.T) {
 	// Create a process that writes to both stdout and stderr
 	// Use sh -c with explicit sleep to ensure outputs are flushed separately and timing is more predictable
 	// The sleep gives time for readers to be ready and outputs to be captured
-	hash, err := workspace.CreateProcess(ws, "sh -c 'echo stdout message; sleep 0.1; echo stderr message >&2; sleep 0.1'")
+	proc, err := executor.Execute(ws, "sh -c 'echo stdout message; sleep 0.1; echo stderr message >&2; sleep 0.1'")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
-
-	workspaceTS := filepath.Base(ws.Path)
 
 	// Run the nohup command in background to avoid blocking
 	done := make(chan error, 1)
