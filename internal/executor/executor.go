@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"mobileshell/internal/outputlog"
@@ -31,7 +30,8 @@ func GetWorkspaceByID(stateDir, id string) (*workspace.Workspace, error) {
 	return workspace.GetWorkspaceByID(stateDir, id)
 }
 
-// Execute spawns a new process in the given workspace
+// Execute spawns a new process in the given workspace. It uses exec.Command() to call the nohup
+// subcommand. It does not wait for completion.
 func Execute(ws *workspace.Workspace, command string) (*process.Process, error) {
 	if ws == nil {
 		return nil, fmt.Errorf("workspace is nil")
@@ -44,8 +44,7 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	}
 
 	// Generate hash for the process
-	now := time.Now().UTC()
-	commandId := now.Format(time.RFC3339Nano)
+	commandId := time.Now().UTC().Format(time.RFC3339Nano)
 
 	processDir := filepath.Join(ws.Path, "processes", commandId)
 	if err := os.MkdirAll(processDir, 0o700); err != nil {
@@ -55,30 +54,7 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	proc := &process.Process{
 		CommandId: commandId,
 		Command:   command,
-		StartTime: now,
 		Completed: false,
-	}
-
-	// Create named pipe for stdin
-	stdinPipe := filepath.Join(processDir, "stdin.pipe")
-	if err := syscall.Mkfifo(stdinPipe, 0o600); err != nil {
-		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
-
-	// Write command file
-	if err := os.WriteFile(filepath.Join(processDir, "cmd"), []byte(proc.Command), 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write cmd file: %w", err)
-	}
-
-	// Write starttime file
-	startTime := proc.StartTime.Format(time.RFC3339Nano)
-	if err := os.WriteFile(filepath.Join(processDir, "starttime"), []byte(startTime), 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write starttime file: %w", err)
-	}
-
-	// Write completed file
-	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("false"), 0o600); err != nil {
-		return nil, fmt.Errorf("failed to write completed file: %w", err)
 	}
 
 	// Create script
@@ -96,9 +72,9 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	}
 
 	// Spawn the process using `mobileshell nohup` in the background
-	cmd := exec.Command(execPath, "nohup", nohupCommandPath)
+	proc.ExecCmd = exec.Command(execPath, "nohup", nohupCommandPath)
 
-	if err := cmd.Start(); err != nil {
+	if err := proc.ExecCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to spawn nohup process: %w", err)
 	}
 

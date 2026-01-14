@@ -29,7 +29,7 @@ func FormatOutputLine(line OutputLine) string {
 
 // ReadCombinedOutput reads and parses the combined output.log file
 // Returns stdout, stderr, stdin, nohupStdout, nohupStderr lines separately
-func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin string, err error) {
+func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin string, err error) { // TODO: Remove
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return "", "", "", err
@@ -123,7 +123,7 @@ func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin st
 
 // ReadCombinedOutputWithNohup reads and parses the combined output.log file
 // Returns stdout, stderr, stdin, nohupStdout, nohupStderr lines separately
-func ReadCombinedOutputWithNohup(filename string) (stdout string, stderr string, stdin string, nohupStdout string, nohupStderr string, err error) {
+func ReadCombinedOutputWithNohup(filename string) (stdout string, stderr string, stdin string, nohupStdout string, nohupStderr string, err error) { // TODO: Remove
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return "", "", "", "", "", err
@@ -220,7 +220,7 @@ func ReadCombinedOutputWithNohup(filename string) (stdout string, stderr string,
 
 // ReadRawStdout extracts raw stdout bytes from the combined output log file
 // This function preserves binary data including newlines and null bytes
-func ReadRawStdout(filename string) ([]byte, error) {
+func ReadRawStdout(filename string) ([]byte, error) { // TODO: Remove
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err

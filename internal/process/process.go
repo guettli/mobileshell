@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,7 +14,7 @@ type Process struct {
 	CommandId   string
 	Command     string
 	StartTime   time.Time
-	OutputFile  string
+	OutputFile  string // TODO: dont keep that in memory. Create the path.
 	PID         int
 	Completed   bool // true if process has finished
 	WorkspaceTS string
@@ -22,6 +23,7 @@ type Process struct {
 	EndTime     time.Time
 	ContentType string // MIME type of stdout output
 	ProcessDir  string
+	ExecCmd     *exec.Cmd
 }
 
 func LoadProcessFromDir(processDir string) (*Process, error) {

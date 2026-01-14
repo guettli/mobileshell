@@ -14,21 +14,45 @@ import (
 	"syscall"
 	"time"
 
-	"mobileshell/internal/claude"
 	"mobileshell/internal/outputlog"
 	"mobileshell/pkg/outputtype"
 
 	"github.com/creack/pty"
 )
 
-// Run executes a command in nohup mode within a workspace
-// This function is called by the `mobileshell nohup` command
+// Run executes a command in nohup mode within a workspace This function is called by the
+// `mobileshell nohup` subcommand. During a http request executor.Execute() gets called, which calls
+// nohup (and Run()).
 func Run(commandSlice []string) error {
 	if len(commandSlice) < 1 {
 		return fmt.Errorf("Not enough arguments")
 	}
 	command := filepath.Clean(commandSlice[0])
 	processDir := filepath.Dir(command)
+
+	// Create named pipe for stdin
+	stdinPipePath := filepath.Join(processDir, "stdin.pipe")
+	if err := syscall.Mkfifo(stdinPipePath, 0o600); err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	// Write command file
+	if err := os.WriteFile(filepath.Join(processDir, "cmd"),
+		[]byte(strings.Join(commandSlice, "\b")), 0o600); err != nil {
+		return fmt.Errorf("failed to write cmd file: %w", err)
+	}
+
+	// Write starttime file
+	startTime := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := os.WriteFile(filepath.Join(processDir, "starttime"), []byte(startTime), 0o600); err != nil {
+		return fmt.Errorf("failed to write starttime file: %w", err)
+	}
+
+	// Write completed file
+	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("false"), 0o600); err != nil {
+		return fmt.Errorf("failed to write completed file: %w", err)
+	}
+
 	// Open combined output file
 	outputFile := filepath.Join(processDir, "output.log")
 	_, err := os.Stat(outputFile)
@@ -36,7 +60,7 @@ func Run(commandSlice []string) error {
 		return fmt.Errorf("%q does already exist. This is not supported", outputFile)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%q: %w", err)
+		return fmt.Errorf("%q: %w", outputFile, err)
 	}
 
 	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0o600)
@@ -48,44 +72,6 @@ func Run(commandSlice []string) error {
 	// Create channel for output lines
 	outputChan := make(chan outputlog.OutputLine, 100)
 	writerDone := make(chan struct{})
-
-	// Capture nohup subprocess's own stdout and stderr
-	// Save original stdout/stderr
-	origStdout := os.Stdout
-	origStderr := os.Stderr
-
-	// Create pipes for capturing nohup's own output
-	nohupStdoutReader, nohupStdoutWriter, err := os.Pipe()
-	if err != nil {
-		return fmt.Errorf("failed to create nohup stdout pipe: %w", err)
-	}
-	nohupStderrReader, nohupStderrWriter, err := os.Pipe()
-	if err != nil {
-		return fmt.Errorf("failed to create nohup stderr pipe: %w", err)
-	}
-
-	// Redirect os.Stdout and os.Stderr to our pipes
-	os.Stdout = nohupStdoutWriter
-	os.Stderr = nohupStderrWriter
-
-	// Also redirect slog to use the new stderr
-	slog.SetDefault(slog.New(slog.NewTextHandler(nohupStderrWriter, nil)))
-
-	// Start goroutines to read from nohup's own stdout/stderr
-	nohupReadersDone := make(chan struct{}, 2)
-	go readLines(nohupStdoutReader, "nohup-stdout", outputChan, nohupReadersDone)
-	go readLines(nohupStderrReader, "nohup-stderr", outputChan, nohupReadersDone)
-
-	// Defer cleanup: restore original stdout/stderr and close pipes
-	defer func() {
-		os.Stdout = origStdout
-		os.Stderr = origStderr
-		_ = nohupStdoutWriter.Close()
-		_ = nohupStderrWriter.Close()
-		// Wait for nohup readers to finish draining
-		<-nohupReadersDone
-		<-nohupReadersDone
-	}()
 
 	// Create output type detector
 	typeDetector := outputtype.NewDetector()
@@ -264,22 +250,9 @@ func Run(commandSlice []string) error {
 	// Wait for writer to finish
 	<-writerDone
 
-	// Post-process Claude stream-json output if applicable
-	if err := postProcessClaudeOutput(processDir, commandSlice[0]); err != nil {
-		slog.Warn("Failed to post-process Claude output", "error", err)
-		// Continue anyway - this is not a fatal error
-	}
-
 	// Write exit status to file
 	exitStatusFile := filepath.Join(processDir, "exit-status")
 	if err := os.WriteFile(exitStatusFile, []byte(strconv.Itoa(exitCode)), 0o600); err != nil {
-		return fmt.Errorf("failed to write exit-status file: %w", err)
-	}
-
-	// Note: output-type file is written by the writer goroutine as soon as detection occurs
-
-	// Write exit-status file
-	if err := os.WriteFile(filepath.Join(processDir, "exit-status"), []byte(strconv.Itoa(exitCode)), 0o600); err != nil {
 		return fmt.Errorf("failed to write exit-status file: %w", err)
 	}
 
@@ -468,58 +441,4 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 		// The scanner exited because the writer closed the pipe (EOF)
 		// Loop back to reopen the pipe and wait for the next writer
 	}
-}
-
-// postProcessClaudeOutput processes Claude CLI stream-json output
-// It extracts the markdown text from the JSON stream and updates the output file
-func postProcessClaudeOutput(processDir, command string) error {
-	// Only process Claude commands
-	if !strings.Contains(command, "claude") {
-		return nil
-	}
-
-	outputFile := filepath.Join(processDir, "output.log")
-
-	// Read the combined output
-	stdout, _, _, err := outputlog.ReadCombinedOutput(outputFile)
-	if err != nil {
-		return fmt.Errorf("failed to read output: %w", err)
-	}
-
-	// Parse the stream-json and extract markdown text
-	markdownText := claude.ParseStreamJSON(stdout)
-
-	if markdownText == "" {
-		return nil // No text extracted
-	}
-
-	// Write the processed markdown output back
-	// We need to reconstruct the output.log format with just stdout containing markdown
-	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("failed to open output file for writing: %w", err)
-	}
-	defer func() { _ = outFile.Close() }()
-
-	// Write markdown as stdout lines
-	for _, line := range strings.Split(markdownText, "\n") {
-		outputLine := outputlog.OutputLine{
-			Stream:    "stdout",
-			Timestamp: time.Now().UTC(),
-			Line:      line + "\n",
-		}
-		formattedLine := outputlog.FormatOutputLine(outputLine)
-		if _, err := outFile.WriteString(formattedLine); err != nil {
-			return fmt.Errorf("failed to write output line: %w", err)
-		}
-	}
-
-	// Force output-type to markdown
-	outputTypeFile := filepath.Join(processDir, "output-type")
-	outputTypeContent := fmt.Sprintf("%s,%s", outputtype.OutputTypeMarkdown, "Claude CLI output processed")
-	if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0o600); err != nil {
-		return fmt.Errorf("failed to write output-type file: %w", err)
-	}
-
-	return nil
 }

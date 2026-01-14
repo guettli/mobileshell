@@ -17,7 +17,7 @@ import (
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/outputlog"
-	"mobileshell/internal/workspace"
+	"mobileshell/internal/process"
 	"mobileshell/pkg/httperror"
 )
 
@@ -32,7 +32,7 @@ func TestTemplateRendering(t *testing.T) {
 	}
 
 	// Test case 1: Process with zero exit code
-	proc1 := &executor.Process{
+	proc1 := &process.Process{
 		CommandId: "test1",
 		Command:   "echo hello",
 		StartTime: time.Now().UTC(),
@@ -43,7 +43,7 @@ func TestTemplateRendering(t *testing.T) {
 	}
 
 	// Test case 2: Process with non-zero exit code
-	proc2 := &executor.Process{
+	proc2 := &process.Process{
 		CommandId: "test2",
 		Command:   "false",
 		StartTime: time.Now().UTC(),
@@ -54,7 +54,7 @@ func TestTemplateRendering(t *testing.T) {
 	}
 
 	// Test case 3: Process still running
-	proc3 := &executor.Process{
+	proc3 := &process.Process{
 		CommandId: "test3",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
@@ -64,7 +64,7 @@ func TestTemplateRendering(t *testing.T) {
 	}
 
 	// Test case 4: Process terminated by signal
-	proc4 := &executor.Process{
+	proc4 := &process.Process{
 		CommandId: "test4",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
@@ -76,7 +76,7 @@ func TestTemplateRendering(t *testing.T) {
 	}
 
 	// Test case 5: Process terminated by SIGTERM
-	proc5 := &executor.Process{
+	proc5 := &process.Process{
 		CommandId: "test5",
 		Command:   "sleep 100",
 		StartTime: time.Now().UTC(),
@@ -89,37 +89,37 @@ func TestTemplateRendering(t *testing.T) {
 
 	testCases := []struct {
 		name      string
-		processes []*executor.Process
+		processes []*process.Process
 		wantError bool
 	}{
 		{
 			name:      "Process with exit code 0",
-			processes: []*executor.Process{proc1},
+			processes: []*process.Process{proc1},
 			wantError: false,
 		},
 		{
 			name:      "Process with exit code 1",
-			processes: []*executor.Process{proc2},
+			processes: []*process.Process{proc2},
 			wantError: false,
 		},
 		{
 			name:      "Process with nil exit code",
-			processes: []*executor.Process{proc3},
+			processes: []*process.Process{proc3},
 			wantError: false,
 		},
 		{
 			name:      "Process terminated by SIGKILL",
-			processes: []*executor.Process{proc4},
+			processes: []*process.Process{proc4},
 			wantError: false,
 		},
 		{
 			name:      "Process terminated by SIGTERM",
-			processes: []*executor.Process{proc5},
+			processes: []*process.Process{proc5},
 			wantError: false,
 		},
 		{
 			name:      "Multiple processes",
-			processes: []*executor.Process{proc1, proc2, proc3, proc4, proc5},
+			processes: []*process.Process{proc1, proc2, proc3, proc4, proc5},
 			wantError: false,
 		},
 	}
@@ -631,13 +631,11 @@ func TestBinaryDownload(t *testing.T) {
 
 	// Create a fake process by directly setting up the process directory structure
 	// This avoids issues with running actual commands in the test environment
-	hash, err := workspace.CreateProcess(ws, "test binary command")
+	proc, err := executor.Execute(ws, "test binary command")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
-
-	processDir := workspace.GetProcessDir(ws, hash)
-
+	processDir := proc.ProcessDir
 	// Create output.log file with binary data in stdout format
 	// Use the same formatting function as nohup to ensure consistency
 	var outputLog bytes.Buffer
@@ -665,11 +663,6 @@ func TestBinaryDownload(t *testing.T) {
 		t.Fatalf("Failed to write binary-data marker: %v", err)
 	}
 
-	// Mark process as completed
-	if err := workspace.UpdateProcessExit(ws, hash, 0, ""); err != nil {
-		t.Fatalf("Failed to update process exit: %v", err)
-	}
-
 	// Create server instance
 	srv, err := New(stateDir)
 	if err != nil {
@@ -689,7 +682,7 @@ func TestBinaryDownload(t *testing.T) {
 	}
 
 	// Create request
-	req := httptest.NewRequest("GET", "/workspaces/"+ws.ID+"/processes/"+hash+"/download", nil)
+	req := httptest.NewRequest("GET", "/workspaces/"+ws.ID+"/processes/"+proc.CommandId+"/download", nil)
 	req.AddCookie(&http.Cookie{
 		Name:  "session",
 		Value: token,
@@ -748,7 +741,7 @@ func TestBinaryDownload(t *testing.T) {
 	t.Logf("Successfully downloaded %d bytes with all 256 unique byte values (0-255) preserved", len(downloadedData))
 
 	// Test that the process page shows binary data message instead of output
-	processPageReq := httptest.NewRequest("GET", "/workspaces/"+ws.ID+"/processes/"+hash, nil)
+	processPageReq := httptest.NewRequest("GET", "/workspaces/"+ws.ID+"/processes/"+proc.CommandId, nil)
 	processPageReq.AddCookie(&http.Cookie{
 		Name:  "session",
 		Value: token,
