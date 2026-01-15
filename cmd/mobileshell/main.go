@@ -117,13 +117,10 @@ invoked by the server when executing processes in nohup mode.`,
 		if len(args) < 1 {
 			return fmt.Errorf("Not enough arguments")
 		}
-		subCommand := args[0]
-		_, err := os.Stat(subCommand)
-		if err != nil {
-			return err
-		}
 		return nohup.Run(args)
 	},
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 func init() {

@@ -12,6 +12,7 @@ import (
 	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,14 +22,16 @@ func contains(s, substr string) bool {
 }
 
 func TestNohupRun(t *testing.T) {
-	tmpDir := t.TempDir()
+	stateDir := t.TempDir()
 
 	// Initialize workspace storage
-	err := workspace.InitWorkspaces(tmpDir)
+	err := workspace.InitWorkspaces(stateDir)
 	require.NoError(t, err)
 
+	workDir := t.TempDir()
+
 	// Create workspace
-	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
+	ws, err := workspace.CreateWorkspace(stateDir, "test", workDir, "")
 	require.NoError(t, err)
 
 	// Create a process
@@ -37,14 +40,20 @@ func TestNohupRun(t *testing.T) {
 
 	// Verify PID file was created
 	processDir := workspace.GetProcessDir(ws, proc.CommandId)
-	pidFile := filepath.Join(processDir, "pid")
-	_, err = os.Stat(pidFile)
-	require.NoError(t, err)
+	var pidFile string
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		pidFile = filepath.Join(processDir, "pid")
+		_, err = os.Stat(pidFile)
+		require.NoError(t, err)
+	}, 3*time.Second, 10*time.Millisecond)
 
 	// Verify exit-status file was created
-	exitStatusFile := filepath.Join(processDir, "exit-status")
-	_, err = os.Stat(exitStatusFile)
-	require.NoError(t, err)
+	var exitStatusFile string
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		exitStatusFile = filepath.Join(processDir, "exit-status")
+		_, err = os.Stat(exitStatusFile)
+		require.NoError(t, err)
+	}, time.Second, 10*time.Millisecond)
 
 	// Read exit status
 	exitStatusData, err := os.ReadFile(exitStatusFile)

@@ -29,7 +29,9 @@ func Run(commandSlice []string) error {
 	}
 	command := filepath.Clean(commandSlice[0])
 	processDir := filepath.Dir(command)
-
+	if processDir == "." {
+		return fmt.Errorf("failed to run as nohup. A containing directory is needed: %q", command)
+	}
 	// Create named pipe for stdin
 	stdinPipePath := filepath.Join(processDir, "stdin.pipe")
 	if err := syscall.Mkfifo(stdinPipePath, 0o600); err != nil {
@@ -54,10 +56,10 @@ func Run(commandSlice []string) error {
 		return fmt.Errorf("%q does already exist. This is not supported", outputFile)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%q: %w", outputFile, err)
+		return fmt.Errorf("Stat of output.log: %q: %w", outputFile, err)
 	}
 
-	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0o600)
+	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC|os.O_CREATE, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to open output.log file: %w", err)
 	}
@@ -201,11 +203,6 @@ func Run(commandSlice []string) error {
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0o600); err != nil {
-		return fmt.Errorf("failed to write pid file: %w", err)
-	}
-
-	// Write PID file
-	if err := os.WriteFile(filepath.Join(processDir, "pid"), []byte(strconv.Itoa(pid)), 0o600); err != nil {
 		return fmt.Errorf("failed to write pid file: %w", err)
 	}
 
