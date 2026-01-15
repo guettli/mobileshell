@@ -103,24 +103,14 @@ func GetWorkspaceByID(stateDir, id string) (*Workspace, error) {
 }
 
 // UpdateWorkspace updates an existing workspace's name, directory, and pre-command
-func UpdateWorkspace(stateDir, id, name, directory, preCommand, defaultTerminalCommand string) (*Workspace, error) {
+func UpdateWorkspace(stateDir, id, name, preCommand, defaultTerminalCommand string) (*Workspace, error) {
 	// Get the existing workspace
 	ws, err := GetWorkspaceByID(stateDir, id)
 	if err != nil {
 		return nil, fmt.Errorf("workspace not found: %w", err)
 	}
-
-	// Validate that the directory exists
-	if _, err := os.Stat(directory); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("directory does not exist: %s", directory)
-		}
-		return nil, fmt.Errorf("failed to stat directory: %w", err)
-	}
-
 	// Update workspace fields
 	ws.Name = name
-	ws.Directory = directory
 	ws.PreCommand = normalizePreCommand(preCommand)
 	ws.DefaultTerminalCommand = strings.TrimSpace(defaultTerminalCommand)
 
@@ -174,7 +164,8 @@ func ListProcesses(ws *Workspace) ([]*process.Process, error) {
 			continue
 		}
 
-		proc, err := process.LoadProcessFromDir(entry.Name())
+		proc, err := process.LoadProcessFromDir(filepath.Join(
+			processesDir, entry.Name()))
 		if err != nil {
 			return nil, err
 		}

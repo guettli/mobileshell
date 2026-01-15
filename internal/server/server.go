@@ -632,11 +632,10 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 	// Handle POST request - update workspace
 	if r.Method == http.MethodPost {
 		name := r.FormValue("name")
-		directory := r.FormValue("directory")
 		preCommand := r.FormValue("pre_command")
 		defaultTerminalCommand := r.FormValue("default_terminal_command")
 
-		if name == "" || directory == "" {
+		if name == "" {
 			var buf bytes.Buffer
 			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
 				"BasePath": basePath,
@@ -656,7 +655,7 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 		}
 
 		// Update the workspace
-		_, err := workspace.UpdateWorkspace(s.stateDir, workspaceID, name, directory, preCommand, defaultTerminalCommand)
+		_, err := workspace.UpdateWorkspace(s.stateDir, workspaceID, name, preCommand, defaultTerminalCommand)
 		if err != nil {
 			var buf bytes.Buffer
 			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
@@ -664,7 +663,6 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 				"Workspace": map[string]any{
 					"ID":                     ws.ID,
 					"Name":                   name,
-					"Directory":              directory,
 					"PreCommand":             preCommand,
 					"DefaultTerminalCommand": defaultTerminalCommand,
 				},
