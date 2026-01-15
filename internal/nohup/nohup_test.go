@@ -24,44 +24,33 @@ func TestNohupRun(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage
-	if err := workspace.InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
+	err := workspace.InitWorkspaces(tmpDir)
+	require.NoError(t, err)
 
 	// Create workspace
 	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create a process
 	proc, err := executor.Execute(ws, "echo 'Hello, World!'")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify PID file was created
 	processDir := workspace.GetProcessDir(ws, proc.CommandId)
 	pidFile := filepath.Join(processDir, "pid")
-	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
-		t.Errorf("PID file does not exist: %s", pidFile)
-	}
+	_, err = os.Stat(pidFile)
+	require.NoError(t, err)
 
 	// Verify exit-status file was created
 	exitStatusFile := filepath.Join(processDir, "exit-status")
-	if _, err := os.Stat(exitStatusFile); os.IsNotExist(err) {
-		t.Errorf("Exit status file does not exist: %s", exitStatusFile)
-	}
+	_, err = os.Stat(exitStatusFile)
+	require.NoError(t, err)
 
 	// Read exit status
 	exitStatusData, err := os.ReadFile(exitStatusFile)
-	if err != nil {
-		t.Fatalf("Failed to read exit status: %v", err)
-	}
+	require.NoError(t, err)
 	exitCode, err := strconv.Atoi(string(exitStatusData))
-	if err != nil {
-		t.Fatalf("Failed to parse exit status: %v", err)
-	}
+	require.NoError(t, err)
 	if exitCode != 0 {
 		t.Errorf("Expected exit code 0, got %d", exitCode)
 	}
@@ -69,9 +58,7 @@ func TestNohupRun(t *testing.T) {
 	// Verify output.log contains expected output with STDOUT prefix
 	outputFile := filepath.Join(processDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
-	if err != nil {
-		t.Fatalf("Failed to read output.log: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Output should contain "stdout" prefix and timestamp in ISO8601 format
 	output := string(outputData)
@@ -81,9 +68,7 @@ func TestNohupRun(t *testing.T) {
 
 	// Verify process metadata was updated
 	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
-	if err != nil {
-		t.Fatalf("Failed to get process: %v", err)
-	}
+	require.NoError(t, err)
 
 	if !proc.Completed {
 		t.Error("Expected process to be completed")
@@ -106,15 +91,12 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage
-	if err := workspace.InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
+	err := workspace.InitWorkspaces(tmpDir)
+	require.NoError(t, err)
 
 	// Create workspace with pre-command
 	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "export TEST_VAR=hello")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create a process that uses the environment variable
 	proc, err := executor.Execute(ws, "echo $TEST_VAR")
@@ -123,9 +105,7 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 	// Verify output.log contains the environment variable value
 	outputFile := filepath.Join(proc.ProcessDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
-	if err != nil {
-		t.Fatalf("Failed to read output.log: %v", err)
-	}
+	require.NoError(t, err)
 
 	output := string(outputData)
 	if !contains(output, "stdout") || !contains(output, "hello") {
@@ -137,37 +117,28 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage
-	if err := workspace.InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
+	err := workspace.InitWorkspaces(tmpDir)
+	require.NoError(t, err)
 
 	// Create workspace
 	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create a process that will fail
 	proc, err := executor.Execute(ws, "exit 42")
 	require.NoError(t, err)
 	exitStatusFile := filepath.Join(proc.ProcessDir, "exit-status")
 	exitStatusData, err := os.ReadFile(exitStatusFile)
-	if err != nil {
-		t.Fatalf("Failed to read exit status: %v", err)
-	}
+	require.NoError(t, err)
 	exitCode, err := strconv.Atoi(string(exitStatusData))
-	if err != nil {
-		t.Fatalf("Failed to parse exit status: %v", err)
-	}
+	require.NoError(t, err)
 	if exitCode != 42 {
 		t.Errorf("Expected exit code 42, got %d", exitCode)
 	}
 
 	// Verify process metadata
 	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
-	if err != nil {
-		t.Fatalf("Failed to get process: %v", err)
-	}
+	require.NoError(t, err)
 
 	if !proc.Completed {
 		t.Error("Expected process to be completed")
@@ -184,26 +155,19 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	// Create a test file in tmpDir
 	testFile := filepath.Join(tmpDir, "test.txt")
 	err := os.WriteFile(testFile, []byte("test content"), 0o644)
-	if err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Initialize workspace storage
-	if err := workspace.InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
+	err = workspace.InitWorkspaces(tmpDir)
+	require.NoError(t, err)
 
 	// Create workspace with specific directory
 	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create a process that reads the file
 	proc, err := executor.Execute(ws, "cat test.txt")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Give it a moment to complete
 	time.Sleep(100 * time.Millisecond)
@@ -211,9 +175,7 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	// Verify output.log contains the file content
 	outputFile := filepath.Join(proc.ProcessDir, "output.log")
 	outputData, err := os.ReadFile(outputFile)
-	if err != nil {
-		t.Fatalf("Failed to read output.log: %v", err)
-	}
+	require.NoError(t, err)
 
 	output := string(outputData)
 	if !contains(output, "stdout") || !contains(output, "test content") {
