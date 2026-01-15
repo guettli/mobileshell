@@ -42,12 +42,6 @@ func Run(commandSlice []string) error {
 		return fmt.Errorf("failed to write cmd file: %w", err)
 	}
 
-	// Write starttime file
-	startTime := time.Now().UTC().Format(time.RFC3339Nano)
-	if err := os.WriteFile(filepath.Join(processDir, "starttime"), []byte(startTime), 0o600); err != nil {
-		return fmt.Errorf("failed to write starttime file: %w", err)
-	}
-
 	// Write completed file
 	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("false"), 0o600); err != nil {
 		return fmt.Errorf("failed to write completed file: %w", err)

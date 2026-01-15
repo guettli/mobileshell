@@ -192,9 +192,9 @@ func TestListWorkspaceProcesses(t *testing.T) {
 }
 
 func TestGetProcess(t *testing.T) {
-	tmpDir := t.TempDir()
+	stateDir := t.TempDir()
 
-	err := InitExecutor(tmpDir)
+	err := InitExecutor(stateDir)
 	if err != nil {
 		t.Fatalf("InitExecutor failed: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestGetProcess(t *testing.T) {
 	workDir := t.TempDir()
 
 	// Create a workspace
-	ws, err := CreateWorkspace(tmpDir, "test-workspace", workDir, "")
+	ws, err := CreateWorkspace(stateDir, "test-workspace", workDir, "")
 	if err != nil {
 		t.Fatalf("CreateWorkspace failed: %v", err)
 	}
@@ -212,9 +212,6 @@ func TestGetProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
-
-	// Give the system a moment to create the process
-	time.Sleep(10 * time.Millisecond)
 
 	// Get the process by ID
 	retrievedProc, err := process.LoadProcessFromDir(proc.ProcessDir)

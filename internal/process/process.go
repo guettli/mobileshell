@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,6 +36,7 @@ func LoadProcessFromDir(processDir string) (*Process, error) {
 	proc := Process{
 		Command:    string(cmdData),
 		ProcessDir: processDir,
+		CommandId:  filepath.Base(processDir),
 	}
 
 	// Read starttime file
@@ -50,7 +52,7 @@ func LoadProcessFromDir(processDir string) (*Process, error) {
 
 	// Read completed file
 	completedData, err := os.ReadFile(filepath.Join(processDir, "completed"))
-	if err != nil {
+	if !errors.Is(err, os.ErrNotExist) && err != nil {
 		return nil, fmt.Errorf("failed to read completed file: %w", err)
 	}
 	proc.Completed = strings.TrimSpace(string(completedData)) == "true"

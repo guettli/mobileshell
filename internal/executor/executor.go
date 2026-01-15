@@ -52,9 +52,22 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	}
 
 	proc := &process.Process{
-		CommandId: commandId,
-		Command:   command,
-		Completed: false,
+		CommandId:  commandId,
+		Command:    command,
+		Completed:  false,
+		ProcessDir: processDir,
+	}
+
+	cmdPath := filepath.Join(processDir, "cmd")
+	err = os.WriteFile(cmdPath, []byte(command), 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write %q: %w", cmdPath, err)
+	}
+
+	// Write starttime file
+	startTime := time.Now().UTC().Format(time.RFC3339Nano)
+	if err := os.WriteFile(filepath.Join(processDir, "starttime"), []byte(startTime), 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write starttime file: %w", err)
 	}
 
 	// Create script
