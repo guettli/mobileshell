@@ -85,9 +85,26 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	}
 
 	// Spawn the process using `mobileshell nohup` in the background
-	proc.ExecCmd = exec.Command(execPath, "nohup", nohupCommandPath)
+	// In test mode, use `go run` to execute the mobileshell command
+
+	if filepath.Ext(execPath) == ".test" {
+		proc.ExecCmd = exec.Command("go", "run", "mobileshell/cmd/mobileshell", "nohup", nohupCommandPath)
+	} else {
+		proc.ExecCmd = exec.Command(execPath, "nohup", nohupCommandPath)
+	}
+
+	// Redirect stdout and stderr to nohup.log
+	nohupLogPath := filepath.Join(processDir, "nohup.log")
+	nohupLogFile, err := os.OpenFile(nohupLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create nohup.log: %w", err)
+	}
+	proc.ExecCmd.Stdout = nohupLogFile
+	proc.ExecCmd.Stderr = nohupLogFile
+	proc.ExecCmd.Stdin = nil
 
 	if err := proc.ExecCmd.Start(); err != nil {
+		nohupLogFile.Close()
 		return nil, fmt.Errorf("failed to spawn nohup process: %w", err)
 	}
 

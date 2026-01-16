@@ -39,12 +39,12 @@ func TestNohupRun(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify PID file was created
-	processDir := workspace.GetProcessDir(ws, proc.CommandId)
+	processDir := proc.ProcessDir
 	var pidFile string
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		pidFile = filepath.Join(processDir, "pid")
 		_, err = os.Stat(pidFile)
-		require.NoError(t, err)
+		assert.NoError(collect, err)
 	}, 3*time.Second, 10*time.Millisecond)
 
 	// Verify exit-status file was created
@@ -52,7 +52,7 @@ func TestNohupRun(t *testing.T) {
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		exitStatusFile = filepath.Join(processDir, "exit-status")
 		_, err = os.Stat(exitStatusFile)
-		require.NoError(t, err)
+		assert.NoError(collect, err)
 	}, time.Second, 10*time.Millisecond)
 
 	// Read exit status
