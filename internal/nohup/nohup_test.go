@@ -1,6 +1,7 @@
 package nohup
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"mobileshell/internal/executor"
+	"mobileshell/internal/outputlog"
 	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
 
@@ -111,15 +113,17 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 	proc, err := executor.Execute(ws, "echo $TEST_VAR")
 	require.NoError(t, err)
 
-	// Verify output.log contains the environment variable value
-	outputFile := filepath.Join(proc.ProcessDir, "output.log")
-	outputData, err := os.ReadFile(outputFile)
-	require.NoError(t, err)
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		// Verify output.log contains the environment variable value
+		outputFile := filepath.Join(proc.ProcessDir, "output.log")
+		outputData, err := os.ReadFile(outputFile)
+		assert.NoError(collect, err)
 
-	output := string(outputData)
-	if !contains(output, "stdout") || !contains(output, "hello") {
-		t.Errorf("Expected output to contain 'stdout' and 'hello', got '%s'", output)
-	}
+		output := string(outputData)
+		if !contains(output, "stdout") || !contains(output, "hello") {
+			assert.Fail(collect, "Expected output to contain 'stdout' and 'hello', got '%s'", output)
+		}
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestNohupRunWithFailingCommand(t *testing.T) {
@@ -136,14 +140,16 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 	// Create a process that will fail
 	proc, err := executor.Execute(ws, "exit 42")
 	require.NoError(t, err)
-	exitStatusFile := filepath.Join(proc.ProcessDir, "exit-status")
-	exitStatusData, err := os.ReadFile(exitStatusFile)
-	require.NoError(t, err)
-	exitCode, err := strconv.Atoi(string(exitStatusData))
-	require.NoError(t, err)
-	if exitCode != 42 {
-		t.Errorf("Expected exit code 42, got %d", exitCode)
-	}
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		exitStatusFile := filepath.Join(proc.ProcessDir, "exit-status")
+		exitStatusData, err := os.ReadFile(exitStatusFile)
+		assert.NoError(collect, err)
+		exitCode, err := strconv.Atoi(string(exitStatusData))
+		assert.NoError(collect, err)
+		if exitCode != 42 {
+			assert.Fail(collect, "Expected exit code 42, got %d", exitCode)
+		}
+	}, time.Second, 10*time.Millisecond)
 
 	// Verify process metadata
 	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
@@ -175,19 +181,17 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a process that reads the file
-	proc, err := executor.Execute(ws, "cat test.txt")
+	proc, err := executor.Execute(ws, fmt.Sprintf("cat %s", testFile))
 	require.NoError(t, err)
 
-	// Give it a moment to complete
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify output.log contains the file content
-	outputFile := filepath.Join(proc.ProcessDir, "output.log")
-	outputData, err := os.ReadFile(outputFile)
-	require.NoError(t, err)
-
-	output := string(outputData)
-	if !contains(output, "stdout") || !contains(output, "test content") {
-		t.Errorf("Expected output to contain 'stdout' and 'test content', got '%s'", output)
-	}
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		// Verify output.log contains the file content
+		outputFile := filepath.Join(proc.ProcessDir, "output.log")
+		stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(outputFile)
+		assert.NoError(collect, err)
+		assert.NoError(collect, err)
+		assert.Equal(collect, "test content", stdout)
+		assert.Equal(collect, "", stderr)
+		assert.Equal(collect, "", stdin)
+	}, time.Second, 10*time.Millisecond)
 }
