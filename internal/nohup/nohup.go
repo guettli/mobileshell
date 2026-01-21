@@ -23,7 +23,7 @@ import (
 // Run executes a command in nohup mode within a workspace This function is called by the
 // `mobileshell nohup` subcommand. During a http request executor.Execute() gets called, which calls
 // nohup (and Run()).
-func Run(commandSlice []string) error {
+func Run(commandSlice []string, noStdinPipe bool) error {
 	if len(commandSlice) < 1 {
 		return fmt.Errorf("Not enough arguments")
 	}
@@ -32,10 +32,15 @@ func Run(commandSlice []string) error {
 	if processDir == "." {
 		return fmt.Errorf("failed to run as nohup. A containing directory is needed: %q", command)
 	}
-	// Create named pipe for stdin
-	stdinPipePath := filepath.Join(processDir, "stdin.pipe")
-	if err := syscall.Mkfifo(stdinPipePath, 0o600); err != nil {
-		return fmt.Errorf("failed to create stdin pipe: %w", err)
+
+	var stdinPipe io.WriteCloser
+
+	if !noStdinPipe {
+		stdinPipePath := filepath.Join(processDir, "stdin.pipe")
+		// TODO: Open stdinPipePath
+		// Read via protocol: outputlog format.
+	} else {
+		// read from stdin, but without outputlog format.
 	}
 
 	// Write command file
@@ -51,7 +56,7 @@ func Run(commandSlice []string) error {
 
 	// Open combined output file
 	outputFile := filepath.Join(processDir, "output.log")
-	_, err := os.Stat(outputFile)
+	_, err = os.Stat(outputFile)
 	if err == nil {
 		return fmt.Errorf("%q does already exist. This is not supported", outputFile)
 	}
@@ -104,7 +109,6 @@ func Run(commandSlice []string) error {
 	isClaudeCommand := strings.Contains(commandSlice[0], "claude")
 
 	var stderrPipe, stdoutPipe io.ReadCloser
-	var stdinPipe io.WriteCloser
 	var ptmx, tty *os.File
 
 	if isClaudeCommand {

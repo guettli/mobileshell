@@ -17,6 +17,8 @@ var (
 	stateDir  string
 	port      string
 	allowRoot bool
+
+	nohupNoStdinPipe bool
 )
 
 var rootCmd = &cobra.Command{
@@ -117,7 +119,7 @@ invoked by the server when executing processes in nohup mode.`,
 		if len(args) < 1 {
 			return fmt.Errorf("Not enough arguments")
 		}
-		return nohup.Run(args)
+		return nohup.Run(args, nohupNoStdinPipe)
 	},
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -131,6 +133,8 @@ func init() {
 	addPasswordCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 	addPasswordCmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "Read password from stdin without prompting (for scripts)")
 	addPasswordCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
+
+	nohupCmd.Flags().BoolVar(&nohupNoStdinPipe, "no-stdin-pipe", false, "Allow missing stdin.pipe (named pipe) to be missing. Stdin be read from parent process.")
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(addPasswordCmd)

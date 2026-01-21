@@ -9,7 +9,6 @@ import (
 
 	"mobileshell/internal/executor"
 	"mobileshell/internal/outputlog"
-	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -76,36 +75,22 @@ func TestTTYEcho(t *testing.T) {
 		t.Fatalf("Failed to create process: %v", err)
 	}
 
-	pipePath := filepath.Join(proc.ProcessDir, "stdin.pipe")
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		pipePath := filepath.Join(proc.ProcessDir, "stdin.pipe")
+		// Send input
+		file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+		assert.NoError(collect, err)
 
-	// Wait for process to start by polling for PID file
-	for i := 0; i < 20; i++ {
-		proc, err := process.LoadProcessFromDir(proc.ProcessDir)
-		if err == nil && proc.PID > 0 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+		_, err = file.WriteString("test input\n")
+		assert.NoError(collect, err)
+		file.Close()
+	}, time.Second, 10*time.Millisecond)
 
-	// Send input
-	file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
-	require.NoError(t, err)
-
-	defer func() { _ = file.Close() }()
-	_, err = file.WriteString("test input\n")
-	require.NoError(t, err)
-
-	// Kill the cat process
-	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
-	require.NoError(t, err)
-	p, err := os.FindProcess(proc.PID)
-	require.NoError(t, err)
-	_ = p.Kill()
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		stdout, _, _, err := outputlog.ReadCombinedOutput(proc.OutputFile)
-		require.NoError(t, err)
-		require.Contains(t, stdout, "test input")
-	}, time.Second, 50*time.Millisecond)
+		assert.NoError(collect, err)
+		assert.Equal(collect, "test input", stdout)
+	}, time.Second, 10*time.Millisecond)
 }
 
 // TestColorOutput verifies that ANSI color codes work with PTY
