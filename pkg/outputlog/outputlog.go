@@ -14,10 +14,10 @@ type OutputLine struct {
 	Line      string    // The actual line content (may include trailing newline)
 }
 
-// FormatOutputLine formats an OutputLine into the output.log format
+// FormatLine formats an OutputLine into the output.log format
 // Format: "stream timestamp length: content" (with separator \n only if content doesn't end with \n)
 // where length is the byte length of content (which may include a trailing newline)
-func FormatOutputLine(line OutputLine) string {
+func FormatLine(line OutputLine) string {
 	timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z")
 	length := len(line.Line)
 	// Add separator newline only if content doesn't already end with one

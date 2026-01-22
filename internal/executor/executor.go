@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"mobileshell/pkk/outputlog"
 	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
+	"mobileshell/pkk/outputlog"
 )
 
 func InitExecutor(stateDir string) error {
@@ -132,7 +132,7 @@ func readNohupStream(reader io.Reader, streamName string, outFile *os.File, done
 			Timestamp: time.Now().UTC(),
 			Line:      line,
 		}
-		formattedLine := outputlog.FormatOutputLine(outputLine)
+		formattedLine := outputlog.FormatLine(outputLine)
 		_, _ = outFile.WriteString(formattedLine)
 	}
 }
