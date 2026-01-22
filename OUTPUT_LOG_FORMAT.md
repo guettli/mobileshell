@@ -133,7 +133,7 @@ visibility.
 The format is written by `outputlog.FormatOutputLine()` and parsed by
 `outputlog.ReadCombinedOutput()` and `outputlog.ReadRawStdout()`.
 
-All implementation is in the `internal/outputlog` package.
+All implementation is in the `pkk/outputlog` package.
 
 ## Why This Format?
 

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"mobileshell/internal/executor"
-	"mobileshell/internal/outputlog"
+	"mobileshell/pkk/outputlog"
 	"mobileshell/internal/workspace"
 
 	"github.com/stretchr/testify/assert"

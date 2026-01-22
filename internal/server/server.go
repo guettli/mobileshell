@@ -28,7 +28,7 @@ import (
 	"mobileshell/internal/claude"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
-	"mobileshell/internal/outputlog"
+	"mobileshell/pkk/outputlog"
 	"mobileshell/internal/process"
 	"mobileshell/internal/sysmon"
 	"mobileshell/internal/terminal"

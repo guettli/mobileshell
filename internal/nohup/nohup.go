@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"mobileshell/internal/outputlog"
+	"mobileshell/pkk/outputlog"
 	"mobileshell/pkg/outputtype"
 
 	"github.com/creack/pty"
@@ -39,6 +39,13 @@ func Run(commandSlice []string, noStdinPipe bool) error {
 		stdinPipePath := filepath.Join(processDir, "stdin.pipe")
 		// TODO: Open stdinPipePath
 		// Read via protocol: outputlog format.
+		// Interface for reading from outputlog:
+		// Get Reader from stream (like "stdin")
+		// Call func on line (signal --> call func)
+		//
+
+		// How to handle unknown streams? For example: Log to stderr, except handler for unknown
+		// streams is set.
 	} else {
 		// read from stdin, but without outputlog format.
 	}

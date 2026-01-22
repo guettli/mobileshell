@@ -16,7 +16,7 @@ import (
 
 	"mobileshell/internal/auth"
 	"mobileshell/internal/executor"
-	"mobileshell/internal/outputlog"
+	"mobileshell/pkk/outputlog"
 	"mobileshell/internal/process"
 	"mobileshell/pkg/httperror"
 )
