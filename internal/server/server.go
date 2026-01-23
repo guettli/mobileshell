@@ -28,7 +28,6 @@ import (
 	"mobileshell/internal/claude"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
-	"mobileshell/pkk/outputlog"
 	"mobileshell/internal/process"
 	"mobileshell/internal/sysmon"
 	"mobileshell/internal/terminal"
@@ -37,6 +36,7 @@ import (
 	"mobileshell/pkg/httperror"
 	"mobileshell/pkg/markdown"
 	"mobileshell/pkg/outputtype"
+	"mobileshell/pkk/outputlog"
 
 	"github.com/gorilla/websocket"
 )
@@ -1602,7 +1602,7 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 
 	// Log the signal send to output.log
 	outputFile := filepath.Join(processDir, "output.log")
-
+	panic("use FormatLine")
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	content := fmt.Sprintf("%d %s", signalNum, signalName)
 	logLine := fmt.Sprintf("signal-sent %s %d: %s\n", timestamp, len(content), content)
