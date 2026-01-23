@@ -4,287 +4,228 @@ package outputlog
 
 import (
 	"fmt"
-	"os"
-	"strings"
+	"io"
 	"time"
 )
 
-// OutputLine represents a single line of output from either stdout or stderr
-type OutputLine struct {
+// Chunk represents a single line of output from either stdout or stderr
+type Chunk struct {
 	Stream    string
 	Timestamp time.Time // UTC timestamp
 	Line      []byte    // The actual line content (may include trailing newline)
+	Error     error
 }
 
-// FormatLine formats an OutputLine into the output.log format
-// Format: "stream timestamp length: content" (with separator \n only if content doesn't end with \n)
-// where length is the byte length of content (which may include a trailing newline)
-func FormatLine(line OutputLine) []byte {
-	timestamp := line.Timestamp.UTC().Format("2006-01-02T15:04:05.000000000Z")
-	length := len(line.Line)
-	start := []byte(fmt.Sprintf("%s %s %d: ", line.Stream, timestamp, length))
-	// Add separator newline only if content doesn't already end with one
-	content := line.Line
-	if len(line.Line) == 0 || line.Line[len(line.Line)-1] != '\n' {
-		content = append(content, byte('\n'))
+// FormatChunk formats an OutputLine into the output.log format
+// Format: "stream timestamp length: content"
+func FormatChunk(chunk Chunk) []byte {
+	timestamp := chunk.Timestamp.UTC().Format("2006-01-02T15:04:05.000000000Z")
+	length := len(chunk.Line)
+	start := fmt.Appendf(nil, "%s %s %d: ", chunk.Stream, timestamp, length)
+	// Append content and always add separator newline
+	result := append(start, chunk.Line...)
+	result = append(result, byte('\n'))
+	return result
+}
+
+type OutputLogReader interface {
+	// StreamReader returns an io.Reader for reading one stream. Example: You want to read only the
+	// stream "stdout". Other stream and the timestamps get ignored.
+	StreamReader(stream string) io.Reader
+
+	// Channel returns a channel which emits Chunks.
+	Channel() <-chan Chunk
+
+	// All returns a map with stream as key and the data as bytes. Timestamps get ignored.
+	All() map[string][]byte
+}
+
+type OutputLogIoReader struct {
+	reader io.Reader
+}
+
+var _ OutputLogReader = &OutputLogIoReader{}
+
+type ChannelReader struct {
+	stream  string
+	channel <-chan Chunk
+	buffer  []byte // Buffer for partial chunk data
+}
+
+func (cr *ChannelReader) Read(p []byte) (n int, err error) {
+	// First, copy any buffered data from previous reads
+	if len(cr.buffer) > 0 {
+		n = copy(p, cr.buffer)
+		cr.buffer = cr.buffer[n:]
+		if n == len(p) {
+			// Buffer filled p completely
+			return n, nil
+		}
 	}
-	return append(start, content...)
+
+	// Read chunks from channel
+	for chunk := range cr.channel {
+		if chunk.Stream != cr.stream {
+			continue
+		}
+
+		// Copy as much as fits into remaining space in p
+		copied := copy(p[n:], chunk.Line)
+		n += copied
+
+		// If there's leftover data, buffer it for next read
+		if copied < len(chunk.Line) {
+			cr.buffer = append(cr.buffer, chunk.Line[copied:]...)
+		}
+
+		// Return as soon as we have some data
+		return n, nil
+	}
+
+	// Channel closed
+	if n > 0 {
+		// Return any data we copied from buffer before EOF
+		return n, nil
+	}
+	return 0, io.EOF
 }
 
-// ReadCombinedOutput reads and parses the combined output.log file
-// Returns stdout, stderr, stdin, nohupStdout, nohupStderr lines separately
-func ReadCombinedOutput(filename string) (stdout string, stderr string, stdin string, err error) { // TODO: Remove
-	data, err := os.ReadFile(filename)
+func (o *OutputLogIoReader) Channel() <-chan Chunk {
+	channel := make(chan Chunk)
+	go readToChannel(o.reader, channel)
+	return channel
+}
+
+func readToChannel(reader io.Reader, channel chan<- Chunk) {
+	defer close(channel)
+	for {
+		chunk, eof := readToChunk(reader)
+		if eof {
+			break
+		}
+		channel <- chunk
+	}
+}
+
+func readToChunk(reader io.Reader) (Chunk, bool) {
+	var chunk Chunk
+	buf := make([]byte, 1)
+
+	// Helper to read one byte
+	readByte := func() (byte, error) {
+		n, err := reader.Read(buf)
+		if n == 0 {
+			return 0, err
+		}
+		return buf[0], nil
+	}
+
+	// Helper to read until delimiter
+	readUntil := func(delim byte) (string, error) {
+		var result []byte
+		for {
+			b, err := readByte()
+			if err != nil {
+				return "", err
+			}
+			if b == delim {
+				return string(result), nil
+			}
+			result = append(result, b)
+		}
+	}
+
+	// Read stream name (until space)
+	stream, err := readUntil(' ')
 	if err != nil {
-		return "", "", "", err
+		if err == io.EOF {
+			return chunk, true
+		}
+		chunk.Error = fmt.Errorf("reading stream: %w", err)
+		return chunk, true
+	}
+	chunk.Stream = stream
+
+	// Read timestamp (until space)
+	timestampStr, err := readUntil(' ')
+	if err != nil {
+		chunk.Error = fmt.Errorf("reading timestamp: %w", err)
+		return chunk, true
+	}
+	timestamp, err := time.Parse("2006-01-02T15:04:05.000000000Z", timestampStr)
+	if err != nil {
+		chunk.Error = fmt.Errorf("parsing timestamp: %w", err)
+		return chunk, true
+	}
+	chunk.Timestamp = timestamp
+
+	// Read length (until colon)
+	lengthStr, err := readUntil(':')
+	if err != nil {
+		chunk.Error = fmt.Errorf("reading length: %w", err)
+		return chunk, true
+	}
+	var length int64
+	_, err = fmt.Sscanf(lengthStr, "%d", &length)
+	if err != nil {
+		chunk.Error = fmt.Errorf("parsing length: %w", err)
+		return chunk, true
 	}
 
-	var stdoutParts, stderrParts, stdinParts []string
-	i := 0
-
-	for i < len(data) {
-		// Find the ": " separator
-		separatorIdx := -1
-		for j := i; j < len(data)-1; j++ {
-			if data[j] == ':' && data[j+1] == ' ' {
-				separatorIdx = j + 2
-				break
-			}
-		}
-
-		if separatorIdx != -1 {
-			// Extract the stream type from the beginning to the first space
-			streamStart := i
-			streamEnd := streamStart
-			for streamEnd < len(data) && data[streamEnd] != ' ' {
-				streamEnd++
-			}
-			stream := string(data[streamStart:streamEnd])
-
-			// Only process if it's a valid stream type
-			if stream == "stdout" || stream == "stderr" || stream == "stdin" || stream == "signal-sent" || stream == "nohup-stdout" || stream == "nohup-stderr" {
-				// Extract length from the format
-				// Find the space before the colon to get the length field
-				lengthStart := -1
-				for j := separatorIdx - 3; j >= i; j-- {
-					if data[j] == ' ' {
-						lengthStart = j + 1
-						break
-					}
-				}
-
-				if lengthStart != -1 {
-					lengthStr := string(data[lengthStart : separatorIdx-2])
-					var length int
-					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
-						// Read exactly 'length' bytes of content
-						if separatorIdx+length <= len(data) {
-							content := string(data[separatorIdx : separatorIdx+length])
-
-							switch stream {
-							case "stdout":
-								stdoutParts = append(stdoutParts, content)
-							case "stderr":
-								stderrParts = append(stderrParts, content)
-							case "stdin":
-								stdinParts = append(stdinParts, content)
-							case "signal-sent":
-								// Signal events are prefixed and shown in stdin
-								stdinParts = append(stdinParts, "Signal sent: "+content)
-								stdinParts = append(stdinParts, "\n")
-							case "nohup-stdout", "nohup-stderr":
-								// Ignore nohup streams in this function for backwards compatibility
-								// They are handled separately by ReadCombinedOutputWithNohup
-							}
-
-							// Move past content
-							i = separatorIdx + length
-							// Skip separator \n if present (only if content doesn't end with \n)
-							if i < len(data) && data[i] == '\n' {
-								i++
-							}
-							continue
-						}
-					}
-				}
-			}
-		}
-
-		// If parsing failed or not a recognized format, skip to next line
-		for i < len(data) && data[i] != '\n' {
-			i++
-		}
-		i++ // Skip the newline
+	// Skip the space after colon
+	b, err := readByte()
+	if err != nil {
+		chunk.Error = fmt.Errorf("reading space after colon: %w", err)
+		return chunk, true
+	}
+	if b != ' ' {
+		chunk.Error = fmt.Errorf("expected space after colon, got %q", b)
+		return chunk, true
 	}
 
-	// Concatenate parts as-is (they already include newlines where appropriate)
-	stdout = strings.Join(stdoutParts, "")
-	stderr = strings.Join(stderrParts, "")
-	stdin = strings.Join(stdinParts, "")
+	// Read exactly `length` bytes of content
+	chunk.Line = make([]byte, length)
+	_, err = io.ReadFull(reader, chunk.Line)
+	if err != nil {
+		chunk.Error = fmt.Errorf("reading content (%d bytes): %w", length, err)
+		return chunk, true
+	}
 
-	return stdout, stderr, stdin, nil
+	// Read the final newline separator
+	b, err = readByte()
+	if err != nil {
+		chunk.Error = fmt.Errorf("reading final newline: %w", err)
+		return chunk, true
+	}
+	if b != '\n' {
+		chunk.Error = fmt.Errorf("expected newline separator, got %q", b)
+		return chunk, true
+	}
+
+	return chunk, false
 }
 
-// ReadCombinedOutputWithNohup reads and parses the combined output.log file
-// Returns stdout, stderr, stdin, nohupStdout, nohupStderr lines separately
-func ReadCombinedOutputWithNohup(filename string) (stdout string, stderr string, stdin string, nohupStdout string, nohupStderr string, err error) { // TODO: Remove
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return "", "", "", "", "", err
+func (o *OutputLogIoReader) StreamReader(stream string) io.Reader {
+	return &ChannelReader{
+		stream:  stream,
+		channel: o.Channel(),
+		buffer:  []byte{},
 	}
-
-	var stdoutParts, stderrParts, stdinParts, nohupStdoutParts, nohupStderrParts []string
-	i := 0
-
-	for i < len(data) {
-		// Find the ": " separator
-		separatorIdx := -1
-		for j := i; j < len(data)-1; j++ {
-			if data[j] == ':' && data[j+1] == ' ' {
-				separatorIdx = j + 2
-				break
-			}
-		}
-
-		if separatorIdx != -1 {
-			// Extract the stream type from the beginning to the first space
-			streamStart := i
-			streamEnd := streamStart
-			for streamEnd < len(data) && data[streamEnd] != ' ' {
-				streamEnd++
-			}
-			stream := string(data[streamStart:streamEnd])
-
-			// Only process if it's a valid stream type
-			if stream == "stdout" || stream == "stderr" || stream == "stdin" || stream == "signal-sent" || stream == "nohup-stdout" || stream == "nohup-stderr" {
-				// Extract length from the format
-				// Find the space before the colon to get the length field
-				lengthStart := -1
-				for j := separatorIdx - 3; j >= i; j-- {
-					if data[j] == ' ' {
-						lengthStart = j + 1
-						break
-					}
-				}
-
-				if lengthStart != -1 {
-					lengthStr := string(data[lengthStart : separatorIdx-2])
-					var length int
-					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
-						// Read exactly 'length' bytes of content
-						if separatorIdx+length <= len(data) {
-							content := string(data[separatorIdx : separatorIdx+length])
-
-							switch stream {
-							case "stdout":
-								stdoutParts = append(stdoutParts, content)
-							case "stderr":
-								stderrParts = append(stderrParts, content)
-							case "stdin":
-								stdinParts = append(stdinParts, content)
-							case "signal-sent":
-								// Signal events are prefixed and shown in stdin
-								stdinParts = append(stdinParts, "Signal sent: "+content)
-								stdinParts = append(stdinParts, "\n")
-							case "nohup-stdout":
-								nohupStdoutParts = append(nohupStdoutParts, content)
-							case "nohup-stderr":
-								nohupStderrParts = append(nohupStderrParts, content)
-							}
-
-							// Move past content
-							i = separatorIdx + length
-							// Skip separator \n if present (only if content doesn't end with \n)
-							if i < len(data) && data[i] == '\n' {
-								i++
-							}
-							continue
-						}
-					}
-				}
-			}
-		}
-
-		// If parsing failed or not a recognized format, skip to next line
-		for i < len(data) && data[i] != '\n' {
-			i++
-		}
-		i++ // Skip the newline
-	}
-
-	// Concatenate parts as-is (they already include newlines where appropriate)
-	stdout = strings.Join(stdoutParts, "")
-	stderr = strings.Join(stderrParts, "")
-	stdin = strings.Join(stdinParts, "")
-	nohupStdout = strings.Join(nohupStdoutParts, "")
-	nohupStderr = strings.Join(nohupStderrParts, "")
-
-	return stdout, stderr, stdin, nohupStdout, nohupStderr, nil
 }
 
-// ReadRawStdout extracts raw stdout bytes from the combined output log file
-// This function preserves binary data including newlines and null bytes
-func ReadRawStdout(filename string) ([]byte, error) { // TODO: Remove
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
+func (o *OutputLogIoReader) All() map[string][]byte {
+	result := make(map[string][]byte)
+	channel := o.Channel()
+
+	for chunk := range channel {
+		result[chunk.Stream] = append(result[chunk.Stream], chunk.Line...)
 	}
 
-	var stdoutBytes []byte
-	i := 0
-	for i < len(data) {
-		// Check for format: "stdout ..."
-		if i+7 <= len(data) && string(data[i:i+7]) == "stdout " {
-			// Format: "stdout timestamp length: content"
-			// Find the ": " separator
-			separatorIdx := -1
-			for j := i + 7; j < len(data)-1; j++ {
-				if data[j] == ':' && data[j+1] == ' ' {
-					separatorIdx = j + 2
-					break
-				}
-			}
+	return result
+}
 
-			if separatorIdx != -1 {
-				// Extract length from the format
-				// Find the space before the colon to get the length field
-				lengthStart := -1
-				for j := separatorIdx - 3; j >= i+7; j-- {
-					if data[j] == ' ' {
-						lengthStart = j + 1
-						break
-					}
-				}
-
-				if lengthStart != -1 {
-					lengthStr := string(data[lengthStart : separatorIdx-2])
-					var length int
-					if _, scanErr := fmt.Sscanf(lengthStr, "%d", &length); scanErr == nil {
-						// Read exactly 'length' bytes of content
-						if separatorIdx+length <= len(data) {
-							content := data[separatorIdx : separatorIdx+length]
-							stdoutBytes = append(stdoutBytes, content...)
-
-							// Move past content
-							i = separatorIdx + length
-							// Skip separator \n if present
-							if i < len(data) && data[i] == '\n' {
-								i++
-							}
-							continue
-						}
-					}
-				}
-			}
-		}
-
-		// Skip to next line if parsing failed or not a stdout line
-		nextLine := i
-		for nextLine < len(data) && data[nextLine] != '\n' {
-			nextLine++
-		}
-		i = nextLine + 1
-	}
-
-	return stdoutBytes, nil
+func NewOutputLogReader(reader io.Reader) (OutputLogReader, error) {
+	return &OutputLogIoReader{
+		reader: reader,
+	}, nil
 }

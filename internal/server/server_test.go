@@ -18,7 +18,7 @@ import (
 	"mobileshell/internal/executor"
 	"mobileshell/internal/process"
 	"mobileshell/pkg/httperror"
-	"mobileshell/pkk/outputlog"
+	"mobileshell/pkg/outputlog"
 )
 
 func TestTemplateRendering(t *testing.T) {
@@ -649,7 +649,7 @@ func TestBinaryDownload(t *testing.T) {
 			Timestamp: timestamp,
 			Line:      string([]byte{b}),
 		}
-		outputLog.WriteString(outputlog.FormatLine(line))
+		outputLog.WriteString(outputlog.FormatChunk(line))
 	}
 
 	outputFile := filepath.Join(processDir, "output.log")

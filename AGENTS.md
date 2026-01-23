@@ -24,3 +24,9 @@ are left. Remove lines which are no longer needed.
 Avoid code duplication. If you see the same code pattern in multiple files, extract it into a
 reusable component. For Go templates, use `{{define "name"}}...{{end}}` blocks and reference them
 with `{{template "name" .}}`.
+
+## Tests
+
+Do not use table driven tests.
+
+Use testify 'require' package. Avoid "if" and "for" in tests.

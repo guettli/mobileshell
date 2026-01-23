@@ -9,7 +9,7 @@ import (
 
 	"mobileshell/internal/process"
 	"mobileshell/internal/workspace"
-	"mobileshell/pkk/outputlog"
+	"mobileshell/pkg/outputlog"
 
 	"github.com/stretchr/testify/require"
 )
@@ -282,27 +282,27 @@ func TestReadCombinedOutput(t *testing.T) {
 
 	// Create a test combined output file with new format
 	var testContent strings.Builder
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
 		Line:      "line 1\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stderr",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
 		Line:      "error message\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
 		Line:      "line 2\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdin",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
 		Line:      "input text\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "signal-sent",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 4, 0, time.UTC),
 		Line:      "15 SIGTERM\n",
@@ -369,29 +369,28 @@ func TestNewlinePreservation(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create test content with new format that preserves newlines
-	// Format: "> stream timestamp length: content" + separator \n if content doesn't end with \n
-	// where content may include a trailing newline (counted in length)
+	// Format: "> stream timestamp length: content".
 	var testContent strings.Builder
 	// Line 1: content is "foo\n" (4 bytes) - has newline, no extra separator
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
 		Line:      "foo\n",
 	}))
 	// Line 2: content is "bar\n" (4 bytes) - has newline, no extra separator
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
 		Line:      "bar\n",
 	}))
 	// Line 3: content is "baz\n" (4 bytes) - has newline, no extra separator
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
 		Line:      "baz\n",
 	}))
 	// Line 4: content is "prompt> " (8 bytes) - NO newline, add separator
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
 		Line:      "prompt> ",
@@ -446,27 +445,27 @@ func TestReadCombinedOutputNewFormat(t *testing.T) {
 
 	// Create test content using the new format
 	var testContent strings.Builder
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
 		Line:      "line 1\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stderr",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
 		Line:      "error message\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
 		Line:      "line 2\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "stdin",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
 		Line:      "input text\n",
 	}))
-	testContent.WriteString(outputlog.FormatLine(outputlog.OutputLine{
+	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
 		Stream:    "signal-sent",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 4, 0, time.UTC),
 		Line:      "15 SIGTERM\n",

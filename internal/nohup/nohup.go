@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"mobileshell/pkg/outputtype"
-	"mobileshell/pkk/outputlog"
+	"mobileshell/pkg/outputlog"
 
 	"github.com/creack/pty"
 )
@@ -89,7 +89,7 @@ func Run(commandSlice []string, noStdinPipe bool) error {
 		defer close(writerDone)
 		for line := range outputChan {
 			// Write the line to output.log first
-			formattedLine := outputlog.FormatLine(line)
+			formattedLine := outputlog.FormatChunk(line)
 			_, _ = outFile.WriteString(formattedLine)
 			// No need to sync since file was opened with O_SYNC
 
