@@ -1546,20 +1546,6 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 		return nil, httperror.HTTPError{StatusCode: http.StatusInternalServerError, Message: "Failed to send signal"}
 	}
 
-	// Log the signal send to output.log
-	outputFile := filepath.Join(processDir, "output.log")
-	panic("send signal via pipe")
-	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-	content := fmt.Sprintf("%d %s", signalNum, signalName)
-	logLine := fmt.Sprintf("signal-sent %s %d: %s\n", timestamp, len(content), content)
-
-	// Append to output.log
-	f, err := os.OpenFile(outputFile, os.O_APPEND|os.O_WRONLY, 0o600) // TODO: no, only per channel
-	if err == nil {
-		_, _ = f.WriteString(logLine)
-		_ = f.Close()
-	}
-
 	slog.Info("Signal sent to process", "pid", proc.PID, "signal", signalName, "signal_num", signalNum)
 
 	// Return empty response

@@ -314,7 +314,7 @@ func TestReadCombinedOutput(t *testing.T) {
 	}
 
 	// Read the combined output
-	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(testFile)
+	stdout, stderr, stdin, _, _, err := outputlog.ReadCombinedOutputWithNohup(testFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestReadCombinedOutput(t *testing.T) {
 	}
 
 	// Test with non-existent file
-	_, _, _, err = outputlog.ReadCombinedOutput(filepath.Join(tmpDir, "non-existent.txt"))
+	_, _, _, _, _, err = outputlog.ReadCombinedOutputWithNohup(filepath.Join(tmpDir, "non-existent.txt"))
 	if err == nil {
 		t.Error("ReadCombinedOutput should fail for non-existent file")
 	}
@@ -351,7 +351,7 @@ func TestReadCombinedOutput(t *testing.T) {
 		t.Fatalf("Failed to create malformed test file: %v", err)
 	}
 
-	stdout, stderr, stdin, err = outputlog.ReadCombinedOutput(malformedFile)
+	stdout, stderr, stdin, _, _, err = outputlog.ReadCombinedOutputWithNohup(malformedFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput should handle malformed content: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestNewlinePreservation(t *testing.T) {
 	}
 
 	// Read using ReadCombinedOutput
-	stdout, _, _, err := outputlog.ReadCombinedOutput(testFile)
+	stdout, _, _, _, _, err := outputlog.ReadCombinedOutputWithNohup(testFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestReadCombinedOutputNewFormat(t *testing.T) {
 	}
 
 	// Read the combined output
-	stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(testFile)
+	stdout, stderr, stdin, _, _, err := outputlog.ReadCombinedOutputWithNohup(testFile)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}

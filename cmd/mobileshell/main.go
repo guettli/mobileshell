@@ -117,7 +117,7 @@ This command should not be called directly by users. It is automatically
 invoked by the server when executing processes in nohup mode.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
-			return fmt.Errorf("Not enough arguments")
+			return fmt.Errorf("not enough arguments")
 		}
 		return nohup.Run(args, inputUnixDomainSocket)
 	},

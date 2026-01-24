@@ -26,7 +26,7 @@ import (
 // nohup (and Run()).
 func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	if len(commandSlice) < 1 {
-		return fmt.Errorf("Not enough arguments")
+		return fmt.Errorf("not enough arguments")
 	}
 	command := filepath.Clean(commandSlice[0])
 	processDir := filepath.Dir(command)
@@ -52,7 +52,7 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 		return fmt.Errorf("%q does already exist. This is not supported", outputFile)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("Stat of output.log: %q: %w", outputFile, err)
+		return fmt.Errorf("stat of output.log: %q: %w", outputFile, err)
 	}
 
 	outFile, err := os.OpenFile(outputFile, os.O_WRONLY|os.O_APPEND|os.O_SYNC|os.O_CREATE, 0o600)

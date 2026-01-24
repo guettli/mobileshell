@@ -5,14 +5,14 @@ set -Eeuo pipefail
 
 # Log function - only outputs if not in CI
 log() {
-    [[ -z "${CI:-}" ]] && echo "$@"
-    return 0
+  [[ -z "${CI:-}" ]] && echo "$@"
+  return 0
 }
 
 # Ensure Nix environment is active, or run this script via nix develop
 if [[ -z "${IN_NIX_SHELL:-}" ]]; then
-    echo "Nix environment not active. Running via 'nix develop'..."
-    exec nix develop --command "$0" "$@"
+  echo "Nix environment not active. Running via 'nix develop'..."
+  exec nix develop --command "$0" "$@"
 fi
 
 log "MobileShell JSDOM Integration Test"
@@ -25,7 +25,7 @@ log "Using temporary state directory: $TEMP_STATE_DIR"
 
 # Generate test password (must be at least 36 characters)
 PASSWORD_FILE="$TEMP_STATE_DIR/test-password.txt"
-openssl rand -base64 32 | tr -d '/+=' | head -c 32 > "$PASSWORD_FILE"
+openssl rand -base64 32 | tr -d '/+=' | head -c 32 >"$PASSWORD_FILE"
 PASSWORD="test-password-$(cat "$PASSWORD_FILE")"
 log "Generated test password (length: ${#PASSWORD})"
 
@@ -47,7 +47,7 @@ log "✓ Using port $PORT"
 # Start server
 log "Starting server..."
 SERVER_LOG="$TEMP_STATE_DIR/server.log"
-"$TEMP_STATE_DIR/mobileshell" run --state-dir "$TEMP_STATE_DIR" --port "$PORT" > "$SERVER_LOG" 2>&1 &
+"$TEMP_STATE_DIR/mobileshell" run --state-dir "$TEMP_STATE_DIR" --port "$PORT" >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true; rm -rf "$TEMP_STATE_DIR"' EXIT
 
@@ -84,7 +84,7 @@ done
 cd "$(dirname "$0")/.."
 if [ ! -d "node_modules" ]; then
   log "Installing pnpm dependencies..."
-  pnpm install > /dev/null 2>&1
+  pnpm install >/dev/null 2>&1
   log "✓ Dependencies installed"
 fi
 cd "$(dirname "$0")"
@@ -95,7 +95,7 @@ log ""
 if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test-parallel.mjs; then
   echo ""
   echo "Test failed. Server log (last 100 lines):"
-  tail -100 "$SERVER_LOG"
+  grep -vP 'INFO HTTP request' "$SERVER_LOG" | tail -100
   exit 1
 fi
 

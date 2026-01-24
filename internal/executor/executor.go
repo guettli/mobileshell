@@ -1,9 +1,7 @@
 package executor
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -114,7 +112,7 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	proc.ExecCmd.Stdin = nil
 
 	if err := proc.ExecCmd.Start(); err != nil {
-		nohupLogFile.Close()
+		_ = nohupLogFile.Close()
 		return nil, fmt.Errorf("failed to spawn nohup process: %w", err)
 	}
 
@@ -130,19 +128,3 @@ func DetectContentType(data []byte) string {
 	return http.DetectContentType(data)
 }
 
-// readNohupStream reads from a nohup subprocess stream and writes it to output.log. TODO: No, all writes to output.log to through the channel.
-func readNohupStream(reader io.Reader, streamName string, outFile *os.File, done chan<- struct{}) {
-	defer func() { done <- struct{}{} }()
-
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		line := scanner.Text() + "\n"
-		chunk := outputlog.Chunk{
-			Stream:    streamName,
-			Timestamp: time.Now().UTC(),
-			Line:      []byte(line),
-		}
-		formattedChunk := outputlog.FormatChunk(chunk)
-		_, _ = outFile.Write(formattedChunk)
-	}
-}

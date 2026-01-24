@@ -187,7 +187,7 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		// Verify output.log contains the file content
 		outputFile := filepath.Join(proc.ProcessDir, "output.log")
-		stdout, stderr, stdin, err := outputlog.ReadCombinedOutput(outputFile)
+		stdout, stderr, stdin, _, _, err := outputlog.ReadCombinedOutputWithNohup(outputFile)
 		assert.NoError(collect, err)
 		assert.NoError(collect, err)
 		assert.Equal(collect, "test content", stdout)
