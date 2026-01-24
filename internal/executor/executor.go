@@ -18,6 +18,29 @@ func InitExecutor(stateDir string) error {
 	return workspace.InitWorkspaces(stateDir)
 }
 
+// findProjectRoot finds the project root by looking for go.mod file
+func findProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	// Walk up the directory tree looking for go.mod
+	for {
+		goModPath := filepath.Join(dir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root without finding go.mod
+			return "", fmt.Errorf("go.mod not found in any parent directory")
+		}
+		dir = parent
+	}
+}
+
 // CreateWorkspace creates a new workspace
 func CreateWorkspace(stateDir, name, directory, preCommand string) (*workspace.Workspace, error) {
 	return workspace.CreateWorkspace(stateDir, name, directory, preCommand)
@@ -86,13 +109,23 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	// Spawn the process using `mobileshell nohup` in the background
 	// In test mode, use `go run` to execute the mobileshell command
 
+	// Use a shorter socket path to avoid Unix socket path length limit (108 chars)
+	// Store the socket in /tmp with a unique name based on the process timestamp
+	socketPath := filepath.Join("/tmp", "ms-"+commandId+".sock")
+
 	args := []string{
 		"nohup",
-		"--input-unix-domain-socket", filepath.Join(processDir, "input-unix-domain-socket"),
+		"--input-unix-domain-socket", socketPath,
 		nohupCommandPath,
 	}
 	if filepath.Ext(execPath) == ".test" {
-		cmd := []string{"run", "mobileshell/cmd/mobileshell"}
+		// Find project root by looking for go.mod
+		projectRoot, err := findProjectRoot()
+		if err != nil {
+			return nil, fmt.Errorf("failed to find project root: %w", err)
+		}
+		cmdPath := filepath.Join(projectRoot, "cmd", "mobileshell")
+		cmd := []string{"run", cmdPath}
 		cmd = append(cmd, args...)
 		proc.ExecCmd = exec.Command("go", cmd...)
 	} else {

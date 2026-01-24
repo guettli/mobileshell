@@ -70,10 +70,23 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	outputLogWriter := outputlog.NewOutputLogWriter(outFile, onChunk)
 
 	// Handle input from Unix domain socket if provided
+	var socketListener net.Listener
 	if inputUnixDomainSocket != "" {
-		// Open Unix domain socket and read via OutputLog format
-		go readFromUnixSocket(inputUnixDomainSocket, outputLogWriter.Channel())
-		// When using Unix socket, don't set cmd.Stdin (no stdin forwarding)
+		// Create and listen on Unix domain socket for stdin input
+		// Remove existing socket file if it exists
+		_ = os.Remove(inputUnixDomainSocket)
+
+		var err error
+		socketListener, err = net.Listen("unix", inputUnixDomainSocket)
+		if err != nil {
+			return fmt.Errorf("failed to create Unix domain socket listener: %w", err)
+		}
+
+		// Accept connections and read stdin data from the socket
+		// stdin data is logged but NOT forwarded to the command
+		go acceptSocketConnections(socketListener, outputLogWriter.Channel())
+
+		// Don't set cmd.Stdin - let the command run without stdin
 	} else {
 		// Create a pipe for stdin forwarding to the command
 		stdinReader, stdinWriter := io.Pipe()
@@ -126,6 +139,14 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	// Wait for the process to complete
 	err = cmd.Wait()
 
+	// Clean up Unix domain socket if it was created
+	if socketListener != nil {
+		_ = socketListener.Close()
+		if inputUnixDomainSocket != "" {
+			_ = os.Remove(inputUnixDomainSocket)
+		}
+	}
+
 	outputLogWriter.Close()
 
 	// Get exit code and signal
@@ -172,18 +193,27 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	return nil
 }
 
-// readFromUnixSocket connects to a Unix domain socket and reads OutputLog formatted data
-// It forwards all chunks received from the socket to the outputChan
-func readFromUnixSocket(socketPath string, outputChan chan<- outputlog.Chunk) {
-	// Connect to the Unix domain socket
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
-		slog.Error("Failed to connect to Unix domain socket", "error", err, "path", socketPath)
-		return
+// acceptSocketConnections listens for connections on a Unix domain socket and processes stdin input
+// It reads OutputLog formatted data and logs all chunks (stdin is NOT forwarded to the command)
+func acceptSocketConnections(listener net.Listener, outputChan chan<- outputlog.Chunk) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			// Listener closed, exit gracefully
+			slog.Info("Socket listener closed", "error", err)
+			return
+		}
+
+		// Handle each connection in a separate goroutine
+		go handleSocketConnection(conn, outputChan)
 	}
+}
+
+// handleSocketConnection processes a single connection to the Unix domain socket
+func handleSocketConnection(conn net.Conn, outputChan chan<- outputlog.Chunk) {
 	defer func() { _ = conn.Close() }()
 
-	slog.Info("Connected to Unix domain socket", "path", socketPath)
+	slog.Info("Client connected to Unix domain socket")
 
 	// Create OutputLog reader from the connection
 	reader, err := outputlog.NewOutputLogReader(conn)
@@ -192,21 +222,21 @@ func readFromUnixSocket(socketPath string, outputChan chan<- outputlog.Chunk) {
 		return
 	}
 
-	// Read chunks from the channel and forward to outputChan
+	// Read chunks from the channel and log them (stdin is NOT forwarded to command)
 	for chunk := range reader.Channel() {
 		if chunk.Error != nil {
 			slog.Error("Error reading chunk from Unix socket", "error", chunk.Error)
 			continue
 		}
 
-		// Send chunk to output channel (non-blocking)
+		// Send chunk to output channel for logging (non-blocking)
 		select {
 		case outputChan <- chunk:
-			// Successfully sent
+			// Successfully sent to log
 		case <-time.After(5 * time.Second):
 			slog.Warn("Output channel write timed out, dropping chunk from Unix socket", "stream", chunk.Stream)
 		}
 	}
 
-	slog.Info("Unix domain socket connection closed", "path", socketPath)
+	slog.Info("Unix domain socket connection closed")
 }

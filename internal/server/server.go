@@ -1464,34 +1464,39 @@ func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte
 	stdinData := r.FormValue("stdin")
 
 	// Get workspace
-	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
+	_, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
 	if err != nil {
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	// Get process directory
-	processDir := workspace.GetProcessDir(ws, processID)
-	pipePath := filepath.Join(processDir, "stdin.pipe")
+	// Use the same shorter socket path as executor to avoid Unix socket path length limit
+	socketPath := filepath.Join("/tmp", "ms-"+processID+".sock")
 
-	// Write to named pipe in a goroutine with timeout
-	// The readStdinPipe goroutine in the nohup process keeps the pipe open for reading
+	// Write to Unix domain socket in a goroutine with timeout
 	go func() {
 		// Use a timeout channel to avoid blocking forever
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
 
-			// Try to open in blocking mode with a reasonable timeout via the goroutine
-			file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
+			// Connect to the Unix domain socket
+			conn, err := net.Dial("unix", socketPath)
 			if err != nil {
-				slog.Error("Failed to open stdin pipe", "error", err, "path", pipePath)
+				slog.Error("Failed to connect to Unix domain socket", "error", err, "path", socketPath)
 				return
 			}
-			defer func() { _ = file.Close() }()
+			defer func() { _ = conn.Close() }()
 
-			_, err = file.WriteString(stdinData + "\n")
+			// Write stdin data in OutputLog format
+			chunk := outputlog.Chunk{
+				Stream:    "stdin",
+				Timestamp: time.Now().UTC(),
+				Line:      []byte(stdinData + "\n"),
+			}
+			formatted := outputlog.FormatChunk(chunk)
+			_, err = conn.Write(formatted)
 			if err != nil {
-				slog.Error("Failed to write to stdin pipe", "error", err)
+				slog.Error("Failed to write to Unix domain socket", "error", err)
 			}
 		}()
 
@@ -1500,7 +1505,7 @@ func (s *Server) hxHandleSendStdin(ctx context.Context, r *http.Request) ([]byte
 		case <-done:
 			// Write completed
 		case <-time.After(5 * time.Second):
-			slog.Error("Timeout writing to stdin pipe", "path", pipePath)
+			slog.Error("Timeout writing to Unix domain socket", "path", socketPath)
 		}
 	}()
 
