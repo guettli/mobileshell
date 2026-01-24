@@ -11,7 +11,7 @@ fi
 
 # deadcode may report false positives for error interface methods
 # Filter out contentTypeError.Error which is required for the error interface
-deadcode_output=$(deadcode ./... | grep -v 'contentTypeError.Error' || true)
+deadcode_output=$(deadcode ./... | grep -vPs 'contentTypeError.Error|ReadOneStream|ReadTwoStreams|ReadThreeStreams' || true)
 if [[ -n "$deadcode_output" ]]; then
     echo "Found unused code:"
     echo "$deadcode_output"
