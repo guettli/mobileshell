@@ -127,12 +127,12 @@ func readNohupStream(reader io.Reader, streamName string, outFile *os.File, done
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := scanner.Text() + "\n"
-		outputLine := outputlog.OutputLine{
+		chunk := outputlog.Chunk{
 			Stream:    streamName,
 			Timestamp: time.Now().UTC(),
-			Line:      line,
+			Line:      []byte(line),
 		}
-		formattedLine := outputlog.FormatChunk(outputLine)
-		_, _ = outFile.WriteString(formattedLine)
+		formattedChunk := outputlog.FormatChunk(chunk)
+		_, _ = outFile.Write(formattedChunk)
 	}
 }

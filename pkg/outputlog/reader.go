@@ -5,6 +5,7 @@ package outputlog
 import (
 	"fmt"
 	"io"
+	"os"
 	"time"
 )
 
@@ -208,4 +209,55 @@ func NewOutputLogReader(reader io.Reader) (OutputLogReader, error) {
 	return &OutputLogIoReader{
 		reader: reader,
 	}, nil
+}
+
+// ReadCombinedOutput reads an output.log file and returns stdout, stderr, and stdin as strings
+func ReadCombinedOutput(filePath string) (stdout string, stderr string, stdin string, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer func() { _ = file.Close() }()
+
+	reader, err := NewOutputLogReader(file)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	streams := reader.All()
+	return string(streams["stdout"]), string(streams["stderr"]), string(streams["stdin"]), nil
+}
+
+// ReadCombinedOutputWithNohup reads an output.log file and returns stdout, stderr, stdin, nohup-stdout, and nohup-stderr as strings
+func ReadCombinedOutputWithNohup(filePath string) (stdout string, stderr string, stdin string, nohupStdout string, nohupStderr string, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+	defer func() { _ = file.Close() }()
+
+	reader, err := NewOutputLogReader(file)
+	if err != nil {
+		return "", "", "", "", "", err
+	}
+
+	streams := reader.All()
+	return string(streams["stdout"]), string(streams["stderr"]), string(streams["stdin"]), string(streams["nohup-stdout"]), string(streams["nohup-stderr"]), nil
+}
+
+// ReadRawStdout reads an output.log file and returns only the stdout stream as raw bytes
+func ReadRawStdout(filePath string) ([]byte, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	reader, err := NewOutputLogReader(file)
+	if err != nil {
+		return nil, err
+	}
+
+	streams := reader.All()
+	return streams["stdout"], nil
 }

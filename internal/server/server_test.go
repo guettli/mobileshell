@@ -644,12 +644,12 @@ func TestBinaryDownload(t *testing.T) {
 	// Write each byte on its own line to simulate line-by-line output
 	// This is how the actual process would output binary data
 	for _, b := range binaryData {
-		line := outputlog.OutputLine{
+		chunk := outputlog.Chunk{
 			Stream:    "stdout",
 			Timestamp: timestamp,
-			Line:      string([]byte{b}),
+			Line:      []byte{b},
 		}
-		outputLog.WriteString(outputlog.FormatChunk(line))
+		outputLog.Write(outputlog.FormatChunk(chunk))
 	}
 
 	outputFile := filepath.Join(processDir, "output.log")

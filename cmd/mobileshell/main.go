@@ -18,7 +18,7 @@ var (
 	port      string
 	allowRoot bool
 
-	nohupNoStdinPipe bool
+	inputUnixDomainSocket string
 )
 
 var rootCmd = &cobra.Command{
@@ -119,7 +119,7 @@ invoked by the server when executing processes in nohup mode.`,
 		if len(args) < 1 {
 			return fmt.Errorf("Not enough arguments")
 		}
-		return nohup.Run(args, nohupNoStdinPipe)
+		return nohup.Run(args, inputUnixDomainSocket)
 	},
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -134,7 +134,7 @@ func init() {
 	addPasswordCmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "Read password from stdin without prompting (for scripts)")
 	addPasswordCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
 
-	nohupCmd.Flags().BoolVar(&nohupNoStdinPipe, "no-stdin-pipe", false, "Allow missing stdin.pipe (named pipe) to be missing. Stdin be read from parent process.")
+	nohupCmd.Flags().StringVar(&inputUnixDomainSocket, "input-unix-domain-socket", "", "Read input (like stdin and signals) from unix domain socket.")
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(addPasswordCmd)

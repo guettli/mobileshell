@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,7 +24,7 @@ import (
 // Run executes a command in nohup mode within a workspace This function is called by the
 // `mobileshell nohup` subcommand. During a http request executor.Execute() gets called, which calls
 // nohup (and Run()).
-func Run(commandSlice []string, noStdinPipe bool) error {
+func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	if len(commandSlice) < 1 {
 		return fmt.Errorf("Not enough arguments")
 	}
@@ -34,21 +35,6 @@ func Run(commandSlice []string, noStdinPipe bool) error {
 	}
 
 	var stdinPipe io.WriteCloser
-
-	if !noStdinPipe {
-		stdinPipePath := filepath.Join(processDir, "stdin.pipe")
-		// TODO: Open stdinPipePath
-		// Read via protocol: outputlog format.
-		// Interface for reading from outputlog:
-		// Get Reader from stream (like "stdin")
-		// Call func on line (signal --> call func)
-		//
-
-		// How to handle unknown streams? For example: Log to stderr, except handler for unknown
-		// streams is set.
-	} else {
-		// read from stdin, but without outputlog format.
-	}
 
 	// Write command file
 	if err := os.WriteFile(filepath.Join(processDir, "cmd"),
@@ -63,7 +49,7 @@ func Run(commandSlice []string, noStdinPipe bool) error {
 
 	// Open combined output file
 	outputFile := filepath.Join(processDir, "output.log")
-	_, err = os.Stat(outputFile)
+	_, err := os.Stat(outputFile)
 	if err == nil {
 		return fmt.Errorf("%q does already exist. This is not supported", outputFile)
 	}
@@ -77,25 +63,31 @@ func Run(commandSlice []string, noStdinPipe bool) error {
 	}
 	defer func() { _ = outFile.Close() }()
 
-	// Create channel for output lines
-	outputChan := make(chan outputlog.OutputLine, 100)
+	// Create channel for output chunks
+	outputChan := make(chan outputlog.Chunk, 100)
 	writerDone := make(chan struct{})
 
 	// Create output type detector
 	typeDetector := outputtype.NewDetector()
 
-	// Start goroutine to write output lines to file
+	// Handle input from Unix domain socket if provided
+	if inputUnixDomainSocket != "" {
+		// Open Unix domain socket and read via OutputLog format
+		go readFromUnixSocket(inputUnixDomainSocket, outputChan)
+	}
+
+	// Start goroutine to write output chunks to file
 	go func() {
 		defer close(writerDone)
-		for line := range outputChan {
-			// Write the line to output.log first
-			formattedLine := outputlog.FormatChunk(line)
-			_, _ = outFile.WriteString(formattedLine)
+		for chunk := range outputChan {
+			// Write the chunk to output.log first
+			formattedChunk := outputlog.FormatChunk(chunk)
+			_, _ = outFile.Write(formattedChunk)
 			// No need to sync since file was opened with O_SYNC
 
 			// Only analyze stdout for type detection
-			if line.Stream == "stdout" && !typeDetector.IsDetected() {
-				if typeDetector.AnalyzeLine(line.Line) {
+			if chunk.Stream == "stdout" && !typeDetector.IsDetected() {
+				if typeDetector.AnalyzeLine(string(chunk.Line)) {
 					// Type detected! Write output-type file immediately
 					detectedType, detectionReason := typeDetector.GetDetectedType()
 					outputTypeFile := filepath.Join(processDir, "output-type")
@@ -279,9 +271,9 @@ func Run(commandSlice []string, noStdinPipe bool) error {
 	return nil
 }
 
-// sendOutputLine sends an output line to the channel with a timeout to prevent blocking
+// sendOutputChunk sends an output chunk to the channel with a timeout to prevent blocking
 // Returns true if sent successfully, false if timed out or channel is closed
-func sendOutputLine(outputChan chan<- outputlog.OutputLine, line outputlog.OutputLine, stream string) bool {
+func sendOutputChunk(outputChan chan<- outputlog.Chunk, chunk outputlog.Chunk, stream string) bool {
 	defer func() {
 		if r := recover(); r != nil {
 			// Channel was closed while we were trying to send
@@ -290,11 +282,11 @@ func sendOutputLine(outputChan chan<- outputlog.OutputLine, line outputlog.Outpu
 	}()
 
 	select {
-	case outputChan <- line:
+	case outputChan <- chunk:
 		return true
 	case <-time.After(5 * time.Second):
-		// Channel is full and writer can't keep up - log warning and drop the line
-		slog.Warn("Output channel write timed out, dropping line", "stream", stream)
+		// Channel is full and writer can't keep up - log warning and drop the chunk
+		slog.Warn("Output channel write timed out, dropping chunk", "stream", stream)
 		return false
 	}
 }
@@ -302,7 +294,7 @@ func sendOutputLine(outputChan chan<- outputlog.OutputLine, line outputlog.Outpu
 // readLines reads lines from a reader and sends them to the output channel
 // This function flushes partial lines (without newlines) after a timeout to support
 // interactive programs that output prompts without trailing newlines (e.g., "Enter filename: ")
-func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.OutputLine, done chan<- struct{}) {
+func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Chunk, done chan<- struct{}) {
 	defer func() {
 		select {
 		case done <- struct{}{}:
@@ -321,10 +313,10 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Outp
 		if err != nil {
 			// EOF or error - flush any remaining buffer
 			if len(buffer) > 0 {
-				sendOutputLine(outputChan, outputlog.OutputLine{
+				sendOutputChunk(outputChan, outputlog.Chunk{
 					Stream:    stream,
 					Timestamp: time.Now().UTC(),
-					Line:      string(buffer),
+					Line:      append([]byte(nil), buffer...),
 				}, stream)
 			}
 			break
@@ -348,12 +340,10 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Outp
 		if shouldFlush {
 			// Keep the line as-is, including newline if present
 			// The length field in the output format will indicate if newline is included
-			line := string(buffer)
-
-			sendOutputLine(outputChan, outputlog.OutputLine{
+			sendOutputChunk(outputChan, outputlog.Chunk{
 				Stream:    stream,
 				Timestamp: time.Now().UTC(),
-				Line:      line,
+				Line:      append([]byte(nil), buffer...),
 			}, stream)
 			buffer = buffer[:0] // Reset buffer
 		}
@@ -364,7 +354,7 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Outp
 // This runs in the background and exits when the process ends or stdin write fails
 // It continuously reopens the pipe to handle multiple writers (each HTTP request opens/closes)
 // useNonBlocking enables non-blocking open for commands that need immediate stdin connection
-func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- outputlog.OutputLine, done chan<- struct{}, useNonBlocking bool) {
+func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- outputlog.Chunk, done chan<- struct{}, useNonBlocking bool) {
 	defer func() {
 		close(done)
 		_ = stdinWriter.Close()
@@ -430,10 +420,10 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 			}
 
 			// Also log to output.log (non-blocking)
-			sendOutputLine(outputChan, outputlog.OutputLine{
+			sendOutputChunk(outputChan, outputlog.Chunk{
 				Stream:    "stdin",
 				Timestamp: time.Now().UTC(),
-				Line:      line,
+				Line:      []byte(line),
 			}, "stdin")
 		}
 
@@ -443,4 +433,43 @@ func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<
 		// The scanner exited because the writer closed the pipe (EOF)
 		// Loop back to reopen the pipe and wait for the next writer
 	}
+}
+
+// readFromUnixSocket connects to a Unix domain socket and reads OutputLog formatted data
+// It forwards all chunks received from the socket to the outputChan
+func readFromUnixSocket(socketPath string, outputChan chan<- outputlog.Chunk) {
+	// Connect to the Unix domain socket
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		slog.Error("Failed to connect to Unix domain socket", "error", err, "path", socketPath)
+		return
+	}
+	defer func() { _ = conn.Close() }()
+
+	slog.Info("Connected to Unix domain socket", "path", socketPath)
+
+	// Create OutputLog reader from the connection
+	reader, err := outputlog.NewOutputLogReader(conn)
+	if err != nil {
+		slog.Error("Failed to create OutputLog reader", "error", err)
+		return
+	}
+
+	// Read chunks from the channel and forward to outputChan
+	for chunk := range reader.Channel() {
+		if chunk.Error != nil {
+			slog.Error("Error reading chunk from Unix socket", "error", chunk.Error)
+			continue
+		}
+
+		// Send chunk to output channel (non-blocking)
+		select {
+		case outputChan <- chunk:
+			// Successfully sent
+		case <-time.After(5 * time.Second):
+			slog.Warn("Output channel write timed out, dropping chunk from Unix socket", "stream", chunk.Stream)
+		}
+	}
+
+	slog.Info("Unix domain socket connection closed", "path", socketPath)
 }

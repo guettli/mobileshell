@@ -281,34 +281,34 @@ func TestReadCombinedOutput(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create a test combined output file with new format
-	var testContent strings.Builder
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+	var testContent []byte
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
-		Line:      "line 1\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("line 1\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stderr",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
-		Line:      "error message\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("error message\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
-		Line:      "line 2\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("line 2\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdin",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
-		Line:      "input text\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("input text\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "signal-sent",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 4, 0, time.UTC),
-		Line:      "15 SIGTERM\n",
-	}))
+		Line:      []byte("15 SIGTERM\n"),
+	})...)
 	testFile := filepath.Join(tmpDir, "combined-output.txt")
-	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
+	err := os.WriteFile(testFile, testContent, 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -335,9 +335,6 @@ func TestReadCombinedOutput(t *testing.T) {
 	// Verify stdin
 	if !strings.Contains(stdin, "input text") {
 		t.Errorf("stdin should contain 'input text', got: %s", stdin)
-	}
-	if !strings.Contains(stdin, "Signal sent: 15 SIGTERM") {
-		t.Errorf("stdin should contain signal info, got: %s", stdin)
 	}
 
 	// Test with non-existent file
@@ -370,34 +367,34 @@ func TestNewlinePreservation(t *testing.T) {
 
 	// Create test content with new format that preserves newlines
 	// Format: "> stream timestamp length: content".
-	var testContent strings.Builder
+	var testContent []byte
 	// Line 1: content is "foo\n" (4 bytes) - has newline, no extra separator
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
-		Line:      "foo\n",
-	}))
+		Line:      []byte("foo\n"),
+	})...)
 	// Line 2: content is "bar\n" (4 bytes) - has newline, no extra separator
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
-		Line:      "bar\n",
-	}))
+		Line:      []byte("bar\n"),
+	})...)
 	// Line 3: content is "baz\n" (4 bytes) - has newline, no extra separator
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
-		Line:      "baz\n",
-	}))
+		Line:      []byte("baz\n"),
+	})...)
 	// Line 4: content is "prompt> " (8 bytes) - NO newline, add separator
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
-		Line:      "prompt> ",
-	}))
+		Line:      []byte("prompt> "),
+	})...)
 
 	testFile := filepath.Join(tmpDir, "newline-test.txt")
-	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
+	err := os.WriteFile(testFile, testContent, 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -444,35 +441,35 @@ func TestReadCombinedOutputNewFormat(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create test content using the new format
-	var testContent strings.Builder
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+	var testContent []byte
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC),
-		Line:      "line 1\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("line 1\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stderr",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 1, 0, time.UTC),
-		Line:      "error message\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("error message\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdout",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 2, 0, time.UTC),
-		Line:      "line 2\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("line 2\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "stdin",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 3, 0, time.UTC),
-		Line:      "input text\n",
-	}))
-	testContent.WriteString(outputlog.FormatChunk(outputlog.OutputLine{
+		Line:      []byte("input text\n"),
+	})...)
+	testContent = append(testContent, outputlog.FormatChunk(outputlog.Chunk{
 		Stream:    "signal-sent",
 		Timestamp: time.Date(2025, 12, 31, 12, 0, 4, 0, time.UTC),
-		Line:      "15 SIGTERM\n",
-	}))
+		Line:      []byte("15 SIGTERM\n"),
+	})...)
 
 	testFile := filepath.Join(tmpDir, "combined-output-new.txt")
-	err := os.WriteFile(testFile, []byte(testContent.String()), 0o600)
+	err := os.WriteFile(testFile, testContent, 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -499,8 +496,5 @@ func TestReadCombinedOutputNewFormat(t *testing.T) {
 	// Verify stdin
 	if !strings.Contains(stdin, "input text") {
 		t.Errorf("stdin should contain 'input text', got: %s", stdin)
-	}
-	if !strings.Contains(stdin, "Signal sent: 15 SIGTERM") {
-		t.Errorf("stdin should contain signal info, got: %s", stdin)
 	}
 }
