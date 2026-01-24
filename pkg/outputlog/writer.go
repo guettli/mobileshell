@@ -68,13 +68,16 @@ func (sw *streamWriter) Write(p []byte) (n int, err error) {
 
 // NewOutputLogWriter creates a new OutputLogWriter that writes to the given io.Writer
 // The internal goroutine will run until Close() is called
-func NewOutputLogWriter(writer io.Writer) *OutputLogIoWriter {
+func NewOutputLogWriter(writer io.Writer, onChunk func(*Chunk)) *OutputLogIoWriter {
 	chunks := make(chan Chunk, 100)
 	done := make(chan struct{})
 
 	// Single goroutine that owns the io.Writer
 	go func() {
 		for chunk := range chunks {
+			if onChunk != nil {
+				onChunk(&chunk)
+			}
 			formatted := FormatChunk(chunk)
 			writer.Write(formatted)
 		}

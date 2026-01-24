@@ -59,7 +59,35 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	}
 	defer func() { _ = outFile.Close() }()
 
-	outputLogWriter := outputlog.NewOutputLogWriter(outFile)
+	// Create the command
+	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
+
+	var ptmx, tty *os.File
+
+	// Open a PTY manually so we can control which streams use it
+	// We want stdout to use the PTY (for terminal capabilities)
+	// But stderr should use the pipe (for separate capture)
+	ptmx, tty, err = pty.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open pty: %w", err)
+	}
+	defer func() { _ = ptmx.Close() }()
+	defer func() { _ = tty.Close() }()
+
+	onChunk := func(chunk *outputlog.Chunk) {
+		slog.Info("recevied chunk",
+			"stream", chunk.Stream,
+			"time", chunk.Timestamp,
+			"line", string(chunk.Line[:min(10, len(chunk.Line))]),
+		)
+		if chunk.Stream == "stdin" {
+			_, err := ptmx.Write(chunk.Line)
+			if err != nil {
+				slog.Error("ptmx.Write(chunk.Line)", "error", err.Error())
+			}
+		}
+	}
+	outputLogWriter := outputlog.NewOutputLogWriter(outFile, onChunk)
 
 	// Handle input from Unix domain socket if provided
 	if inputUnixDomainSocket != "" {
@@ -74,29 +102,18 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 			if err != nil {
 				slog.Error("io.Copy(stdinReaderToChannel, os.Stdin)", "error", err)
 			}
+			slog.Info("os.Stdin was closed")
+			outputLogWriter.Close()
 		}()
 	}
 
-	// Create the command
-	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
-
 	var stderrPipe io.ReadCloser
-	var ptmx, tty *os.File
+
 	// Set up stderr pipe separately (bypasses PTY)
 	stderrPipe, err = cmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
-
-	// Open a PTY manually so we can control which streams use it
-	// We want stdout to use the PTY (for terminal capabilities)
-	// But stderr should use the pipe (for separate capture)
-	ptmx, tty, err = pty.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open pty: %w", err)
-	}
-	defer func() { _ = ptmx.Close() }()
-	defer func() { _ = tty.Close() }()
 
 	// Assign PTY to stdin and stdout only (stderr uses the pipe)
 	cmd.Stdin = tty
