@@ -171,7 +171,11 @@ func CleanExpiredSessions(stateDir string) {
 
 func generateToken() string {
 	b := make([]byte, 32)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand.Read only fails if the system's random number generator fails
+		// This is a critical error that should not be ignored
+		panic(fmt.Sprintf("Failed to generate random token: %v", err))
+	}
 	return hex.EncodeToString(b)
 }
 

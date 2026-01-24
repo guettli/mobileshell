@@ -155,14 +155,18 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 			}
 			if cte, ok := err.(*contentTypeError); ok {
 				w.Header().Set("Content-Type", cte.contentType)
-				_, _ = w.Write(cte.data)
+				if _, err := w.Write(cte.data); err != nil {
+					slog.Error("Failed to write response", "error", err)
+				}
 				return
 			}
 			if de, ok := err.(*downloadError); ok {
 				w.Header().Set("Content-Type", de.contentType)
 				w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", de.filename))
 				w.Header().Set("Content-Length", strconv.Itoa(len(de.data)))
-				_, _ = w.Write(de.data)
+				if _, err := w.Write(de.data); err != nil {
+					slog.Error("Failed to write response", "error", err)
+				}
 				return
 			}
 			// Check if it's an HTTPError with status code
@@ -193,7 +197,9 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 				}
 
 				w.WriteHeader(he.StatusCode)
-				_, _ = w.Write(buf.Bytes())
+				if _, err := w.Write(buf.Bytes()); err != nil {
+					slog.Error("Failed to write response", "error", err)
+				}
 				return
 			}
 			// Log internal server errors
@@ -208,7 +214,9 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 
 		// If we have data to write, write it
 		if len(data) > 0 {
-			_, _ = w.Write(data)
+			if _, err := w.Write(data); err != nil {
+				slog.Error("Failed to write response", "error", err)
+			}
 		}
 	}
 }
@@ -1156,7 +1164,9 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	offsetStr := r.URL.Query().Get("offset")
 	offset := 0
 	if offsetStr != "" {
-		_, _ = fmt.Sscanf(offsetStr, "%d", &offset)
+		if _, err := fmt.Sscanf(offsetStr, "%d", &offset); err != nil {
+			slog.Warn("Failed to parse offset parameter", "offset", offsetStr, "error", err)
+		}
 	}
 
 	// Get the workspace
@@ -1797,14 +1807,18 @@ func setupServerLog(stateDir string) (*os.File, error) {
 	// Start goroutine to tee stdout
 	go func() {
 		mw := io.MultiWriter(origStdout, logFile)
-		_, _ = io.Copy(mw, stdoutReader)
+		if _, err := io.Copy(mw, stdoutReader); err != nil {
+			slog.Error("Failed to copy stdout", "error", err)
+		}
 		_ = origStdout.Close()
 	}()
 
 	// Start goroutine to tee stderr
 	go func() {
 		mw := io.MultiWriter(origStderr, logFile)
-		_, _ = io.Copy(mw, stderrReader)
+		if _, err := io.Copy(mw, stderrReader); err != nil {
+			slog.Error("Failed to copy stderr", "error", err)
+		}
 		_ = origStderr.Close()
 	}()
 

@@ -29,12 +29,12 @@ type FileEditRequest struct {
 
 // FileEditResult represents the result of a file edit operation
 type FileEditResult struct {
-	Success          bool     `json:"success"`
-	Message          string   `json:"message"`
-	ConflictDetected bool     `json:"conflict_detected"`
-	ExternalDiff     string   `json:"external_diff,omitempty"`
-	ProposedDiff     string   `json:"proposed_diff,omitempty"`
-	NewChecksum      string   `json:"new_checksum,omitempty"`
+	Success          bool   `json:"success"`
+	Message          string `json:"message"`
+	ConflictDetected bool   `json:"conflict_detected"`
+	ExternalDiff     string `json:"external_diff,omitempty"`
+	ProposedDiff     string `json:"proposed_diff,omitempty"`
+	NewChecksum      string `json:"new_checksum,omitempty"`
 }
 
 // ReadFile reads a file and creates a new editing session
@@ -108,18 +108,18 @@ func WriteFile(session *FileSession, newContent string) (*FileEditResult, error)
 	// No conflict, proceed with write
 	// Create parent directories if they don't exist
 	dir := filepath.Dir(session.FilePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create parent directories: %w", err)
 	}
 
 	// Write the file
-	if err := os.WriteFile(session.FilePath, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(session.FilePath, []byte(newContent), 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
 	// Auto-chmod if file starts with shebang
 	if strings.HasPrefix(newContent, "#!") {
-		if err := os.Chmod(session.FilePath, 0755); err != nil {
+		if err := os.Chmod(session.FilePath, 0o755); err != nil {
 			return nil, fmt.Errorf("failed to make file executable: %w", err)
 		}
 		result.Message = "File saved successfully and made executable (starts with shebang)"
@@ -139,7 +139,6 @@ func calculateChecksum(content string) string {
 	hash := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(hash[:])
 }
-
 
 // GenerateDiff generates a simple unified diff between two strings
 func GenerateDiff(original, current string) string {
@@ -279,8 +278,8 @@ func SearchFiles(ctx context.Context, rootDir, pattern string, maxResults int) (
 		searchPattern = filepath.Join(rootDir, pattern)
 	}
 
-	matches := []FileMatch{}
-	timedOut := false
+	var matches []FileMatch
+	var timedOut bool
 
 	// Check if pattern contains **
 	if strings.Contains(searchPattern, "**") {

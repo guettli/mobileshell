@@ -41,9 +41,13 @@ func TestOutputLogIoWriter_StreamWriter_MultipleWrites(t *testing.T) {
 	stdoutWriter := writer.StreamWriter("stdout")
 	stderrWriter := writer.StreamWriter("stderr")
 
-	stdoutWriter.Write([]byte("line1\n"))
-	stderrWriter.Write([]byte("error1\n"))
-	stdoutWriter.Write([]byte("line2\n"))
+	var err error
+	_, err = stdoutWriter.Write([]byte("line1\n"))
+	require.NoError(t, err)
+	_, err = stderrWriter.Write([]byte("error1\n"))
+	require.NoError(t, err)
+	_, err = stdoutWriter.Write([]byte("line2\n"))
+	require.NoError(t, err)
 
 	writer.Close()
 
@@ -104,9 +108,13 @@ func TestOutputLogIoWriter_RoundTrip(t *testing.T) {
 	stdoutWriter := writer.StreamWriter("stdout")
 	stderrWriter := writer.StreamWriter("stderr")
 
-	stdoutWriter.Write([]byte("stdout line 1\n"))
-	stderrWriter.Write([]byte("stderr line 1\n"))
-	stdoutWriter.Write([]byte("stdout line 2\n"))
+	var err error
+	_, err = stdoutWriter.Write([]byte("stdout line 1\n"))
+	require.NoError(t, err)
+	_, err = stderrWriter.Write([]byte("stderr line 1\n"))
+	require.NoError(t, err)
+	_, err = stdoutWriter.Write([]byte("stdout line 2\n"))
+	require.NoError(t, err)
 
 	writer.Close()
 
@@ -170,14 +178,16 @@ func TestOutputLogIoWriter_ConcurrentWrites(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 10; i++ {
-			stdoutWriter.Write([]byte("stdout\n"))
+			_, err := stdoutWriter.Write([]byte("stdout\n"))
+			require.NoError(t, err)
 		}
 		done <- struct{}{}
 	}()
 
 	go func() {
 		for i := 0; i < 10; i++ {
-			stderrWriter.Write([]byte("stderr\n"))
+			_, err := stderrWriter.Write([]byte("stderr\n"))
+			require.NoError(t, err)
 		}
 		done <- struct{}{}
 	}()
@@ -201,10 +211,11 @@ func TestOutputLogIoWriter_ConcurrentWrites(t *testing.T) {
 	stdoutCount := 0
 	stderrCount := 0
 	for _, chunk := range chunks {
-		if chunk.Stream == "stdout" {
+		switch chunk.Stream {
+		case "stdout":
 			stdoutCount++
 			require.Equal(t, "stdout\n", string(chunk.Line))
-		} else if chunk.Stream == "stderr" {
+		case "stderr":
 			stderrCount++
 			require.Equal(t, "stderr\n", string(chunk.Line))
 		}
@@ -222,7 +233,9 @@ func TestOutputLogIoWriter_MixedChannelAndStreamWriter(t *testing.T) {
 	channel := writer.Channel()
 
 	// Write via StreamWriter
-	stdoutWriter.Write([]byte("via stream writer\n"))
+	var err error
+	_, err = stdoutWriter.Write([]byte("via stream writer\n"))
+	require.NoError(t, err)
 
 	// Write via Channel
 	channel <- Chunk{
@@ -232,7 +245,8 @@ func TestOutputLogIoWriter_MixedChannelAndStreamWriter(t *testing.T) {
 	}
 
 	// Write via StreamWriter again
-	stdoutWriter.Write([]byte("via stream writer 2\n"))
+	_, err = stdoutWriter.Write([]byte("via stream writer 2\n"))
+	require.NoError(t, err)
 
 	writer.Close()
 
@@ -263,7 +277,8 @@ func TestOutputLogIoWriter_OrderPreservation(t *testing.T) {
 
 	// Write multiple messages in order
 	for i := 1; i <= 100; i++ {
-		stdoutWriter.Write([]byte(fmt.Sprintf("line %d\n", i)))
+		_, err := fmt.Fprintf(stdoutWriter, "line %d\n", i)
+		require.NoError(t, err)
 	}
 
 	writer.Close()
@@ -291,10 +306,15 @@ func TestOutputLogIoWriter_MultipleStreamWriters(t *testing.T) {
 	stdout2 := writer.StreamWriter("stdout")
 	stderr1 := writer.StreamWriter("stderr")
 
-	stdout1.Write([]byte("stdout1\n"))
-	stdout2.Write([]byte("stdout2\n"))
-	stderr1.Write([]byte("stderr1\n"))
-	stdout1.Write([]byte("stdout3\n"))
+	var err error
+	_, err = stdout1.Write([]byte("stdout1\n"))
+	require.NoError(t, err)
+	_, err = stdout2.Write([]byte("stdout2\n"))
+	require.NoError(t, err)
+	_, err = stderr1.Write([]byte("stderr1\n"))
+	require.NoError(t, err)
+	_, err = stdout1.Write([]byte("stdout3\n"))
+	require.NoError(t, err)
 
 	writer.Close()
 

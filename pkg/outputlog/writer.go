@@ -2,6 +2,7 @@ package outputlog
 
 import (
 	"io"
+	"log"
 	"time"
 )
 
@@ -79,7 +80,9 @@ func NewOutputLogWriter(writer io.Writer, onChunk func(*Chunk)) *OutputLogIoWrit
 				onChunk(&chunk)
 			}
 			formatted := FormatChunk(chunk)
-			writer.Write(formatted)
+			if _, err := writer.Write(formatted); err != nil {
+				log.Printf("outputlog: failed to write chunk: %v", err)
+			}
 		}
 		close(done)
 	}()

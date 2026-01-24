@@ -150,7 +150,7 @@ func TestChannelReader_FilterStream(t *testing.T) {
 	require.Equal(t, "out2\n", string(buf[:n]))
 
 	// Third read should return EOF
-	n, err = reader.Read(buf)
+	_, err = reader.Read(buf)
 	require.ErrorIs(t, err, io.EOF)
 }
 
@@ -186,7 +186,7 @@ func TestChannelReader_SmallBuffer(t *testing.T) {
 	require.Equal(t, "d", string(buf[:n]))
 
 	// Fourth read should return EOF
-	n, err = reader.Read(buf)
+	_, err = reader.Read(buf)
 	require.ErrorIs(t, err, io.EOF)
 }
 
