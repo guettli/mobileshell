@@ -1253,7 +1253,12 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 	}
 
 	// Read full output
-	stdout, stderr, stdin, nohupStdout, nohupStderr, err := outputlog.ReadCombinedOutputWithNohup(proc.OutputFile)
+	stdoutBytes, stderrBytes, stdinBytes, nohupStdoutBytes, nohupStderrBytes, err := outputlog.ReadFiveStreams(proc.OutputFile, "stdout", "stderr", "stdin", "nohup-stdout", "nohup-stderr")
+	stdout := string(stdoutBytes)
+	stderr := string(stderrBytes)
+	stdin := string(stdinBytes)
+	nohupStdout := string(nohupStdoutBytes)
+	nohupStderr := string(nohupStderrBytes)
 	if err != nil {
 		stdout = ""
 		stderr = ""
@@ -1346,7 +1351,12 @@ func (s *Server) prepareProcessOutput(outputFile string, expand bool) (processOu
 	}
 
 	// Read combined output from single file
-	stdout, stderr, stdin, nohupStdout, nohupStderr, err := outputlog.ReadCombinedOutputWithNohup(outputFile)
+	stdoutBytes, stderrBytes, stdinBytes, nohupStdoutBytes, nohupStderrBytes, err := outputlog.ReadFiveStreams(outputFile, "stdout", "stderr", "stdin", "nohup-stdout", "nohup-stderr")
+	stdout := string(stdoutBytes)
+	stderr := string(stderrBytes)
+	stdin := string(stdinBytes)
+	nohupStdout := string(nohupStdoutBytes)
+	nohupStderr := string(nohupStderrBytes)
 	if err != nil {
 		stdout = ""
 		stderr = ""

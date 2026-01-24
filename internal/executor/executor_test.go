@@ -314,7 +314,10 @@ func TestReadCombinedOutput(t *testing.T) {
 	}
 
 	// Read the combined output
-	stdout, stderr, stdin, _, _, err := outputlog.ReadCombinedOutputWithNohup(testFile)
+	stdoutBytes, stderrBytes, stdinBytes, err := outputlog.ReadThreeStreams(testFile, "stdout", "stderr", "stdin")
+	stdout := string(stdoutBytes)
+	stderr := string(stderrBytes)
+	stdin := string(stdinBytes)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}
@@ -338,7 +341,7 @@ func TestReadCombinedOutput(t *testing.T) {
 	}
 
 	// Test with non-existent file
-	_, _, _, _, _, err = outputlog.ReadCombinedOutputWithNohup(filepath.Join(tmpDir, "non-existent.txt"))
+	_, err = outputlog.ReadOneStream(filepath.Join(tmpDir, "non-existent.txt"), "stdout")
 	if err == nil {
 		t.Error("ReadCombinedOutput should fail for non-existent file")
 	}
@@ -351,7 +354,10 @@ func TestReadCombinedOutput(t *testing.T) {
 		t.Fatalf("Failed to create malformed test file: %v", err)
 	}
 
-	stdout, stderr, stdin, _, _, err = outputlog.ReadCombinedOutputWithNohup(malformedFile)
+	stdoutBytes, stderrBytes, stdinBytes, err = outputlog.ReadThreeStreams(malformedFile, "stdout", "stderr", "stdin")
+	stdout = string(stdoutBytes)
+	stderr = string(stderrBytes)
+	stdin = string(stdinBytes)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput should handle malformed content: %v", err)
 	}
@@ -400,7 +406,8 @@ func TestNewlinePreservation(t *testing.T) {
 	}
 
 	// Read using ReadCombinedOutput
-	stdout, _, _, _, _, err := outputlog.ReadCombinedOutputWithNohup(testFile)
+	stdoutBytes, err := outputlog.ReadOneStream(testFile, "stdout")
+	stdout := string(stdoutBytes)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}
@@ -475,7 +482,10 @@ func TestReadCombinedOutputNewFormat(t *testing.T) {
 	}
 
 	// Read the combined output
-	stdout, stderr, stdin, _, _, err := outputlog.ReadCombinedOutputWithNohup(testFile)
+	stdoutBytes, stderrBytes, stdinBytes, err := outputlog.ReadThreeStreams(testFile, "stdout", "stderr", "stdin")
+	stdout := string(stdoutBytes)
+	stderr := string(stderrBytes)
+	stdin := string(stdinBytes)
 	if err != nil {
 		t.Fatalf("ReadCombinedOutput failed: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"time"
 )
 
@@ -16,6 +17,10 @@ type OutputLogReader interface {
 
 	// Channel returns a channel which emits Chunks.
 	Channel() <-chan Chunk
+
+	// ReadStreams reads given streams into the map. Example: ReadStreams("stdin") will return a map
+	// where key "stdin" maps to []byte.
+	ReadStreams(streams ...string) map[string][]byte
 
 	// All returns a map with stream as key and the data as bytes. Timestamps get ignored.
 	All() map[string][]byte
@@ -194,6 +199,17 @@ func (o *OutputLogIoReader) StreamReader(stream string) io.Reader {
 	}
 }
 
+func (o *OutputLogIoReader) ReadStreams(streams ...string) map[string][]byte {
+	result := make(map[string][]byte)
+	for chunk := range o.Channel() {
+		if !slices.Contains(streams, chunk.Stream) {
+			continue
+		}
+		result[chunk.Stream] = append(result[chunk.Stream], chunk.Line...)
+	}
+	return result
+}
+
 func (o *OutputLogIoReader) All() map[string][]byte {
 	result := make(map[string][]byte)
 	channel := o.Channel()
@@ -211,38 +227,38 @@ func NewOutputLogReader(reader io.Reader) (OutputLogReader, error) {
 	}, nil
 }
 
-// ReadCombinedOutput reads an output.log file and returns stdout, stderr, and stdin as strings
-func ReadCombinedOutput(filePath string) (stdout string, stderr string, stdin string, err error) {
+func ReadStreams(filePath string, streams ...string) (map[string][]byte, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return "", "", "", err
+		return nil, err
 	}
 	defer func() { _ = file.Close() }()
 
 	reader, err := NewOutputLogReader(file)
 	if err != nil {
-		return "", "", "", err
+		return nil, err
 	}
-
-	streams := reader.All()
-	return string(streams["stdout"]), string(streams["stderr"]), string(streams["stdin"]), nil
+	return reader.ReadStreams(streams...), nil
 }
 
-// ReadCombinedOutputWithNohup reads an output.log file and returns stdout, stderr, stdin, nohup-stdout, and nohup-stderr as strings
-func ReadCombinedOutputWithNohup(filePath string) (stdout string, stderr string, stdin string, nohupStdout string, nohupStderr string, err error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", "", "", "", "", err
-	}
-	defer func() { _ = file.Close() }()
+func ReadOneStream(filePath string, stream string) ([]byte, error) {
+	m, err := ReadStreams(filePath, []string{stream}...)
+	return m[stream], err
+}
 
-	reader, err := NewOutputLogReader(file)
-	if err != nil {
-		return "", "", "", "", "", err
-	}
+func ReadTwoStreams(filePath string, stream1, stream2 string) ([]byte, []byte, error) {
+	m, err := ReadStreams(filePath, []string{stream1, stream2}...)
+	return m[stream1], m[stream2], err
+}
 
-	streams := reader.All()
-	return string(streams["stdout"]), string(streams["stderr"]), string(streams["stdin"]), string(streams["nohup-stdout"]), string(streams["nohup-stderr"]), nil
+func ReadThreeStreams(filePath string, stream1, stream2, stream3 string) ([]byte, []byte, []byte, error) {
+	m, err := ReadStreams(filePath, []string{stream1, stream2, stream3}...)
+	return m[stream1], m[stream2], m[stream3], err
+}
+
+func ReadFiveStreams(filePath string, stream1, stream2, stream3, stream4, stream5 string) ([]byte, []byte, []byte, []byte, []byte, error) {
+	m, err := ReadStreams(filePath, []string{stream1, stream2, stream3, stream4, stream5}...)
+	return m[stream1], m[stream2], m[stream3], m[stream4], m[stream5], err
 }
 
 // ReadRawStdout reads an output.log file and returns only the stdout stream as raw bytes

@@ -37,7 +37,8 @@ func TestTTYSupport(t *testing.T) {
 
 	// Wait for output file to be created and contain the expected output
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		stdout, _, _, _, _, err := outputlog.ReadCombinedOutputWithNohup(proc.OutputFile)
+		stdoutBytes, err := outputlog.ReadOneStream(proc.OutputFile, "stdout")
+		stdout := string(stdoutBytes)
 		assert.NoError(collect, err)
 		// With PTY support, stdin should be detected as a TTY
 		assert.Contains(collect, stdout, "stdin is a tty", "This indicates PTY support is not working correctly")
@@ -71,7 +72,8 @@ func TestColorOutput(t *testing.T) {
 	}
 
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		stdout, _, _, _, _, err := outputlog.ReadCombinedOutputWithNohup(proc.OutputFile)
+		stdoutBytes, err := outputlog.ReadOneStream(proc.OutputFile, "stdout")
+		stdout := string(stdoutBytes)
 		assert.NoError(collect, err)
 		assert.Contains(collect, stdout, "\033[31m")
 	}, time.Second, 50*time.Millisecond)
