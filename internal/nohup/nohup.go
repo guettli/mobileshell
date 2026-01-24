@@ -103,61 +103,33 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	// Create the command
 	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
 
-	// Check if this is a Claude command - if so, use pipes instead of PTY
-	// to prevent Claude from detecting a terminal and showing its TUI interface
-	isClaudeCommand := strings.Contains(commandSlice[0], "claude")
-
-	var stderrPipe, stdoutPipe io.ReadCloser
+	var stderrPipe io.ReadCloser
 	var ptmx, tty *os.File
+	// Set up stderr pipe separately (bypasses PTY)
+	stderrPipe, err = cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
-	if isClaudeCommand {
-		// Use regular pipes for Claude to prevent TUI activation
-		stderrPipe, err = cmd.StderrPipe()
-		if err != nil {
-			return fmt.Errorf("failed to create stderr pipe: %w", err)
-		}
+	// Open a PTY manually so we can control which streams use it
+	// We want stdout to use the PTY (for terminal capabilities)
+	// But stderr should use the pipe (for separate capture)
+	ptmx, tty, err = pty.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open pty: %w", err)
+	}
+	defer func() { _ = ptmx.Close() }()
+	defer func() { _ = tty.Close() }()
 
-		stdoutPipe, err = cmd.StdoutPipe()
-		if err != nil {
-			return fmt.Errorf("failed to create stdout pipe: %w", err)
-		}
+	// Assign PTY to stdin and stdout only (stderr uses the pipe)
+	cmd.Stdin = tty
+	cmd.Stdout = tty
+	// cmd.Stderr is already set to stderrPipe above
 
-		stdinPipe, err = cmd.StdinPipe()
-		if err != nil {
-			return fmt.Errorf("failed to create stdin pipe: %w", err)
-		}
-
-		// Start the command in a new session (detach from parent)
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Setsid: true,
-		}
-	} else {
-		// Set up stderr pipe separately (bypasses PTY)
-		stderrPipe, err = cmd.StderrPipe()
-		if err != nil {
-			return fmt.Errorf("failed to create stderr pipe: %w", err)
-		}
-
-		// Open a PTY manually so we can control which streams use it
-		// We want stdout to use the PTY (for terminal capabilities)
-		// But stderr should use the pipe (for separate capture)
-		ptmx, tty, err = pty.Open()
-		if err != nil {
-			return fmt.Errorf("failed to open pty: %w", err)
-		}
-		defer func() { _ = ptmx.Close() }()
-		defer func() { _ = tty.Close() }()
-
-		// Assign PTY to stdin and stdout only (stderr uses the pipe)
-		cmd.Stdin = tty
-		cmd.Stdout = tty
-		// cmd.Stderr is already set to stderrPipe above
-
-		// Start the command in a new session (detach from parent)
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Setsid:  true,
-			Setctty: true,
-		}
+	// Start the command in a new session (detach from parent)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid:  true,
+		Setctty: true,
 	}
 
 	// Start the command
@@ -167,25 +139,17 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 
 	// Handle PTY vs pipe setup based on command type
 	var stdoutReader io.Reader
-	var stdinWriter io.WriteCloser
 
-	if isClaudeCommand {
-		// For Claude commands using pipes
-		stdoutReader = stdoutPipe
-		stdinWriter = stdinPipe
-	} else {
-		// For regular commands using PTY
-		// Close tty in parent process (child has its own copy)
-		_ = tty.Close()
+	// For regular commands using PTY
+	// Close tty in parent process (child has its own copy)
+	_ = tty.Close()
 
-		// Set PTY size to a reasonable default (80x24 is standard terminal size)
-		if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
-			slog.Warn("Failed to set PTY size, using default", "error", err)
-		}
-
-		stdoutReader = ptmx
-		stdinWriter = ptmx
+	// Set PTY size to a reasonable default (80x24 is standard terminal size)
+	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
+		slog.Warn("Failed to set PTY size, using default", "error", err)
 	}
+
+	stdoutReader = ptmx
 
 	// Start goroutine to read from stdout (either PTY or pipe)
 	readersDone := make(chan struct{}, 2)
@@ -195,13 +159,6 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	go readLines(stderrPipe, "stderr", outputChan, readersDone)
 
 	pid := cmd.Process.Pid
-
-	// Start goroutine to read from named pipe and forward to stdin
-	// Started IMMEDIATELY after process starts, before any file I/O
-	// to minimize the window where a writer might try to connect before reader is ready
-	stdinDone := make(chan struct{})
-	namedPipePath := filepath.Join(processDir, "stdin.pipe")
-	go readStdinPipe(namedPipePath, stdinWriter, outputChan, stdinDone, isClaudeCommand)
 
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
@@ -347,91 +304,6 @@ func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Chun
 			}, stream)
 			buffer = buffer[:0] // Reset buffer
 		}
-	}
-}
-
-// readStdinPipe reads from a named pipe and forwards data to process stdin and output.log
-// This runs in the background and exits when the process ends or stdin write fails
-// It continuously reopens the pipe to handle multiple writers (each HTTP request opens/closes)
-// useNonBlocking enables non-blocking open for commands that need immediate stdin connection
-func readStdinPipe(pipePath string, stdinWriter io.WriteCloser, outputChan chan<- outputlog.Chunk, done chan<- struct{}, useNonBlocking bool) {
-	defer func() {
-		close(done)
-		_ = stdinWriter.Close()
-	}()
-
-	// Keep reading from the pipe until the process exits
-	for {
-		var file *os.File
-		var err error
-
-		if useNonBlocking {
-			// Open the named pipe for reading in non-blocking mode first
-			// This prevents blocking the process startup when no writers are present
-			// Used for Claude commands which need stdin connected immediately
-			file, err = os.OpenFile(pipePath, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-			if err != nil {
-				slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
-				return
-			}
-
-			// Switch back to blocking mode for actual reading
-			// This allows us to block on read() calls but not on open()
-			if err := syscall.SetNonblock(int(file.Fd()), false); err != nil {
-				slog.Warn("Failed to set stdin pipe to blocking mode", "error", err)
-				_ = file.Close()
-				return
-			}
-		} else {
-			// Open in blocking mode (traditional behavior)
-			// This will block until a writer opens the pipe
-			file, err = os.OpenFile(pipePath, os.O_RDONLY, 0)
-			if err != nil {
-				slog.Error("Failed to open stdin pipe for reading", "error", err, "path", pipePath)
-				return
-			}
-		}
-
-		// Read lines from the pipe until this writer closes it
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			// Write to process stdin with timeout to avoid blocking
-			stdinData := []byte(line + "\n")
-			writeDone := make(chan error, 1)
-			go func() {
-				_, err := stdinWriter.Write(stdinData)
-				writeDone <- err
-			}()
-
-			select {
-			case err := <-writeDone:
-				if err != nil {
-					// Process stdin closed, stop reading
-					_ = file.Close()
-					return
-				}
-			case <-time.After(5 * time.Second):
-				// Write timed out
-				slog.Warn("Stdin write timed out", "line", line)
-				_ = file.Close()
-				return
-			}
-
-			// Also log to output.log (non-blocking)
-			sendOutputChunk(outputChan, outputlog.Chunk{
-				Stream:    "stdin",
-				Timestamp: time.Now().UTC(),
-				Line:      []byte(line),
-			}, "stdin")
-		}
-
-		// Close this instance of the pipe
-		_ = file.Close()
-
-		// The scanner exited because the writer closed the pipe (EOF)
-		// Loop back to reopen the pipe and wait for the next writer
 	}
 }
 

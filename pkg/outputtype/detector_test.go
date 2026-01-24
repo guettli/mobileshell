@@ -631,7 +631,7 @@ func TestDetector_MarkdownNotConfusedWithText(t *testing.T) {
 
 func TestDetector_MarkdownPriorityOverInk(t *testing.T) {
 	// Test that markdown takes priority over Ink detection
-	// (Claude output might contain both ANSI codes and markdown)
+	// Some output might contain both ANSI codes and markdown.
 	d := NewDetector()
 
 	// Mix of markdown and ANSI color codes

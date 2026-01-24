@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"mobileshell/internal/auth"
-	"mobileshell/internal/claude"
 	"mobileshell/internal/executor"
 	"mobileshell/internal/fileeditor"
 	"mobileshell/internal/process"
@@ -330,7 +329,6 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("/workspaces/{id}", s.authMiddleware(s.wrapHandler(s.handleWorkspaceByID)))
 	mux.HandleFunc("/workspaces/{id}/edit", s.authMiddleware(s.wrapHandler(s.handleWorkspaceEdit)))
 	mux.HandleFunc("/workspaces/{id}/hx-execute", s.authMiddleware(s.wrapHandler(s.hxHandleExecute)))
-	mux.HandleFunc("/workspaces/{id}/hx-execute-claude", s.authMiddleware(s.wrapHandler(s.hxExecuteClaude)))
 	mux.HandleFunc("/workspaces/{id}/hx-finished-processes", s.authMiddleware(s.wrapHandler(s.hxHandleFinishedProcesses)))
 	mux.HandleFunc("/workspaces/{id}/json-process-updates", s.authMiddleware(s.wrapHandler(s.jsonHandleProcessUpdates)))
 	mux.HandleFunc("/workspaces/{id}/ws-process-updates", s.authMiddleware(s.handleWSProcessUpdates))
@@ -713,58 +711,6 @@ func (s *Server) hxHandleExecute(ctx context.Context, r *http.Request) ([]byte, 
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
 	}
 
-	proc, err := executor.Execute(ws, command)
-	if err != nil {
-		return nil, err
-	}
-
-	// Return minimal hidden div that triggers immediate JSON polling via hx-on::after-request
-	// The polling will fetch and display the full process details from the JSON endpoint
-	var buf bytes.Buffer
-	basePath := s.getBasePath(r)
-	fmt.Fprintf(&buf, `<div data-process-id="%s" style="display:none" data-output-url="%s/workspaces/%s/processes/%s/hx-output">%s</div>`,
-		proc.CommandId, basePath, workspaceID, proc.CommandId, command)
-	return buf.Bytes(), nil
-}
-
-func (s *Server) hxExecuteClaude(ctx context.Context, r *http.Request) ([]byte, error) {
-	if r.Method != http.MethodPost {
-		return nil, httperror.HTTPError{StatusCode: http.StatusMethodNotAllowed, Message: "Method not allowed"}
-	}
-
-	// Parse form to get prompt
-	if err := r.ParseForm(); err != nil {
-		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Failed to parse form"}
-	}
-
-	prompt := r.FormValue("prompt")
-	if prompt == "" {
-		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Prompt is required"}
-	}
-
-	// Get workspace ID from path parameter
-	workspaceID := r.PathValue("id")
-	if workspaceID == "" {
-		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Workspace ID is required"}
-	}
-
-	// Get the workspace
-	ws, err := executor.GetWorkspaceByID(s.stateDir, workspaceID)
-	if err != nil {
-		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: "Workspace not found"}
-	}
-
-	// Build Claude command for interactive dialog session
-	claudeArgs := claude.BuildCommand(prompt, claude.CommandOptions{
-		StreamJSON: true,
-		NoSession:  false, // --no-session-persistence only works with --print mode
-		WorkDir:    ws.Directory,
-	})
-
-	// Join args to create command string
-	command := "claude " + strings.Join(claudeArgs, " ")
-
-	// Execute as background process via nohup (like other commands)
 	proc, err := executor.Execute(ws, command)
 	if err != nil {
 		return nil, err

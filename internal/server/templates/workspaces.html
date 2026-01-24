@@ -75,7 +75,8 @@
                 <span class="badge bg-secondary workspace-badge ms-2">ID: {{.CurrentWorkspace.ID}}</span>
                 <span class="badge bg-secondary workspace-badge ms-2">{{.CurrentWorkspace.Directory}}</span>
             </div>
-            <a href="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/edit" class="btn btn-sm btn-outline-primary">Edit</a>
+            <a href="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/edit"
+                class="btn btn-sm btn-outline-primary">Edit</a>
         </div>
 
         <!-- Execute Command Section -->
@@ -83,8 +84,7 @@
             <div class="card-body">
                 <h5 class="card-title">Execute Command</h5>
                 <form hx-post="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute"
-                    hx-target="#running-processes" hx-swap="beforeend"
-                    hx-on::after-request="this.reset();">
+                    hx-target="#running-processes" hx-swap="beforeend" hx-on::after-request="this.reset();">
                     <div class="mb-3">
                         <input type="text" class="form-control" name="command" placeholder="Enter command..." required
                             autofocus>
@@ -94,9 +94,7 @@
                         <button type="button" class="btn btn-outline-success" onclick="launchInteractiveTerminal()">
                             Interactive Terminal
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="startClaudeSession()">
-                            Start Claude
-                        </button>
+
                         <a href="{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/files" class="btn btn-outline-info">
                             Edit Files
                         </a>
@@ -106,38 +104,25 @@
         </div>
 
         <script>
-        function launchInteractiveTerminal() {
-            const commandInput = document.querySelector('input[name="command"]');
-            const command = commandInput.value.trim() || 'bash';
+            function launchInteractiveTerminal() {
+                const commandInput = document.querySelector('input[name="command"]');
+                const command = commandInput.value.trim() || 'bash';
 
-            // Create a form and submit it to open terminal
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = '{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/terminal-execute';
+                // Create a form and submit it to open terminal
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/terminal-execute';
 
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'command';
-            input.value = command;
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'command';
+                input.value = command;
 
-            form.appendChild(input);
-            document.body.appendChild(form);
-            form.submit();
-        }
-
-        function startClaudeSession() {
-            const prompt = window.prompt('Enter your initial question for Claude:');
-            if (!prompt || prompt.trim() === '') {
-                return;
+                form.appendChild(input);
+                document.body.appendChild(form);
+                form.submit();
             }
 
-            // Use htmx to submit the Claude command
-            htmx.ajax('POST', '{{.BasePath}}/workspaces/{{.CurrentWorkspace.ID}}/hx-execute-claude', {
-                target: '#running-processes',
-                swap: 'beforeend',
-                values: { prompt: prompt }
-            });
-        }
         </script>
 
         <!-- Running Processes Section -->
@@ -213,8 +198,11 @@
                                 </div>
                                 <div class="mb-3">
                                     <label for="pre_command" class="form-label">Pre-command (optional)</label>
-                                    <textarea class="form-control" id="pre_command" name="pre_command" rows="4" placeholder="e.g., source .env">{{.FormValues.PreCommand}}</textarea>
-                                    <div class="form-text">This command runs before every command in this workspace. Supports multi-line scripts. If no shebang is provided, #!/usr/bin/env bash is added automatically.
+                                    <textarea class="form-control" id="pre_command" name="pre_command" rows="4"
+                                        placeholder="e.g., source .env">{{.FormValues.PreCommand}}</textarea>
+                                    <div class="form-text">This command runs before every command in this workspace.
+                                        Supports multi-line scripts. If no shebang is provided, #!/usr/bin/env bash is
+                                        added automatically.
                                     </div>
                                 </div>
                                 <button type="submit" class="btn btn-primary">Create Workspace</button>
@@ -234,9 +222,9 @@
             }
         });
 
-        {{if .CurrentWorkspace}}
+        { { if .CurrentWorkspace} }
         // Process updates using WebSocket
-        (function() {
+        (function () {
             const workspaceID = '{{.CurrentWorkspace.ID}}';
             const basePath = '{{.BasePath}}';
             const runningProcessesContainer = document.getElementById('running-processes');
@@ -259,18 +247,18 @@
                 // Build WebSocket URL (ws:// or wss:// based on current protocol)
                 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${wsProtocol}//${window.location.host}${basePath}/workspaces/${workspaceID}/ws-process-updates`;
-                
+
                 console.log('Connecting to WebSocket for process updates...');
                 ws = new WebSocket(wsUrl);
 
-                ws.onopen = function() {
+                ws.onopen = function () {
                     console.log('WebSocket connection opened');
                 };
 
-                ws.onmessage = function(event) {
+                ws.onmessage = function (event) {
                     const msg = JSON.parse(event.data);
-                    
-                    switch(msg.type) {
+
+                    switch (msg.type) {
                         case 'reconcile_running':
                             console.log('Reconcile running process:', msg.data.id);
                             // Check if process already exists
@@ -361,11 +349,11 @@
                     }
                 };
 
-                ws.onerror = function(error) {
+                ws.onerror = function (error) {
                     console.error('WebSocket error:', error);
                 };
 
-                ws.onclose = function() {
+                ws.onclose = function () {
                     console.log('WebSocket connection closed');
                     // Reconnect after 3 seconds
                     console.log('Reconnecting in 3 seconds...');
@@ -377,7 +365,7 @@
             connectWS();
 
             // Reconnect when page becomes visible (e.g., after sleep)
-            document.addEventListener('visibilitychange', function() {
+            document.addEventListener('visibilitychange', function () {
                 if (!document.hidden && (!ws || ws.readyState === WebSocket.CLOSED)) {
                     console.log('Page visible, reconnecting WebSocket...');
                     connectWS();
@@ -385,19 +373,19 @@
             });
 
             // Cleanup on page unload
-            window.addEventListener('beforeunload', function() {
+            window.addEventListener('beforeunload', function () {
                 if (ws) {
                     ws.close();
                 }
             });
 
             // Expose function for triggering reconnect (e.g., after submitting a new command)
-            window.reconnectWS = function() {
+            window.reconnectWS = function () {
                 console.log('Manual WebSocket reconnect requested');
                 connectWS();
             };
         })();
-        {{end}}
+        { { end } }
     </script>
 
     <script src="{{.BasePath}}/static/static/url-links.js"></script>
