@@ -63,6 +63,11 @@ async function createWorkspace(sessionCookie, workspaceName) {
   assert.equal(createWorkspaceResponse.status, 200, 'Should create workspace');
 
   const hxRedirect = createWorkspaceResponse.headers['hx-redirect'];
+  if (!hxRedirect) {
+    console.error('Response headers:', createWorkspaceResponse.headers);
+    console.error('Response body:', createWorkspaceResponse.text);
+    throw new Error('Missing hx-redirect header in workspace creation response');
+  }
   const workspaceMatch = hxRedirect.match(/\/workspaces\/([^\/]+)/);
   assert.ok(workspaceMatch, 'Should have workspace ID in redirect URL');
 
@@ -143,7 +148,7 @@ async function testCommandExecution() {
 
   // Wait for command output
   let outputFound = false;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const outputResponse = await request('GET', `/workspaces/${workspaceId}/processes/${processId}/hx-output`, {

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -161,7 +162,7 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 
 	// Create output type detector
 	detector := outputtype.NewDetector()
-	detectedWritten := false
+	var detectedWritten atomic.Int32
 
 	// Copy stdout from PTY to output log with type detection
 	stdoutWriter := outputLogWriter.StreamWriter("stdout")
@@ -181,7 +182,7 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 						if writeErr := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0o600); writeErr != nil {
 							slog.Warn("Failed to write output-type file", "error", writeErr)
 						} else {
-							detectedWritten = true
+							detectedWritten.Store(1)
 						}
 					}
 				}
@@ -222,7 +223,7 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 	outputLogWriter.Close()
 
 	// Write output type detection results if not already written
-	if detector.IsDetected() && !detectedWritten {
+	if detector.IsDetected() && detectedWritten.Load() == 0 {
 		outputType, reason := detector.GetDetectedType()
 		outputTypeFile := filepath.Join(processDir, "output-type")
 		outputTypeContent := fmt.Sprintf("%s,%s", outputType, reason)
