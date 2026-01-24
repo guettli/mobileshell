@@ -117,6 +117,7 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	args := []string{
 		"nohup",
 		"--input-unix-domain-socket", socketPath,
+		"--working-directory", ws.Directory,
 		nohupCommandPath,
 	}
 	if filepath.Ext(execPath) == ".test" {
@@ -165,4 +166,3 @@ func DetectContentType(data []byte) string {
 	}
 	return http.DetectContentType(data)
 }
-

@@ -21,7 +21,7 @@ import (
 // Run executes a command in nohup mode within a workspace This function is called by the
 // `mobileshell nohup` subcommand. During a http request executor.Execute() gets called, which calls
 // nohup (and Run()).
-func Run(commandSlice []string, inputUnixDomainSocket string) error {
+func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory string) error {
 	slog.Info("nohup.Run called", "commandSlice", commandSlice, "socketPath", inputUnixDomainSocket)
 	if len(commandSlice) < 1 {
 		return fmt.Errorf("not enough arguments")
@@ -55,6 +55,9 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 
 	// Create the command
 	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
+	if workingDirectory != "" {
+		cmd.Dir = workingDirectory
+	}
 
 	var ptmx, tty *os.File
 

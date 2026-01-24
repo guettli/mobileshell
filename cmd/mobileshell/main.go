@@ -19,6 +19,7 @@ var (
 	allowRoot bool
 
 	inputUnixDomainSocket string
+	workingDirectory      string
 )
 
 var rootCmd = &cobra.Command{
@@ -119,7 +120,7 @@ invoked by the server when executing processes in nohup mode.`,
 		if len(args) < 1 {
 			return fmt.Errorf("not enough arguments")
 		}
-		return nohup.Run(args, inputUnixDomainSocket)
+		return nohup.Run(args, inputUnixDomainSocket, workingDirectory)
 	},
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -135,6 +136,7 @@ func init() {
 	addPasswordCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
 
 	nohupCmd.Flags().StringVar(&inputUnixDomainSocket, "input-unix-domain-socket", "", "Read input (like stdin and signals) from unix domain socket.")
+	nohupCmd.Flags().StringVar(&workingDirectory, "working-directory", "", "Working directory for the command")
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(addPasswordCmd)
