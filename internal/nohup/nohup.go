@@ -10,11 +10,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"mobileshell/pkg/outputlog"
+
+	"github.com/creack/pty"
 )
 
 // Run executes a command in nohup mode within a workspace This function is called by the
@@ -29,12 +30,6 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	processDir := filepath.Dir(command)
 	if processDir == "." {
 		return fmt.Errorf("failed to run as nohup. A containing directory is needed: %q", command)
-	}
-
-	// Write command file
-	if err := os.WriteFile(filepath.Join(processDir, "cmd"),
-		[]byte(strings.Join(commandSlice, "\b")), 0o600); err != nil {
-		return fmt.Errorf("failed to write cmd file: %w", err)
 	}
 
 	// Write completed file
@@ -61,12 +56,33 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	// Create the command
 	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
 
+	var ptmx, tty *os.File
+
+	// Open a PTY for all commands
+	ptmx, tty, err = pty.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open pty: %w", err)
+	}
+	defer func() { _ = ptmx.Close() }()
+
+	// Set PTY size to a reasonable default
+	_ = pty.Setsize(ptmx, &pty.Winsize{
+		Rows: 24,
+		Cols: 80,
+	})
+
 	onChunk := func(chunk *outputlog.Chunk) {
 		slog.Info("recevied chunk",
 			"stream", chunk.Stream,
 			"time", chunk.Timestamp,
 			"line", string(chunk.Line[:min(10, len(chunk.Line))]),
 		)
+		if chunk.Stream == "stdin" {
+			_, err := ptmx.Write(chunk.Line)
+			if err != nil {
+				slog.Error("ptmx.Write(chunk.Line)", "error", err.Error())
+			}
+		}
 	}
 	outputLogWriter := outputlog.NewOutputLogWriter(outFile, onChunk)
 
@@ -84,45 +100,46 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 		}
 
 		// Accept connections and read stdin data from the socket
-		// stdin data is logged but NOT forwarded to the command
 		go acceptSocketConnections(socketListener, outputLogWriter.Channel())
-
-		// Don't set cmd.Stdin - let the command run without stdin
 	} else {
-		// Create a pipe for stdin forwarding to the command
-		stdinReader, stdinWriter := io.Pipe()
-
 		// Read input from stdin. Do not read outputlog format. Read from stdin, emit Chunks from
 		// stream "stdin".
 		stdinReaderToChannel := outputLogWriter.StreamWriter("stdin")
 		go func() {
-			// Use TeeReader to both capture to log AND forward to command
-			teeReader := io.TeeReader(os.Stdin, stdinWriter)
-			_, err := io.Copy(stdinReaderToChannel, teeReader)
+			_, err := io.Copy(stdinReaderToChannel, os.Stdin)
 			if err != nil {
-				slog.Error("io.Copy(stdinReaderToChannel, teeReader)", "error", err)
+				slog.Error("io.Copy(stdinReaderToChannel, os.Stdin)", "error", err)
 			}
 			slog.Info("os.Stdin was closed")
-			_ = stdinWriter.Close()
 		}()
-
-		// Set command stdin to read from the pipe
-		cmd.Stdin = stdinReader
 	}
 
-	// Set stdout and stderr BEFORE starting the command
-	cmd.Stdout = outputLogWriter.StreamWriter("stdout")
-	cmd.Stderr = outputLogWriter.StreamWriter("stderr")
+	var stderrPipe io.ReadCloser
+
+	// Set up stderr pipe separately (bypasses PTY)
+	stderrPipe, err = cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Assign PTY to stdin and stdout
+	cmd.Stdin = tty
+	cmd.Stdout = tty
+	// cmd.Stderr uses the pipe
 
 	// Start the command in a new session (detach from parent)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
+		Setsid:  true,
+		Setctty: true,
 	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
+
+	// Close tty in parent process (child process has it)
+	_ = tty.Close()
 
 	pid := cmd.Process.Pid
 
@@ -136,6 +153,24 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	if err := os.WriteFile(filepath.Join(processDir, "status"), []byte("running"), 0o600); err != nil {
 		return fmt.Errorf("failed to write status file: %w", err)
 	}
+
+	// Copy stdout from PTY to output log
+	stdoutWriter := outputLogWriter.StreamWriter("stdout")
+	go func() {
+		_, err := io.Copy(stdoutWriter, ptmx)
+		if err != nil {
+			slog.Error("io.Copy(stdoutWriter, ptmx)", "error", err)
+		}
+	}()
+
+	// Copy stderr from pipe to output log
+	stderrWriter := outputLogWriter.StreamWriter("stderr")
+	go func() {
+		_, err := io.Copy(stderrWriter, stderrPipe)
+		if err != nil {
+			slog.Error("io.Copy(stderrWriter, stderrPipe)", "error", err)
+		}
+	}()
 
 	// Wait for the process to complete
 	err = cmd.Wait()
