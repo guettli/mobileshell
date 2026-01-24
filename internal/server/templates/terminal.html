@@ -127,7 +127,7 @@
                     <strong>Interactive Terminal Mode</strong><br>
                     <small>
                         Command: <code>{{.Process.Command}}</code><br>
-                        Process ID: {{.Process.ID}}<br>
+                        Process ID: {{.Process.CommandId}}<br>
                         Started: {{.Process.StartTime.Format "2006-01-02 15:04:05 UTC"}}
                     </small>
                 </div>
@@ -169,7 +169,7 @@
 
         // WebSocket connection
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = protocol + '//' + window.location.host + '{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.ID}}/ws-terminal';
+        const wsUrl = protocol + '//' + window.location.host + '{{.BasePath}}/workspaces/{{.WorkspaceID}}/processes/{{.Process.CommandId}}/ws-terminal';
         
         let ws = null;
         let reconnectAttempts = 0;

@@ -37,6 +37,7 @@ func LoadProcessFromDir(processDir string) (*Process, error) {
 		Command:    string(cmdData),
 		ProcessDir: processDir,
 		CommandId:  filepath.Base(processDir),
+		OutputFile: filepath.Join(processDir, "output.log"),
 	}
 
 	// Read starttime file

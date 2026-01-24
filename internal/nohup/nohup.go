@@ -34,8 +34,6 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 		return fmt.Errorf("failed to run as nohup. A containing directory is needed: %q", command)
 	}
 
-	var stdinPipe io.WriteCloser
-
 	// Write command file
 	if err := os.WriteFile(filepath.Join(processDir, "cmd"),
 		[]byte(strings.Join(commandSlice, "\b")), 0o600); err != nil {

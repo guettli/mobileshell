@@ -5,7 +5,7 @@
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <h6 class="card-subtitle mb-2">
-                        <a href="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}" class="text-decoration-none">
+                        <a href="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.CommandId}}" class="text-decoration-none">
                             {{template "finished-process-badge" .}}
                         </a>
                     </h6>
@@ -21,7 +21,7 @@
                     </form>
                 </div>
             </div>
-            <div id="output-{{.ID}}" class="mt-2" hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.ID}}/hx-output?type=combined" hx-trigger="load" hx-swap="innerHTML">
+            <div id="output-{{.CommandId}}" class="mt-2" hx-get="{{$.BasePath}}/workspaces/{{$.WorkspaceID}}/processes/{{.CommandId}}/hx-output?type=combined" hx-trigger="load" hx-swap="innerHTML">
             </div>
         </div>
     </div>

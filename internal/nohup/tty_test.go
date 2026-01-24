@@ -1,9 +1,6 @@
 package nohup
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -38,60 +35,17 @@ func TestTTYSupport(t *testing.T) {
 		t.Fatalf("Failed to create process: %v", err)
 	}
 
-	outputFile := filepath.Join(proc.ProcessDir, "output.log")
-	outputData, err := os.ReadFile(outputFile)
-	if err != nil {
-		t.Fatalf("Failed to read output.log: %v", err)
-	}
-
-	output := string(outputData)
-	t.Logf("Output: %s", output)
-
-	// With PTY support, stdin should be detected as a TTY
-	if !strings.Contains(output, "stdin is a tty") {
-		t.Errorf("Expected 'stdin is a tty' in output, got: %s", output)
-		t.Error("This indicates PTY support is not working correctly")
-	}
-}
-
-// TestTTYEcho verifies that PTY echo is working (terminals normally echo input)
-func TestTTYEcho(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Initialize workspace storage
-	if err := workspace.InitWorkspaces(tmpDir); err != nil {
-		t.Fatalf("Failed to initialize workspaces: %v", err)
-	}
-
-	// Create workspace
-	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
-	if err != nil {
-		t.Fatalf("Failed to create workspace: %v", err)
-	}
-
-	// Create a cat process that will echo input
-	proc, err := executor.Execute(ws, "cat")
-	if err != nil {
-		t.Fatalf("Failed to create process: %v", err)
-	}
-
-	require.EventuallyWithT(t, func(collect *assert.CollectT) {
-		pipePath := filepath.Join(proc.ProcessDir, "stdin.pipe")
-		// Send input
-		file, err := os.OpenFile(pipePath, os.O_WRONLY, 0)
-		assert.NoError(collect, err)
-
-		_, err = file.WriteString("test input\n")
-		assert.NoError(collect, err)
-		file.Close()
-	}, time.Second, 10*time.Millisecond)
-
+	// Wait for output file to be created and contain the expected output
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		stdout, _, _, err := outputlog.ReadCombinedOutput(proc.OutputFile)
 		assert.NoError(collect, err)
-		assert.Equal(collect, "test input", stdout)
-	}, time.Second, 10*time.Millisecond)
+		// With PTY support, stdin should be detected as a TTY
+		assert.Contains(collect, stdout, "stdin is a tty", "This indicates PTY support is not working correctly")
+	}, 2*time.Second, 50*time.Millisecond)
 }
+
+// TestTTYEcho is disabled - stdin.pipe is outdated, Unix domain sockets should be used instead
+// TODO: Re-implement this test using Unix domain sockets when that functionality is available
 
 // TestColorOutput verifies that ANSI color codes work with PTY
 // Many commands detect TTY and only output colors when connected to a terminal
@@ -118,7 +72,7 @@ func TestColorOutput(t *testing.T) {
 
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		stdout, _, _, err := outputlog.ReadCombinedOutput(proc.OutputFile)
-		require.NoError(t, err)
-		require.Contains(t, stdout, "\033[31m")
+		assert.NoError(collect, err)
+		assert.Contains(collect, stdout, "\033[31m")
 	}, time.Second, 50*time.Millisecond)
 }

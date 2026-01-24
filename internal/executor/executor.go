@@ -56,6 +56,7 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 		Command:    command,
 		Completed:  false,
 		ProcessDir: processDir,
+		OutputFile: filepath.Join(processDir, "output.log"),
 	}
 
 	cmdPath := filepath.Join(processDir, "cmd")
@@ -87,10 +88,19 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	// Spawn the process using `mobileshell nohup` in the background
 	// In test mode, use `go run` to execute the mobileshell command
 
+	args := []string{
+		"nohup",
+		"--input-unix-domain-socket", filepath.Join(processDir, "input-unix-domain-socket"),
+		nohupCommandPath,
+	}
 	if filepath.Ext(execPath) == ".test" {
-		proc.ExecCmd = exec.Command("go", "run", "mobileshell/cmd/mobileshell", "nohup", nohupCommandPath)
+		cmd := []string{"run", "mobileshell/cmd/mobileshell"}
+		cmd = append(cmd, args...)
+		proc.ExecCmd = exec.Command("go", cmd...)
 	} else {
-		proc.ExecCmd = exec.Command(execPath, "nohup", nohupCommandPath)
+		cmd := []string{"nohup"}
+		cmd = append(cmd, args...)
+		proc.ExecCmd = exec.Command(execPath, cmd...)
 	}
 
 	// Redirect stdout and stderr to nohup.log
