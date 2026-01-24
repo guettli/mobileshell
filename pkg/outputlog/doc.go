@@ -18,7 +18,7 @@
 // # Fields
 //
 //   - stream: Matches regex [a-zA-Z0-9_./-]{1,64}. For example: stdout, stderr, or stdin.
-//   - timestamp: UTC timestamp in ISO 8601 format: 2006-01-02T15:04:05.000000000Z
+//   - timestamp: UTC timestamp in ISO 8601 format: 2006-01-02T15:04:05.999999999Z
 //   - length: Integer byte length of the content (may include a trailing
 //     newline if present in original output)
 //   - `: ` Literal separator between length and content

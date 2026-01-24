@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"mobileshell/pkg/outputtype"
 	"mobileshell/pkg/outputlog"
+	"mobileshell/pkg/outputtype"
 
 	"github.com/creack/pty"
 )
@@ -266,7 +266,7 @@ func Run(commandSlice []string, noStdinPipe bool) error {
 	}
 
 	// Write endtime file
-	endTime := time.Now().UTC().Format(time.RFC3339Nano)
+	endTime := time.Now().UTC().Format(outputlog.TimeFormatRFC3339NanoUTC)
 	if err := os.WriteFile(filepath.Join(processDir, "endtime"), []byte(endTime), 0o600); err != nil {
 		return fmt.Errorf("failed to write endtime file: %w", err)
 	}

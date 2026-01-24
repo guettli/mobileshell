@@ -26,7 +26,7 @@ func TestFormatChunk_WithTrailingNewline(t *testing.T) {
 	}
 
 	result := FormatChunk(chunk)
-	expected := "stdout 2025-01-07T12:34:56.789000000Z 12: Hello world\n\n"
+	expected := "stdout 2025-01-07T12:34:56.789Z 12: Hello world\n\n"
 
 	require.Equal(t, expected, string(result))
 }
@@ -40,7 +40,7 @@ func TestFormatChunk_WithoutTrailingNewline(t *testing.T) {
 	}
 
 	result := FormatChunk(chunk)
-	expected := "stderr 2025-01-07T12:34:56.789000000Z 13: Error message\n"
+	expected := "stderr 2025-01-07T12:34:56.789Z 13: Error message\n"
 
 	require.Equal(t, expected, string(result))
 }
@@ -54,7 +54,7 @@ func TestFormatChunk_EmptyLine(t *testing.T) {
 	}
 
 	result := FormatChunk(chunk)
-	expected := "stdout 2025-01-07T12:34:56.789000000Z 0: \n"
+	expected := "stdout 2025-01-07T12:34:56.789Z 0: \n"
 
 	require.Equal(t, expected, string(result))
 }
@@ -69,7 +69,7 @@ func TestFormatChunk_BinaryData(t *testing.T) {
 
 	result := FormatChunk(chunk)
 	// Length is 4 bytes
-	expectedPrefix := "stdout 2025-01-07T12:34:56.000000000Z 4: "
+	expectedPrefix := "stdout 2025-01-07T12:34:56Z 4: "
 	expectedContent := []byte{0x00, 0x01, 0xFF, 0x0A, 0x0A} // content + separator newline
 
 	require.True(t, bytes.HasPrefix(result, []byte(expectedPrefix)))
@@ -85,7 +85,7 @@ func TestFormatChunk_MultilineContent(t *testing.T) {
 	}
 
 	result := FormatChunk(chunk)
-	expected := "stdout 2025-01-07T12:34:56.000000000Z 18: line1\nline2\nline3\n\n"
+	expected := "stdout 2025-01-07T12:34:56Z 18: line1\nline2\nline3\n\n"
 
 	require.Equal(t, expected, string(result))
 }
@@ -102,7 +102,7 @@ func TestFormatChunk_LargeBinaryData(t *testing.T) {
 	}
 
 	result := FormatChunk(chunk)
-	expectedPrefix := "stdout 2025-01-07T12:34:56.000000000Z 256: "
+	expectedPrefix := "stdout 2025-01-07T12:34:56Z 256: "
 
 	require.True(t, bytes.HasPrefix(result, []byte(expectedPrefix)))
 
@@ -118,7 +118,7 @@ func TestFormatChunk_BinaryDataWithFormatMarkers(t *testing.T) {
 
 	// Binary data that contains text that looks like format markers
 	// This ensures the parser doesn't get confused by content that looks like the protocol
-	binaryData := []byte("stdout 2025-01-07T12:34:56.000000000Z 42: fake data\n")
+	binaryData := []byte("stdout 2025-01-07T12:34:56Z 42: fake data\n")
 
 	chunk := Chunk{
 		Stream:    "stderr",

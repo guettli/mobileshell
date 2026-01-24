@@ -1602,8 +1602,8 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 
 	// Log the signal send to output.log
 	outputFile := filepath.Join(processDir, "output.log")
-	panic("use FormatChunk")
-	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	panic("send signal via pipe")
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	content := fmt.Sprintf("%d %s", signalNum, signalName)
 	logLine := fmt.Sprintf("signal-sent %s %d: %s\n", timestamp, len(content), content)
 

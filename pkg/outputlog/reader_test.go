@@ -12,7 +12,7 @@ import (
 )
 
 func TestReadToChunk_ValidFormat(t *testing.T) {
-	input := "stdout 2025-01-07T12:34:56.789000000Z 12: Hello world\n\n"
+	input := "stdout 2025-01-07T12:34:56.789Z 12: Hello world\n\n"
 	reader := bytes.NewReader([]byte(input))
 
 	chunk, eof := readToChunk(reader)
@@ -29,7 +29,7 @@ func TestReadToChunk_ValidFormat(t *testing.T) {
 }
 
 func TestReadToChunk_NoTrailingNewline(t *testing.T) {
-	input := "stderr 2025-01-07T10:20:30.000000000Z 5: Error\n"
+	input := "stderr 2025-01-07T10:20:30Z 5: Error\n"
 	reader := bytes.NewReader([]byte(input))
 
 	chunk, eof := readToChunk(reader)
@@ -79,7 +79,7 @@ func TestReadToChunk_InvalidTimestamp(t *testing.T) {
 }
 
 func TestReadToChunk_InvalidLength(t *testing.T) {
-	input := "stdout 2025-01-07T12:34:56.000000000Z notanumber: hello\n"
+	input := "stdout 2025-01-07T12:34:56Z notanumber: hello\n"
 	reader := bytes.NewReader([]byte(input))
 
 	chunk, eof := readToChunk(reader)
@@ -89,7 +89,7 @@ func TestReadToChunk_InvalidLength(t *testing.T) {
 }
 
 func TestReadToChunk_MissingFinalNewline(t *testing.T) {
-	input := "stdout 2025-01-07T12:34:56.000000000Z 5: hello"
+	input := "stdout 2025-01-07T12:34:56Z 5: hello"
 	reader := bytes.NewReader([]byte(input))
 
 	chunk, eof := readToChunk(reader)
@@ -311,7 +311,6 @@ func TestReadToChunk_LargeBinaryData(t *testing.T) {
 	require.NoError(t, parsedChunk.Error)
 	require.Equal(t, chunk.Line, parsedChunk.Line)
 }
-
 
 func TestOutputLogIoReader_BinaryDataRoundTrip(t *testing.T) {
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)

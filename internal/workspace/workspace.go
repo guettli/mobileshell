@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mobileshell/internal/process"
+	"mobileshell/pkg/outputlog"
 )
 
 // Workspace represents a workspace with a name, directory, and pre-command
@@ -209,7 +210,7 @@ func saveWorkspaceFiles(ws *Workspace) error {
 	}
 
 	// Write created-at file
-	createdAt := ws.CreatedAt.Format(time.RFC3339Nano)
+	createdAt := ws.CreatedAt.Format(outputlog.TimeFormatRFC3339NanoUTC)
 	if err := os.WriteFile(filepath.Join(ws.Path, "created-at"), []byte(createdAt), 0o600); err != nil {
 		return fmt.Errorf("failed to write created-at file: %w", err)
 	}

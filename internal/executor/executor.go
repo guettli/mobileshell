@@ -44,7 +44,7 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	}
 
 	// Generate hash for the process
-	commandId := time.Now().UTC().Format(time.RFC3339Nano)
+	commandId := time.Now().UTC().Format(outputlog.TimeFormatRFC3339NanoUTC)
 
 	processDir := filepath.Join(ws.Path, "processes", commandId)
 	if err := os.MkdirAll(processDir, 0o700); err != nil {
@@ -65,7 +65,7 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	}
 
 	// Write starttime file
-	startTime := time.Now().UTC().Format(time.RFC3339Nano)
+	startTime := time.Now().UTC().Format(outputlog.TimeFormatRFC3339NanoUTC)
 	if err := os.WriteFile(filepath.Join(processDir, "starttime"), []byte(startTime), 0o600); err != nil {
 		return nil, fmt.Errorf("failed to write starttime file: %w", err)
 	}

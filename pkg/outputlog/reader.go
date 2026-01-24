@@ -132,7 +132,7 @@ func readToChunk(reader io.Reader) (Chunk, bool) {
 		chunk.Error = fmt.Errorf("reading timestamp: %w", err)
 		return chunk, true
 	}
-	timestamp, err := time.Parse("2006-01-02T15:04:05.000000000Z", timestampStr)
+	timestamp, err := time.Parse("2006-01-02T15:04:05Z", timestampStr)
 	if err != nil {
 		chunk.Error = fmt.Errorf("parsing timestamp: %w", err)
 		return chunk, true
