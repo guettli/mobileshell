@@ -24,7 +24,7 @@ type OutputLogIoWriter struct {
 
 var _ OutputLogWriter = &OutputLogIoWriter{}
 
-// StreamWriter returns an io.Writer that writes to the specified stream
+// StreamWriter returns an io.Writer that writes Chunks to the channel.
 func (o *OutputLogIoWriter) StreamWriter(stream string) io.Writer {
 	return &streamWriter{
 		stream: stream,

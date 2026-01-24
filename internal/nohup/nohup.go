@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"mobileshell/pkg/outputlog"
-
-	"github.com/creack/pty"
 )
 
 // Run executes a command in nohup mode within a workspace This function is called by the
@@ -62,30 +60,12 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	// Create the command
 	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
 
-	var ptmx, tty *os.File
-
-	// Open a PTY manually so we can control which streams use it
-	// We want stdout to use the PTY (for terminal capabilities)
-	// But stderr should use the pipe (for separate capture)
-	ptmx, tty, err = pty.Open()
-	if err != nil {
-		return fmt.Errorf("failed to open pty: %w", err)
-	}
-	defer func() { _ = ptmx.Close() }()
-	defer func() { _ = tty.Close() }()
-
 	onChunk := func(chunk *outputlog.Chunk) {
 		slog.Info("recevied chunk",
 			"stream", chunk.Stream,
 			"time", chunk.Timestamp,
 			"line", string(chunk.Line[:min(10, len(chunk.Line))]),
 		)
-		if chunk.Stream == "stdin" {
-			_, err := ptmx.Write(chunk.Line)
-			if err != nil {
-				slog.Error("ptmx.Write(chunk.Line)", "error", err.Error())
-			}
-		}
 	}
 	outputLogWriter := outputlog.NewOutputLogWriter(outFile, onChunk)
 
@@ -107,54 +87,21 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 		}()
 	}
 
-	var stderrPipe io.ReadCloser
+	// cmd.Stdin =
 
-	// Set up stderr pipe separately (bypasses PTY)
-	stderrPipe, err = cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	// Assign PTY to stdin and stdout only (stderr uses the pipe)
-	cmd.Stdin = tty
-	cmd.Stdout = tty
-	// cmd.Stderr is already set to stderrPipe above
+	// Set stdout and stderr BEFORE starting the command
+	cmd.Stdout = outputLogWriter.StreamWriter("stdout")
+	cmd.Stderr = outputLogWriter.StreamWriter("stderr")
 
 	// Start the command in a new session (detach from parent)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid:  true,
-		Setctty: true,
+		Setsid: true,
 	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
-
-	// For regular commands using PTY
-	// Close tty in parent process (child has its own copy)
-	_ = tty.Close()
-
-	// Set PTY size to a reasonable default (80x24 is standard terminal size)
-	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
-		slog.Warn("Failed to set PTY size, using default", "error", err)
-	}
-
-	stdoutToChannelWriter := outputLogWriter.StreamWriter("stdout")
-	go func() {
-		_, err := io.Copy(stdoutToChannelWriter, ptmx)
-		if err != nil {
-			slog.Error("io.Copy(stdoutToChannelWriter, ptmx)", "error", err)
-		}
-	}()
-
-	stderrToChannelWriter := outputLogWriter.StreamWriter("stderr")
-	go func() {
-		_, err := io.Copy(stderrToChannelWriter, stderrPipe)
-		if err != nil {
-			slog.Error("io.Copy(stdoutToChannelWriter, stderrPipe)", "error", err)
-		}
-	}()
 
 	pid := cmd.Process.Pid
 
