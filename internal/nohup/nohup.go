@@ -1,6 +1,7 @@
 package nohup
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"mobileshell/pkg/outputlog"
+	"mobileshell/pkg/outputtype"
 
 	"github.com/creack/pty"
 )
@@ -157,12 +159,43 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 		return fmt.Errorf("failed to write status file: %w", err)
 	}
 
-	// Copy stdout from PTY to output log
+	// Create output type detector
+	detector := outputtype.NewDetector()
+	detectedWritten := false
+
+	// Copy stdout from PTY to output log with type detection
 	stdoutWriter := outputLogWriter.StreamWriter("stdout")
 	go func() {
-		_, err := io.Copy(stdoutWriter, ptmx)
-		if err != nil {
-			slog.Error("io.Copy(stdoutWriter, ptmx)", "error", err)
+		// Use a buffered reader to scan lines
+		reader := bufio.NewReader(ptmx)
+		for {
+			line, err := reader.ReadString('\n')
+			if len(line) > 0 {
+				// Analyze line for output type detection
+				if !detector.IsDetected() {
+					if detector.AnalyzeLine(line) {
+						// Type detected - write immediately
+						outputType, reason := detector.GetDetectedType()
+						outputTypeFile := filepath.Join(processDir, "output-type")
+						outputTypeContent := fmt.Sprintf("%s,%s", outputType, reason)
+						if writeErr := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0o600); writeErr != nil {
+							slog.Warn("Failed to write output-type file", "error", writeErr)
+						} else {
+							detectedWritten = true
+						}
+					}
+				}
+				// Write to output log
+				if _, writeErr := stdoutWriter.Write([]byte(line)); writeErr != nil {
+					slog.Error("Failed to write stdout", "error", writeErr)
+				}
+			}
+			if err != nil {
+				if err != io.EOF {
+					slog.Error("Error reading stdout", "error", err)
+				}
+				break
+			}
 		}
 	}()
 
@@ -187,6 +220,16 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 	}
 
 	outputLogWriter.Close()
+
+	// Write output type detection results if not already written
+	if detector.IsDetected() && !detectedWritten {
+		outputType, reason := detector.GetDetectedType()
+		outputTypeFile := filepath.Join(processDir, "output-type")
+		outputTypeContent := fmt.Sprintf("%s,%s", outputType, reason)
+		if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0o600); err != nil {
+			slog.Warn("Failed to write output-type file", "error", err)
+		}
+	}
 
 	// Get exit code and signal
 	exitCode := 0
