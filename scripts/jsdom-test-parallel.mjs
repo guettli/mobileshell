@@ -492,10 +492,12 @@ async function testFileAutocomplete() {
   const processMatch = setupResponse.text.match(/processes\/([^\/]+)\/hx-output/);
   if (processMatch) {
     const processId = processMatch[1];
+    console.log('Setup process ID:', processId);
 
     // Wait for the setup command to complete
-    for (let i = 0; i < 20; i++) {
-      await new Promise(resolve => setTimeout(resolve, 200));
+    let completed = false;
+    for (let i = 0; i < 30; i++) {
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       const statusResponse = await request('GET', `/workspaces/${workspaceId}/json-process-updates?process_ids=${processId}`, {
         headers: {
@@ -506,10 +508,21 @@ async function testFileAutocomplete() {
       const statusData = JSON.parse(statusResponse.text);
       const processUpdate = statusData.updates && statusData.updates.find(u => u.id === processId);
 
+      if (i % 5 === 0 && !completed) {
+        console.log(`Waiting for setup command... (${i * 300}ms, status: ${processUpdate ? processUpdate.status : 'not found'})`);
+      }
+
       if (processUpdate && processUpdate.status === 'finished') {
+        console.log('Setup command completed');
+        completed = true;
         break;
       }
     }
+    if (!completed) {
+      console.log('WARNING: Setup command did not complete within timeout');
+    }
+  } else {
+    console.log('WARNING: Could not extract process ID from setup response');
   }
 
   // Additional wait to ensure filesystem is synced
@@ -524,6 +537,19 @@ async function testFileAutocomplete() {
 
   assert.equal(simplePatternResponse.status, 200, 'Should get autocomplete results');
   const simpleData = JSON.parse(simplePatternResponse.text);
+  console.log('Autocomplete response:', JSON.stringify(simpleData, null, 2));
+  console.log('Matches found:', simpleData.matches.length);
+  if (simpleData.matches.length === 0) {
+    // Debug: check what files exist in the workspace
+    const listResponse = await request('POST', `/workspaces/${workspaceId}/hx-execute`, {
+      headers: {
+        Cookie: sessionCookie,
+        'HX-Request': 'true',
+      },
+      body: `command=${encodeURIComponent('ls -la')}`,
+    });
+    console.log('Directory listing response:', listResponse.text.substring(0, 500));
+  }
   assert.ok(simpleData.matches, 'Should have matches array');
   assert.ok(simpleData.matches.length >= 2, 'Should find at least 2 .go files');
   assert.ok(simpleData.matches.some(m => m.relative_path.includes('test-file1.go')), 'Should include test-file1.go');

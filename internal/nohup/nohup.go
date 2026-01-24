@@ -21,6 +21,7 @@ import (
 // `mobileshell nohup` subcommand. During a http request executor.Execute() gets called, which calls
 // nohup (and Run()).
 func Run(commandSlice []string, inputUnixDomainSocket string) error {
+	slog.Info("nohup.Run called", "commandSlice", commandSlice, "socketPath", inputUnixDomainSocket)
 	if len(commandSlice) < 1 {
 		return fmt.Errorf("not enough arguments")
 	}

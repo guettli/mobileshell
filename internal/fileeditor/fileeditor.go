@@ -279,7 +279,7 @@ func SearchFiles(ctx context.Context, rootDir, pattern string, maxResults int) (
 		searchPattern = filepath.Join(rootDir, pattern)
 	}
 
-	var matches []FileMatch
+	matches := []FileMatch{}
 	timedOut := false
 
 	// Check if pattern contains **
@@ -314,7 +314,7 @@ func SearchFiles(ctx context.Context, rootDir, pattern string, maxResults int) (
 
 // simpleGlobSearch performs a simple glob match (no **)
 func simpleGlobSearch(ctx context.Context, rootDir, pattern string) ([]FileMatch, bool) {
-	var matches []FileMatch
+	matches := []FileMatch{}
 	timedOut := false
 
 	// Check for timeout
@@ -365,7 +365,7 @@ func simpleGlobSearch(ctx context.Context, rootDir, pattern string) ([]FileMatch
 
 // recursiveSearch performs a recursive search for ** patterns
 func recursiveSearch(ctx context.Context, rootDir, pattern string) ([]FileMatch, bool) {
-	var matches []FileMatch
+	matches := []FileMatch{}
 	timedOut := false
 
 	// Convert ** pattern to a function that can match paths

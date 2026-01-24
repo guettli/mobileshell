@@ -2,6 +2,7 @@ package executor
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -119,19 +120,19 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 		nohupCommandPath,
 	}
 	if filepath.Ext(execPath) == ".test" {
-		// Find project root by looking for go.mod
+		// Use ./cmd/mobileshell for go run (works from project root)
+		cmd := []string{"run", "./cmd/mobileshell"}
+		cmd = append(cmd, args...)
+		goCmd := exec.Command("go", cmd...)
+		// Set working directory to project root (where go.mod is)
 		projectRoot, err := findProjectRoot()
 		if err != nil {
 			return nil, fmt.Errorf("failed to find project root: %w", err)
 		}
-		cmdPath := filepath.Join(projectRoot, "cmd", "mobileshell")
-		cmd := []string{"run", cmdPath}
-		cmd = append(cmd, args...)
-		proc.ExecCmd = exec.Command("go", cmd...)
+		goCmd.Dir = projectRoot
+		proc.ExecCmd = goCmd
 	} else {
-		cmd := []string{"nohup"}
-		cmd = append(cmd, args...)
-		proc.ExecCmd = exec.Command(execPath, cmd...)
+		proc.ExecCmd = exec.Command(execPath, args...)
 	}
 
 	// Redirect stdout and stderr to nohup.log
@@ -143,6 +144,10 @@ func Execute(ws *workspace.Workspace, command string) (*process.Process, error) 
 	proc.ExecCmd.Stdout = nohupLogFile
 	proc.ExecCmd.Stderr = nohupLogFile
 	proc.ExecCmd.Stdin = nil
+
+	// Log the command being executed
+	cmdStr := proc.ExecCmd.String()
+	slog.Info("Starting nohup process", "command", cmdStr, "dir", proc.ExecCmd.Dir)
 
 	if err := proc.ExecCmd.Start(); err != nil {
 		_ = nohupLogFile.Close()
