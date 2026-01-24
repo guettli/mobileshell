@@ -73,21 +73,28 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	if inputUnixDomainSocket != "" {
 		// Open Unix domain socket and read via OutputLog format
 		go readFromUnixSocket(inputUnixDomainSocket, outputLogWriter.Channel())
+		// When using Unix socket, don't set cmd.Stdin (no stdin forwarding)
 	} else {
+		// Create a pipe for stdin forwarding to the command
+		stdinReader, stdinWriter := io.Pipe()
+
 		// Read input from stdin. Do not read outputlog format. Read from stdin, emit Chunks from
 		// stream "stdin".
 		stdinReaderToChannel := outputLogWriter.StreamWriter("stdin")
 		go func() {
-			_, err := io.Copy(stdinReaderToChannel, os.Stdin)
+			// Use TeeReader to both capture to log AND forward to command
+			teeReader := io.TeeReader(os.Stdin, stdinWriter)
+			_, err := io.Copy(stdinReaderToChannel, teeReader)
 			if err != nil {
-				slog.Error("io.Copy(stdinReaderToChannel, os.Stdin)", "error", err)
+				slog.Error("io.Copy(stdinReaderToChannel, teeReader)", "error", err)
 			}
 			slog.Info("os.Stdin was closed")
-			outputLogWriter.Close()
+			_ = stdinWriter.Close()
 		}()
-	}
 
-	// cmd.Stdin =
+		// Set command stdin to read from the pipe
+		cmd.Stdin = stdinReader
+	}
 
 	// Set stdout and stderr BEFORE starting the command
 	cmd.Stdout = outputLogWriter.StreamWriter("stdout")

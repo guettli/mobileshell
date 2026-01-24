@@ -3,6 +3,7 @@ package nohup
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -196,5 +197,81 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 		assert.Equal(collect, "test content", stdout)
 		assert.Equal(collect, "", stderr)
 		assert.Equal(collect, "", stdin)
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestNohupRunWithStdinViaGoRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create process directory
+	processDir := filepath.Join(tmpDir, "process")
+	err := os.MkdirAll(processDir, 0o755)
+	require.NoError(t, err)
+
+	// Create bash script inside the process directory that reads from stdin
+	scriptPath := filepath.Join(processDir, "script.sh")
+	scriptContent := `#!/bin/bash
+echo "reading from stdin"
+read -r foo
+echo "you entered: $foo"
+`
+	err = os.WriteFile(scriptPath, []byte(scriptContent), 0o755)
+	require.NoError(t, err)
+
+	// Prepare the nohup command - nohup expects the script path as the first argument
+	cmd := exec.Command("go", "run", "../../cmd/mobileshell", "nohup", scriptPath)
+
+	// Capture stdout and stderr for debugging
+	var cmdOutput strings.Builder
+	cmd.Stdout = &cmdOutput
+	cmd.Stderr = &cmdOutput
+
+	// Create stdin pipe
+	stdinPipe, err := cmd.StdinPipe()
+	require.NoError(t, err)
+
+	// Start the command
+	err = cmd.Start()
+	require.NoError(t, err)
+
+	// Write to stdin
+	_, err = stdinPipe.Write([]byte("hello word\n"))
+	require.NoError(t, err)
+
+	// Close stdin to signal end of input
+	err = stdinPipe.Close()
+	require.NoError(t, err)
+
+	// Wait for command to complete with timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Logf("Command output:\n%s", cmdOutput.String())
+		}
+		require.NoError(t, err)
+	case <-time.After(4 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatalf("Test timed out after 4 seconds. Output:\n%s", cmdOutput.String())
+	}
+
+	// Verify output.log exists and contains expected content
+	outputFile := filepath.Join(processDir, "output.log")
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		stdoutBytes, stderrBytes, stdinBytes, err := outputlog.ReadThreeStreams(outputFile, "stdout", "stderr", "stdin")
+		assert.NoError(collect, err)
+
+		stdout := string(stdoutBytes)
+		stderr := string(stderrBytes)
+		stdin := string(stdinBytes)
+
+		assert.Contains(collect, stdout, "reading from stdin")
+		assert.Contains(collect, stdout, "you entered: hello word")
+		assert.Equal(collect, "", stderr)
+		assert.Equal(collect, "hello word\n", stdin)
 	}, time.Second, 10*time.Millisecond)
 }
