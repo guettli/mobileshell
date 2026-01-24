@@ -1,5 +1,11 @@
 # Later
 
+- prepareProcessOutput: show all streams in html. Even unknown.
+- Fix, OUTPUT_LOG_FORMAT.md does no longer exist.
+- Add output type detection again.
+
+---
+
 - add-password should not be run as root user. Refuse
 - add-password: if stateDir does not exist. then do not create it
 - if statedir empty, and .mobileshell does not exist, try /var/lib/mobileshell-$USER.

@@ -1,7 +1,6 @@
 package nohup
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"mobileshell/pkg/outputlog"
-	"mobileshell/pkg/outputtype"
 
 	"github.com/creack/pty"
 )
@@ -61,42 +59,23 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	}
 	defer func() { _ = outFile.Close() }()
 
-	// Create channel for output chunks
-	outputChan := make(chan outputlog.Chunk, 100)
-	writerDone := make(chan struct{})
-
-	// Create output type detector
-	typeDetector := outputtype.NewDetector()
+	outputLogWriter := outputlog.NewOutputLogWriter(outFile)
 
 	// Handle input from Unix domain socket if provided
 	if inputUnixDomainSocket != "" {
 		// Open Unix domain socket and read via OutputLog format
-		go readFromUnixSocket(inputUnixDomainSocket, outputChan)
-	}
-
-	// Start goroutine to write output chunks to file
-	go func() {
-		defer close(writerDone)
-		for chunk := range outputChan {
-			// Write the chunk to output.log first
-			formattedChunk := outputlog.FormatChunk(chunk)
-			_, _ = outFile.Write(formattedChunk)
-			// No need to sync since file was opened with O_SYNC
-
-			// Only analyze stdout for type detection
-			if chunk.Stream == "stdout" && !typeDetector.IsDetected() {
-				if typeDetector.AnalyzeLine(string(chunk.Line)) {
-					// Type detected! Write output-type file immediately
-					detectedType, detectionReason := typeDetector.GetDetectedType()
-					outputTypeFile := filepath.Join(processDir, "output-type")
-					outputTypeContent := fmt.Sprintf("%s,%s", detectedType, detectionReason)
-					if err := os.WriteFile(outputTypeFile, []byte(outputTypeContent), 0o600); err != nil {
-						slog.Warn("Failed to write output-type file", "error", err)
-					}
-				}
+		go readFromUnixSocket(inputUnixDomainSocket, outputLogWriter.Channel())
+	} else {
+		// Read input from stdin. Do not read outputlog format. Read from stdin, emit Chunks from
+		// stream "stdin".
+		stdinReaderToChannel := outputLogWriter.StreamWriter("stdin")
+		go func() {
+			_, err := io.Copy(stdinReaderToChannel, os.Stdin)
+			if err != nil {
+				slog.Error("io.Copy(stdinReaderToChannel, os.Stdin)", "error", err)
 			}
-		}
-	}()
+		}()
+	}
 
 	// Create the command
 	cmd := exec.Command(commandSlice[0], commandSlice[1:]...)
@@ -135,9 +114,6 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Handle PTY vs pipe setup based on command type
-	var stdoutReader io.Reader
-
 	// For regular commands using PTY
 	// Close tty in parent process (child has its own copy)
 	_ = tty.Close()
@@ -147,14 +123,21 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 		slog.Warn("Failed to set PTY size, using default", "error", err)
 	}
 
-	stdoutReader = ptmx
+	stdoutToChannelWriter := outputLogWriter.StreamWriter("stdout")
+	go func() {
+		_, err := io.Copy(stdoutToChannelWriter, ptmx)
+		if err != nil {
+			slog.Error("io.Copy(stdoutToChannelWriter, ptmx)", "error", err)
+		}
+	}()
 
-	// Start goroutine to read from stdout (either PTY or pipe)
-	readersDone := make(chan struct{}, 2)
-	go readLines(stdoutReader, "stdout", outputChan, readersDone)
-
-	// Start goroutine to read from stderr pipe
-	go readLines(stderrPipe, "stderr", outputChan, readersDone)
+	stderrToChannelWriter := outputLogWriter.StreamWriter("stderr")
+	go func() {
+		_, err := io.Copy(stderrToChannelWriter, stderrPipe)
+		if err != nil {
+			slog.Error("io.Copy(stdoutToChannelWriter, stderrPipe)", "error", err)
+		}
+	}()
 
 	pid := cmd.Process.Pid
 
@@ -172,12 +155,7 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	// Wait for the process to complete
 	err = cmd.Wait()
 
-	// Wait for both readers to finish draining (stdout from PTY, stderr from pipe)
-	<-readersDone
-	<-readersDone
-
-	// Close output channel so writer can finish
-	close(outputChan)
+	outputLogWriter.Close()
 
 	// Get exit code and signal
 	exitCode := 0
@@ -195,9 +173,6 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 			exitCode = 1
 		}
 	}
-
-	// Wait for writer to finish
-	<-writerDone
 
 	// Write exit status to file
 	exitStatusFile := filepath.Join(processDir, "exit-status")
@@ -224,85 +199,6 @@ func Run(commandSlice []string, inputUnixDomainSocket string) error {
 	}
 
 	return nil
-}
-
-// sendOutputChunk sends an output chunk to the channel with a timeout to prevent blocking
-// Returns true if sent successfully, false if timed out or channel is closed
-func sendOutputChunk(outputChan chan<- outputlog.Chunk, chunk outputlog.Chunk, stream string) bool {
-	defer func() {
-		if r := recover(); r != nil {
-			// Channel was closed while we were trying to send
-			slog.Debug("Output channel closed during send", "stream", stream)
-		}
-	}()
-
-	select {
-	case outputChan <- chunk:
-		return true
-	case <-time.After(5 * time.Second):
-		// Channel is full and writer can't keep up - log warning and drop the chunk
-		slog.Warn("Output channel write timed out, dropping chunk", "stream", stream)
-		return false
-	}
-}
-
-// readLines reads lines from a reader and sends them to the output channel
-// This function flushes partial lines (without newlines) after a timeout to support
-// interactive programs that output prompts without trailing newlines (e.g., "Enter filename: ")
-func readLines(reader io.Reader, stream string, outputChan chan<- outputlog.Chunk, done chan<- struct{}) {
-	defer func() {
-		select {
-		case done <- struct{}{}:
-		case <-time.After(1 * time.Second):
-			slog.Warn("Failed to send done signal", "stream", stream)
-		}
-	}()
-
-	br := bufio.NewReader(reader)
-	var buffer []byte
-	flushTimeout := 100 * time.Millisecond
-
-	for {
-		// Read one byte at a time (bufio.Reader handles internal buffering)
-		b, err := br.ReadByte()
-		if err != nil {
-			// EOF or error - flush any remaining buffer
-			if len(buffer) > 0 {
-				sendOutputChunk(outputChan, outputlog.Chunk{
-					Stream:    stream,
-					Timestamp: time.Now().UTC(),
-					Line:      append([]byte(nil), buffer...),
-				}, stream)
-			}
-			break
-		}
-		buffer = append(buffer, b)
-
-		// Check if we should flush
-		shouldFlush := false
-		if len(buffer) > 0 && buffer[len(buffer)-1] == '\n' {
-			shouldFlush = true
-		} else if len(buffer) > 0 && br.Buffered() == 0 {
-			// No more data available immediately, wait a bit for more
-			timer := time.NewTimer(flushTimeout)
-			<-timer.C
-			// Timeout expired, check if we should flush
-			if br.Buffered() == 0 {
-				shouldFlush = true
-			}
-		}
-
-		if shouldFlush {
-			// Keep the line as-is, including newline if present
-			// The length field in the output format will indicate if newline is included
-			sendOutputChunk(outputChan, outputlog.Chunk{
-				Stream:    stream,
-				Timestamp: time.Now().UTC(),
-				Line:      append([]byte(nil), buffer...),
-			}, stream)
-			buffer = buffer[:0] // Reset buffer
-		}
-	}
 }
 
 // readFromUnixSocket connects to a Unix domain socket and reads OutputLog formatted data
