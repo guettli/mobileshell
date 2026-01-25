@@ -8,9 +8,9 @@ import (
 )
 
 func TestGetUserProcesses(t *testing.T) {
+	t.Parallel()
 	currentUID := uint32(os.Getuid())
 	processes, err := GetUserProcesses(currentUID)
-
 	if err != nil {
 		t.Fatalf("GetUserProcesses failed: %v", err)
 	}
@@ -38,6 +38,7 @@ func TestGetUserProcesses(t *testing.T) {
 }
 
 func TestSortProcessesByCPU(t *testing.T) {
+	t.Parallel()
 	processes := []*ProcessInfo{
 		{PID: 1, CPUPercent: 10.0},
 		{PID: 2, CPUPercent: 50.0},
@@ -58,6 +59,7 @@ func TestSortProcessesByCPU(t *testing.T) {
 }
 
 func TestSortProcessesByMemory(t *testing.T) {
+	t.Parallel()
 	processes := []*ProcessInfo{
 		{PID: 1, MemoryMB: 100.0},
 		{PID: 2, MemoryMB: 500.0},
@@ -71,10 +73,11 @@ func TestSortProcessesByMemory(t *testing.T) {
 }
 
 func TestSortProcessesByIO(t *testing.T) {
+	t.Parallel()
 	processes := []*ProcessInfo{
-		{PID: 1, IOReadMB: 10.0, IOWriteMB: 5.0},  // Total: 15
+		{PID: 1, IOReadMB: 10.0, IOWriteMB: 5.0},   // Total: 15
 		{PID: 2, IOReadMB: 100.0, IOWriteMB: 50.0}, // Total: 150
-		{PID: 3, IOReadMB: 1.0, IOWriteMB: 1.0},   // Total: 2
+		{PID: 3, IOReadMB: 1.0, IOWriteMB: 1.0},    // Total: 2
 	}
 
 	SortProcesses(processes, SortByIO, SortDesc)
@@ -84,6 +87,7 @@ func TestSortProcessesByIO(t *testing.T) {
 }
 
 func TestSortProcessesByPID(t *testing.T) {
+	t.Parallel()
 	processes := []*ProcessInfo{
 		{PID: 100},
 		{PID: 50},
@@ -97,6 +101,7 @@ func TestSortProcessesByPID(t *testing.T) {
 }
 
 func TestSortProcessesByName(t *testing.T) {
+	t.Parallel()
 	processes := []*ProcessInfo{
 		{PID: 1, Name: "zsh"},
 		{PID: 2, Name: "bash"},
@@ -110,10 +115,10 @@ func TestSortProcessesByName(t *testing.T) {
 }
 
 func TestGetProcessDetail(t *testing.T) {
+	t.Parallel()
 	// Use current process (guaranteed to exist)
 	pid := int32(os.Getpid())
 	detail, err := GetProcessDetail(pid)
-
 	if err != nil {
 		t.Fatalf("GetProcessDetail failed: %v", err)
 	}
@@ -130,6 +135,7 @@ func TestGetProcessDetail(t *testing.T) {
 }
 
 func TestGetProcessDetailNonExistent(t *testing.T) {
+	t.Parallel()
 	// Use a PID that's unlikely to exist
 	pid := int32(999999)
 	_, err := GetProcessDetail(pid)
@@ -140,6 +146,7 @@ func TestGetProcessDetailNonExistent(t *testing.T) {
 }
 
 func TestValidateSignal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		signal int
 		valid  bool
@@ -165,6 +172,7 @@ func TestValidateSignal(t *testing.T) {
 }
 
 func TestGetAllSignals(t *testing.T) {
+	t.Parallel()
 	signals := GetAllSignals()
 
 	if len(signals) == 0 {
@@ -199,6 +207,7 @@ func TestGetAllSignals(t *testing.T) {
 }
 
 func TestVerifyProcessOwnership(t *testing.T) {
+	t.Parallel()
 	currentUID := uint32(os.Getuid())
 	currentPID := int32(os.Getpid())
 
@@ -222,6 +231,7 @@ func TestVerifyProcessOwnership(t *testing.T) {
 }
 
 func TestGetProcessDetailForUser(t *testing.T) {
+	t.Parallel()
 	currentUID := uint32(os.Getuid())
 	currentPID := int32(os.Getpid())
 
@@ -242,6 +252,7 @@ func TestGetProcessDetailForUser(t *testing.T) {
 }
 
 func TestSendSignalToProcess(t *testing.T) {
+	t.Parallel()
 	currentUID := uint32(os.Getuid())
 
 	// Test with invalid signal (should fail)

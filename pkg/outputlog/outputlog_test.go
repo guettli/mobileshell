@@ -18,6 +18,7 @@ func allBytes() []byte {
 }
 
 func TestFormatChunk_WithTrailingNewline(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 789000000, time.UTC)
 	chunk := Chunk{
 		Stream:    "stdout",
@@ -32,6 +33,7 @@ func TestFormatChunk_WithTrailingNewline(t *testing.T) {
 }
 
 func TestFormatChunk_WithoutTrailingNewline(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 789000000, time.UTC)
 	chunk := Chunk{
 		Stream:    "stderr",
@@ -46,6 +48,7 @@ func TestFormatChunk_WithoutTrailingNewline(t *testing.T) {
 }
 
 func TestFormatChunk_EmptyLine(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 789000000, time.UTC)
 	chunk := Chunk{
 		Stream:    "stdout",
@@ -60,6 +63,7 @@ func TestFormatChunk_EmptyLine(t *testing.T) {
 }
 
 func TestFormatChunk_BinaryData(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 0, time.UTC)
 	chunk := Chunk{
 		Stream:    "stdout",
@@ -77,6 +81,7 @@ func TestFormatChunk_BinaryData(t *testing.T) {
 }
 
 func TestFormatChunk_MultilineContent(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 0, time.UTC)
 	chunk := Chunk{
 		Stream:    "stdout",
@@ -91,6 +96,7 @@ func TestFormatChunk_MultilineContent(t *testing.T) {
 }
 
 func TestFormatChunk_LargeBinaryData(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 0, time.UTC)
 
 	binaryData := allBytes()
@@ -114,6 +120,7 @@ func TestFormatChunk_LargeBinaryData(t *testing.T) {
 }
 
 func TestFormatChunk_BinaryDataWithFormatMarkers(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 0, time.UTC)
 
 	// Binary data that contains text that looks like format markers

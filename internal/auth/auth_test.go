@@ -9,6 +9,7 @@ import (
 )
 
 func TestInitAuth(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	err := InitAuth(tmpDir)
@@ -34,6 +35,7 @@ func TestInitAuth(t *testing.T) {
 }
 
 func TestAddPassword(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	tests := []struct {
@@ -60,6 +62,7 @@ func TestAddPassword(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := AddPassword(tmpDir, tt.password)
 			if tt.expectError && err == nil {
 				t.Error("Expected error but got none")
@@ -72,6 +75,7 @@ func TestAddPassword(t *testing.T) {
 }
 
 func TestAuthenticate(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	ctx := context.Background()
 
@@ -122,6 +126,7 @@ func TestAuthenticate(t *testing.T) {
 }
 
 func TestValidateSession(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	ctx := context.Background()
 
@@ -163,6 +168,7 @@ func TestValidateSession(t *testing.T) {
 }
 
 func TestValidateSessionWithExpiry(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	ctx := context.Background()
 
@@ -214,6 +220,7 @@ func TestValidateSessionWithExpiry(t *testing.T) {
 }
 
 func TestExtendSession(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	ctx := context.Background()
 
@@ -269,6 +276,7 @@ func TestExtendSession(t *testing.T) {
 }
 
 func TestCleanExpiredSessions(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Initialize auth
@@ -319,6 +327,7 @@ func TestCleanExpiredSessions(t *testing.T) {
 }
 
 func TestSaveSession(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Initialize auth
@@ -359,6 +368,7 @@ func TestSaveSession(t *testing.T) {
 }
 
 func TestGenerateToken(t *testing.T) {
+	t.Parallel()
 	token1 := generateToken()
 	token2 := generateToken()
 

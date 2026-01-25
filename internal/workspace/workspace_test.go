@@ -10,6 +10,7 @@ import (
 )
 
 func TestWorkspaceCreation(t *testing.T) {
+	t.Parallel()
 	// Create temporary state directory
 	tmpDir := t.TempDir()
 
@@ -77,6 +78,7 @@ func TestWorkspaceCreation(t *testing.T) {
 }
 
 func TestListWorkspaces(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	if err := InitWorkspaces(tmpDir); err != nil {
@@ -107,6 +109,7 @@ func TestListWorkspaces(t *testing.T) {
 }
 
 func TestWorkspaceWithSpecialCharacters(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	workDir := t.TempDir()
 
@@ -146,6 +149,7 @@ func TestWorkspaceWithSpecialCharacters(t *testing.T) {
 }
 
 func TestPreCommandLineEndingNormalization(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -185,6 +189,7 @@ func TestPreCommandLineEndingNormalization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := normalizePreCommand(tt.input)
 			if result != tt.expected {
 				t.Errorf("normalizePreCommand() = %q, want %q", result, tt.expected)
@@ -194,6 +199,7 @@ func TestPreCommandLineEndingNormalization(t *testing.T) {
 }
 
 func TestPreCommandWithCRLFInWorkspace(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	workDir := t.TempDir()
 

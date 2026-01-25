@@ -11,6 +11,7 @@ import (
 )
 
 func TestOutputLogIoWriter_StreamWriter(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -35,6 +36,7 @@ func TestOutputLogIoWriter_StreamWriter(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_StreamWriter_MultipleWrites(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -71,6 +73,7 @@ func TestOutputLogIoWriter_StreamWriter_MultipleWrites(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_Channel(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -101,6 +104,7 @@ func TestOutputLogIoWriter_Channel(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_RoundTrip(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -130,6 +134,7 @@ func TestOutputLogIoWriter_RoundTrip(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_BinaryData(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -154,6 +159,7 @@ func TestOutputLogIoWriter_BinaryData(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_EmptyWrite(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -168,6 +174,7 @@ func TestOutputLogIoWriter_EmptyWrite(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_ConcurrentWrites(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -226,6 +233,7 @@ func TestOutputLogIoWriter_ConcurrentWrites(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_MixedChannelAndStreamWriter(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -270,6 +278,7 @@ func TestOutputLogIoWriter_MixedChannelAndStreamWriter(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_OrderPreservation(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -298,6 +307,7 @@ func TestOutputLogIoWriter_OrderPreservation(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_MultipleStreamWriters(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -330,6 +340,7 @@ func TestOutputLogIoWriter_MultipleStreamWriters(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_LargeWrite(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 
@@ -359,6 +370,7 @@ func TestOutputLogIoWriter_LargeWrite(t *testing.T) {
 }
 
 func TestOutputLogIoWriter_MultipleChunksViaChannel(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writer := NewOutputLogWriter(&buf, nil)
 

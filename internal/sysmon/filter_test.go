@@ -5,6 +5,7 @@ import (
 )
 
 func TestMatchesSearch(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		text     string
 		query    string

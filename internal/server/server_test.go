@@ -22,6 +22,7 @@ import (
 )
 
 func TestTemplateRendering(t *testing.T) {
+	t.Parallel()
 	// Create a temporary directory for state
 	stateDir := t.TempDir()
 
@@ -126,6 +127,7 @@ func TestTemplateRendering(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var buf bytes.Buffer
 			err := srv.tmpl.ExecuteTemplate(&buf, "hx-finished-processes-initial.html", map[string]interface{}{
 				"FinishedProcesses": tc.processes,
@@ -151,6 +153,7 @@ func TestTemplateRendering(t *testing.T) {
 }
 
 func TestFormatDuration(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	tests := []struct {
 		name     string
@@ -216,6 +219,7 @@ func TestFormatDuration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := formatDuration(tt.start, tt.end)
 			if result != tt.expected {
 				t.Errorf("Expected '%s', got '%s'", tt.expected, result)
@@ -225,6 +229,7 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestGetBasePath(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	srv, err := New(stateDir)
@@ -270,6 +275,7 @@ func TestGetBasePath(t *testing.T) {
 }
 
 func TestGetSessionToken(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	srv, err := New(stateDir)
@@ -314,6 +320,7 @@ func TestGetSessionToken(t *testing.T) {
 }
 
 func TestGetStateDir(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		stateDir string
@@ -342,6 +349,7 @@ func TestGetStateDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Clean up if using custom dir
 			if tt.stateDir != "" && tt.create {
 				defer func() {
@@ -367,6 +375,7 @@ func TestGetStateDir(t *testing.T) {
 }
 
 func TestAuthMiddleware(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	// Initialize auth
@@ -422,6 +431,7 @@ func TestAuthMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequest("GET", "/test", nil)
 			if tt.token != "" {
 				req.AddCookie(&http.Cookie{
@@ -449,6 +459,7 @@ func TestAuthMiddleware(t *testing.T) {
 }
 
 func TestHandleLogin(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	// Initialize auth
@@ -497,6 +508,7 @@ func TestHandleLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var req *http.Request
 			if tt.method == "POST" {
 				body := strings.NewReader("password=" + tt.password)
@@ -519,6 +531,7 @@ func TestHandleLogin(t *testing.T) {
 }
 
 func TestSetupRoutes(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	srv, err := New(stateDir)
@@ -534,6 +547,7 @@ func TestSetupRoutes(t *testing.T) {
 }
 
 func TestErrorPageRendering(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	srv, err := New(stateDir)
@@ -563,6 +577,7 @@ func TestErrorPageRendering(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			// Create a request to a non-existent workspace
 			req := httptest.NewRequest("GET", "/workspaces/nonexistent/hx-finished-processes", nil)
 			w := httptest.NewRecorder()
@@ -602,6 +617,7 @@ func TestErrorPageRendering(t *testing.T) {
 }
 
 func TestBinaryDownload(t *testing.T) {
+	t.Parallel()
 	// Create a temporary directory for state
 	stateDir := t.TempDir()
 
@@ -766,6 +782,7 @@ func TestBinaryDownload(t *testing.T) {
 }
 
 func TestServerLogCapture(t *testing.T) {
+	t.Parallel()
 	// Create a temporary directory for state
 	stateDir := t.TempDir()
 

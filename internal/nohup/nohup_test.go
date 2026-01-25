@@ -26,6 +26,7 @@ func contains(s, substr string) bool {
 }
 
 func TestNohupRun(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	// Initialize workspace storage
@@ -101,6 +102,7 @@ func TestNohupRun(t *testing.T) {
 }
 
 func TestNohupRunWithPreCommand(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage
@@ -129,6 +131,7 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 }
 
 func TestNohupRunWithFailingCommand(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage
@@ -167,6 +170,7 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 }
 
 func TestNohupRunWithWorkingDirectory(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a test file in tmpDir
@@ -202,6 +206,7 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 }
 
 func TestNohupRunWithStdinViaGoRun(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create process directory
@@ -278,6 +283,7 @@ echo "you entered: $foo"
 }
 
 func TestNohupSignalViaUnixSocket(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage
@@ -394,6 +400,7 @@ echo "Process completed naturally"
 }
 
 func TestNohupSignalViaUnixSocketNumeric(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage

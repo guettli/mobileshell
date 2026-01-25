@@ -6,6 +6,7 @@ import (
 )
 
 func TestDetector_Binary(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -45,6 +46,7 @@ func TestDetector_Binary(t *testing.T) {
 }
 
 func TestDetector_Text(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		lines []string
@@ -73,6 +75,7 @@ func TestDetector_Text(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := NewDetector()
 
 			// Feed many lines to trigger text detection
@@ -95,6 +98,7 @@ func TestDetector_Text(t *testing.T) {
 }
 
 func TestDetector_Fullscreen_AlternateBuffer(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		sequence string
@@ -115,6 +119,7 @@ func TestDetector_Fullscreen_AlternateBuffer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := NewDetector()
 			input := "Starting app" + tt.sequence + "content\n"
 			detected := d.AnalyzeLine(input)
@@ -135,6 +140,7 @@ func TestDetector_Fullscreen_AlternateBuffer(t *testing.T) {
 }
 
 func TestDetector_Fullscreen_ClearScreen(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		sequence string
@@ -155,6 +161,7 @@ func TestDetector_Fullscreen_ClearScreen(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := NewDetector()
 			input := "Starting" + tt.sequence + "\n"
 			detected := d.AnalyzeLine(input)
@@ -175,6 +182,7 @@ func TestDetector_Fullscreen_ClearScreen(t *testing.T) {
 }
 
 func TestDetector_Ink(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		lines []string
@@ -215,6 +223,7 @@ func TestDetector_Ink(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := NewDetector()
 
 			// Feed lines multiple times to reach detection threshold
@@ -245,6 +254,7 @@ func TestDetector_Ink(t *testing.T) {
 }
 
 func TestDetector_StopsAfterDetection(t *testing.T) {
+	t.Parallel()
 	d := NewDetector()
 
 	// Detect binary first
@@ -269,6 +279,7 @@ func TestDetector_StopsAfterDetection(t *testing.T) {
 }
 
 func TestDetector_EmptyInput(t *testing.T) {
+	t.Parallel()
 	d := NewDetector()
 	d.AnalyzeLine("")
 	d.AnalyzeLine("")
@@ -279,6 +290,7 @@ func TestDetector_EmptyInput(t *testing.T) {
 }
 
 func TestDetector_BufferLimit(t *testing.T) {
+	t.Parallel()
 	d := NewDetector()
 
 	// Create a large line that exceeds buffer size
@@ -296,6 +308,7 @@ func TestDetector_BufferLimit(t *testing.T) {
 }
 
 func TestDetector_LineCountLimit(t *testing.T) {
+	t.Parallel()
 	d := NewDetector()
 
 	// Feed exactly 50 lines of plain text
@@ -317,6 +330,7 @@ func TestDetector_LineCountLimit(t *testing.T) {
 }
 
 func TestDetector_SGRDetection(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		line      string
@@ -351,6 +365,7 @@ func TestDetector_SGRDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := containsSGR(tt.line)
 			if result != tt.shouldHit {
 				t.Errorf("containsSGR(%q) = %v, want %v", tt.line, result, tt.shouldHit)
@@ -360,6 +375,7 @@ func TestDetector_SGRDetection(t *testing.T) {
 }
 
 func TestDetector_CursorPositionDetection(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		line      string
@@ -394,6 +410,7 @@ func TestDetector_CursorPositionDetection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := containsCursorPosition(tt.line)
 			if result != tt.shouldHit {
 				t.Errorf("containsCursorPosition(%q) = %v, want %v", tt.line, result, tt.shouldHit)
@@ -403,6 +420,7 @@ func TestDetector_CursorPositionDetection(t *testing.T) {
 }
 
 func TestDetector_RealWorldExamples(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		lines        []string
@@ -456,6 +474,7 @@ func TestDetector_RealWorldExamples(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := NewDetector()
 
 			// Feed lines multiple times if needed to reach threshold
@@ -483,6 +502,7 @@ func TestDetector_RealWorldExamples(t *testing.T) {
 }
 
 func TestDetector_Markdown(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		lines []string
@@ -568,6 +588,7 @@ func TestDetector_Markdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := NewDetector()
 
 			// Feed lines until detection
@@ -605,6 +626,7 @@ func TestDetector_Markdown(t *testing.T) {
 }
 
 func TestDetector_MarkdownNotConfusedWithText(t *testing.T) {
+	t.Parallel()
 	// Test that plain text without markdown patterns is not detected as markdown
 	d := NewDetector()
 
@@ -630,6 +652,7 @@ func TestDetector_MarkdownNotConfusedWithText(t *testing.T) {
 }
 
 func TestDetector_MarkdownPriorityOverInk(t *testing.T) {
+	t.Parallel()
 	// Test that markdown takes priority over Ink detection
 	// Some output might contain both ANSI codes and markdown.
 	d := NewDetector()
@@ -672,6 +695,7 @@ func TestDetector_MarkdownPriorityOverInk(t *testing.T) {
 }
 
 func TestDetector_MarkdownEdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		lines        []string
@@ -709,6 +733,7 @@ func TestDetector_MarkdownEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := NewDetector()
 
 			// Feed lines multiple times to reach buffer limit

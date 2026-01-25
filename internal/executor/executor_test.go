@@ -15,6 +15,7 @@ import (
 )
 
 func TestInitExecutor(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	err := InitExecutor(tmpDir)
@@ -35,6 +36,7 @@ func TestInitExecutor(t *testing.T) {
 }
 
 func TestCreateWorkspace(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	err := InitExecutor(tmpDir)
@@ -63,6 +65,7 @@ func TestCreateWorkspace(t *testing.T) {
 }
 
 func TestGetWorkspaceByID(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	err := InitExecutor(tmpDir)
@@ -99,6 +102,7 @@ func TestGetWorkspaceByID(t *testing.T) {
 }
 
 func TestExecute(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	err := InitExecutor(tmpDir)
@@ -134,6 +138,7 @@ func TestExecute(t *testing.T) {
 }
 
 func TestListWorkspaceProcesses(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	err := InitExecutor(stateDir)
@@ -189,6 +194,7 @@ func TestListWorkspaceProcesses(t *testing.T) {
 }
 
 func TestGetProcess(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 
 	err := InitExecutor(stateDir)
@@ -224,6 +230,7 @@ func TestGetProcess(t *testing.T) {
 }
 
 func TestListWorkspaces(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	err := InitExecutor(tmpDir)
@@ -278,6 +285,7 @@ func TestListWorkspaces(t *testing.T) {
 }
 
 func TestReadCombinedOutput(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a test combined output file with new format
@@ -369,6 +377,7 @@ func TestReadCombinedOutput(t *testing.T) {
 }
 
 func TestNewlinePreservation(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create test content with new format that preserves newlines
@@ -445,6 +454,7 @@ func TestNewlinePreservation(t *testing.T) {
 }
 
 func TestReadCombinedOutputNewFormat(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create test content using the new format

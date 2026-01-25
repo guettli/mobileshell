@@ -12,6 +12,7 @@ import (
 )
 
 func TestReadToChunk_ValidFormat(t *testing.T) {
+	t.Parallel()
 	input := "stdout 2025-01-07T12:34:56.789Z 12: Hello world\n\n"
 	reader := bytes.NewReader([]byte(input))
 
@@ -29,6 +30,7 @@ func TestReadToChunk_ValidFormat(t *testing.T) {
 }
 
 func TestReadToChunk_NoTrailingNewline(t *testing.T) {
+	t.Parallel()
 	input := "stderr 2025-01-07T10:20:30Z 5: Error\n"
 	reader := bytes.NewReader([]byte(input))
 
@@ -43,6 +45,7 @@ func TestReadToChunk_NoTrailingNewline(t *testing.T) {
 }
 
 func TestReadToChunk_BinaryData(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 0, time.UTC)
 	chunk := Chunk{
 		Stream:    "stdout",
@@ -61,6 +64,7 @@ func TestReadToChunk_BinaryData(t *testing.T) {
 }
 
 func TestReadToChunk_EOF(t *testing.T) {
+	t.Parallel()
 	reader := bytes.NewReader([]byte{})
 
 	_, eof := readToChunk(reader)
@@ -69,6 +73,7 @@ func TestReadToChunk_EOF(t *testing.T) {
 }
 
 func TestReadToChunk_InvalidTimestamp(t *testing.T) {
+	t.Parallel()
 	input := "stdout invalid-timestamp 5: hello\n"
 	reader := bytes.NewReader([]byte(input))
 
@@ -79,6 +84,7 @@ func TestReadToChunk_InvalidTimestamp(t *testing.T) {
 }
 
 func TestReadToChunk_InvalidLength(t *testing.T) {
+	t.Parallel()
 	input := "stdout 2025-01-07T12:34:56Z notanumber: hello\n"
 	reader := bytes.NewReader([]byte(input))
 
@@ -89,6 +95,7 @@ func TestReadToChunk_InvalidLength(t *testing.T) {
 }
 
 func TestReadToChunk_MissingFinalNewline(t *testing.T) {
+	t.Parallel()
 	input := "stdout 2025-01-07T12:34:56Z 5: hello"
 	reader := bytes.NewReader([]byte(input))
 
@@ -99,6 +106,7 @@ func TestReadToChunk_MissingFinalNewline(t *testing.T) {
 }
 
 func TestChannelReader_SingleChunk(t *testing.T) {
+	t.Parallel()
 	channel := make(chan Chunk, 1)
 	channel <- Chunk{
 		Stream: "stdout",
@@ -125,6 +133,7 @@ func TestChannelReader_SingleChunk(t *testing.T) {
 }
 
 func TestChannelReader_FilterStream(t *testing.T) {
+	t.Parallel()
 	channel := make(chan Chunk, 3)
 	channel <- Chunk{Stream: "stdout", Line: []byte("out1\n")}
 	channel <- Chunk{Stream: "stderr", Line: []byte("err1\n")}
@@ -155,6 +164,7 @@ func TestChannelReader_FilterStream(t *testing.T) {
 }
 
 func TestChannelReader_SmallBuffer(t *testing.T) {
+	t.Parallel()
 	channel := make(chan Chunk, 1)
 	channel <- Chunk{
 		Stream: "stdout",
@@ -191,6 +201,7 @@ func TestChannelReader_SmallBuffer(t *testing.T) {
 }
 
 func TestOutputLogIoReader_RoundTrip(t *testing.T) {
+	t.Parallel()
 	// Create some chunks and format them
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
 	timestamp2 := time.Date(2025, 1, 7, 12, 0, 1, 0, time.UTC)
@@ -234,6 +245,7 @@ func TestOutputLogIoReader_RoundTrip(t *testing.T) {
 }
 
 func TestOutputLogIoReader_StreamReader(t *testing.T) {
+	t.Parallel()
 	// Create mixed stdout/stderr content
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
 	timestamp2 := time.Date(2025, 1, 7, 12, 0, 1, 0, time.UTC)
@@ -263,6 +275,7 @@ func TestOutputLogIoReader_StreamReader(t *testing.T) {
 }
 
 func TestOutputLogIoReader_StreamReader_Stderr(t *testing.T) {
+	t.Parallel()
 	// Create mixed stdout/stderr content
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
 	timestamp2 := time.Date(2025, 1, 7, 12, 0, 1, 0, time.UTC)
@@ -292,6 +305,7 @@ func TestOutputLogIoReader_StreamReader_Stderr(t *testing.T) {
 }
 
 func TestReadToChunk_LargeBinaryData(t *testing.T) {
+	t.Parallel()
 	timestamp := time.Date(2025, 1, 7, 12, 34, 56, 0, time.UTC)
 
 	binaryData := allBytes()
@@ -313,6 +327,7 @@ func TestReadToChunk_LargeBinaryData(t *testing.T) {
 }
 
 func TestOutputLogIoReader_BinaryDataRoundTrip(t *testing.T) {
+	t.Parallel()
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
 	timestamp2 := time.Date(2025, 1, 7, 12, 0, 1, 0, time.UTC)
 
@@ -342,6 +357,7 @@ func TestOutputLogIoReader_BinaryDataRoundTrip(t *testing.T) {
 }
 
 func TestOutputLogIoReader_All_MixedStreams(t *testing.T) {
+	t.Parallel()
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
 	timestamp2 := time.Date(2025, 1, 7, 12, 0, 1, 0, time.UTC)
 	timestamp3 := time.Date(2025, 1, 7, 12, 0, 2, 0, time.UTC)
@@ -369,6 +385,7 @@ func TestOutputLogIoReader_All_MixedStreams(t *testing.T) {
 }
 
 func TestOutputLogIoReader_All_SingleStream(t *testing.T) {
+	t.Parallel()
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
 	timestamp2 := time.Date(2025, 1, 7, 12, 0, 1, 0, time.UTC)
 
@@ -389,6 +406,7 @@ func TestOutputLogIoReader_All_SingleStream(t *testing.T) {
 }
 
 func TestOutputLogIoReader_All_Empty(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 
 	logReader, err := NewOutputLogReader(&buf)
@@ -400,6 +418,7 @@ func TestOutputLogIoReader_All_Empty(t *testing.T) {
 }
 
 func TestOutputLogIoReader_All_BinaryData(t *testing.T) {
+	t.Parallel()
 	timestamp1 := time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC)
 	timestamp2 := time.Date(2025, 1, 7, 12, 0, 1, 0, time.UTC)
 

@@ -9,6 +9,7 @@ import (
 )
 
 func TestReadFileNonExistent(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "test.txt")
 
@@ -31,12 +32,13 @@ func TestReadFileNonExistent(t *testing.T) {
 }
 
 func TestReadFileExisting(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "test.txt")
 	content := "Hello, World!"
 
 	// Create test file
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -56,6 +58,7 @@ func TestReadFileExisting(t *testing.T) {
 }
 
 func TestWriteFileNewFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "newdir", "test.txt")
 	content := "New file content"
@@ -97,6 +100,7 @@ func TestWriteFileNewFile(t *testing.T) {
 }
 
 func TestWriteFileShebang(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "script.sh")
 	content := "#!/bin/bash\necho 'Hello'"
@@ -122,7 +126,7 @@ func TestWriteFileShebang(t *testing.T) {
 	}
 
 	mode := info.Mode()
-	if mode&0111 == 0 {
+	if mode&0o111 == 0 {
 		t.Errorf("Expected file to be executable, got mode: %v", mode)
 	}
 
@@ -132,6 +136,7 @@ func TestWriteFileShebang(t *testing.T) {
 }
 
 func TestWriteFileConflictDetection(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "test.txt")
 	originalContent := "Original content"
@@ -139,7 +144,7 @@ func TestWriteFileConflictDetection(t *testing.T) {
 	userContent := "User's modified content"
 
 	// Create original file
-	if err := os.WriteFile(filePath, []byte(originalContent), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(originalContent), 0o644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -150,7 +155,7 @@ func TestWriteFileConflictDetection(t *testing.T) {
 	}
 
 	// Simulate external modification
-	if err := os.WriteFile(filePath, []byte(externalContent), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(externalContent), 0o644); err != nil {
 		t.Fatalf("Failed to modify file externally: %v", err)
 	}
 
@@ -188,13 +193,14 @@ func TestWriteFileConflictDetection(t *testing.T) {
 }
 
 func TestWriteFileNoConflict(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "test.txt")
 	originalContent := "Original content"
 	newContent := "New content"
 
 	// Create original file
-	if err := os.WriteFile(filePath, []byte(originalContent), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(originalContent), 0o644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -235,6 +241,7 @@ func TestWriteFileNoConflict(t *testing.T) {
 }
 
 func TestGenerateDiff(t *testing.T) {
+	t.Parallel()
 	original := "line1\nline2\nline3"
 	current := "line1\nmodified line2\nline3"
 
@@ -250,6 +257,7 @@ func TestGenerateDiff(t *testing.T) {
 }
 
 func TestGenerateDiffIdentical(t *testing.T) {
+	t.Parallel()
 	content := "line1\nline2\nline3"
 	diff := GenerateDiff(content, content)
 
@@ -259,6 +267,7 @@ func TestGenerateDiffIdentical(t *testing.T) {
 }
 
 func TestCalculateChecksum(t *testing.T) {
+	t.Parallel()
 	content := "test content"
 	checksum1 := calculateChecksum(content)
 	checksum2 := calculateChecksum(content)
@@ -276,6 +285,7 @@ func TestCalculateChecksum(t *testing.T) {
 }
 
 func TestSearchFilesPatternTransformation(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create test files
@@ -289,18 +299,18 @@ func TestSearchFilesPatternTransformation(t *testing.T) {
 
 	for _, file := range testFiles {
 		fullPath := filepath.Join(tmpDir, file)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
-		if err := os.WriteFile(fullPath, []byte("content"), 0644); err != nil {
+		if err := os.WriteFile(fullPath, []byte("content"), 0o644); err != nil {
 			t.Fatalf("Failed to create test file %s: %v", file, err)
 		}
 	}
 
 	tests := []struct {
-		name          string
-		pattern       string
-		shouldMatch   []string
+		name           string
+		pattern        string
+		shouldMatch    []string
 		shouldNotMatch []string
 	}{
 		{
@@ -373,6 +383,7 @@ func TestSearchFilesPatternTransformation(t *testing.T) {
 }
 
 func TestSearchFilesSimplePattern(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create test files
@@ -385,7 +396,7 @@ func TestSearchFilesSimplePattern(t *testing.T) {
 
 	for _, name := range testFiles {
 		path := filepath.Join(tmpDir, name)
-		if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
 			t.Fatalf("Failed to create test file %s: %v", name, err)
 		}
 	}
@@ -417,16 +428,17 @@ func TestSearchFilesSimplePattern(t *testing.T) {
 }
 
 func TestSearchFilesRecursivePattern(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create nested directory structure
 	subdir := filepath.Join(tmpDir, "subdir")
-	if err := os.MkdirAll(subdir, 0755); err != nil {
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
 		t.Fatalf("Failed to create subdir: %v", err)
 	}
 
 	deepDir := filepath.Join(tmpDir, "deep", "nested")
-	if err := os.MkdirAll(deepDir, 0755); err != nil {
+	if err := os.MkdirAll(deepDir, 0o755); err != nil {
 		t.Fatalf("Failed to create deep dir: %v", err)
 	}
 
@@ -446,11 +458,11 @@ func TestSearchFilesRecursivePattern(t *testing.T) {
 		}
 
 		// Create parent directory if needed
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("Failed to create parent dir: %v", err)
 		}
 
-		if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
 			t.Fatalf("Failed to create file %s: %v", path, err)
 		}
 	}
@@ -474,12 +486,13 @@ func TestSearchFilesRecursivePattern(t *testing.T) {
 }
 
 func TestSearchFilesMaxResults(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create more files than maxResults
 	for i := 0; i < 15; i++ {
 		path := filepath.Join(tmpDir, strings.Repeat("file", i)+".txt")
-		if err := os.WriteFile(path, []byte("content"), 0644); err != nil {
+		if err := os.WriteFile(path, []byte("content"), 0o644); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 	}
@@ -504,6 +517,7 @@ func TestSearchFilesMaxResults(t *testing.T) {
 }
 
 func TestSearchFilesEmptyPattern(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	result, err := SearchFiles(context.Background(), tmpDir, "", 10)
@@ -517,10 +531,11 @@ func TestSearchFilesEmptyPattern(t *testing.T) {
 }
 
 func TestSearchFilesNoMatches(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create some files
-	if err := os.WriteFile(filepath.Join(tmpDir, "test.go"), []byte("content"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "test.go"), []byte("content"), 0o644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 

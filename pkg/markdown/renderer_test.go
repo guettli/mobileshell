@@ -6,6 +6,7 @@ import (
 )
 
 func TestRenderToHTML_BasicMarkdown(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -57,6 +58,7 @@ func TestRenderToHTML_BasicMarkdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := RenderToHTML(tt.input)
 
 			for _, expected := range tt.contains {
@@ -69,6 +71,7 @@ func TestRenderToHTML_BasicMarkdown(t *testing.T) {
 }
 
 func TestRenderToHTML_XSSPrevention(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		input       string
@@ -115,6 +118,7 @@ func TestRenderToHTML_XSSPrevention(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := RenderToHTML(tt.input)
 
 			if strings.Contains(result, tt.shouldBlock) {
@@ -126,6 +130,7 @@ func TestRenderToHTML_XSSPrevention(t *testing.T) {
 }
 
 func TestRenderToHTML_EdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -150,6 +155,7 @@ func TestRenderToHTML_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := RenderToHTML(tt.input)
 			result = strings.TrimSpace(result)
 
@@ -165,6 +171,7 @@ func TestRenderToHTML_EdgeCases(t *testing.T) {
 }
 
 func TestRenderToHTML_ComplexMarkdown(t *testing.T) {
+	t.Parallel()
 	input := `# My Document
 
 This is a **complex** document with *multiple* features.
@@ -216,6 +223,7 @@ And some normal text.`
 }
 
 func TestRenderToHTML_TableSupport(t *testing.T) {
+	t.Parallel()
 	input := `| Column 1 | Column 2 |
 |----------|----------|
 | Value 1  | Value 2  |

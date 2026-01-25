@@ -15,6 +15,7 @@ import (
 // TestColorOutput verifies that ANSI color codes work with PTY
 // Many commands detect TTY and only output colors when connected to a terminal
 func TestColorOutput(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Initialize workspace storage
