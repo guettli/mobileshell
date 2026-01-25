@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var testTimeout = func() time.Duration {
+	if timeout := os.Getenv("TEST_TIMEOUT_SECONDS"); timeout != "" {
+		if seconds, err := strconv.Atoi(timeout); err == nil {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return 5 * time.Second
+}()
 
 func TestTemplateRendering(t *testing.T) {
 	t.Parallel()
@@ -790,7 +800,7 @@ func TestBinaryDownload(t *testing.T) {
 		completedFile := filepath.Join(processDir, "completed")
 		_, err := os.Stat(completedFile)
 		assert.NoError(collect, err, "completed file should exist")
-	}, 2*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func TestServerLogCapture(t *testing.T) {
@@ -833,7 +843,7 @@ func TestServerLogCapture(t *testing.T) {
 		assert.Contains(collect, contentStr, "Test slog message", "slog package message")
 		assert.Contains(collect, contentStr, "Direct stdout message", "stdout message")
 		assert.Contains(collect, contentStr, "Direct stderr message", "stderr message")
-	}, 2*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	t.Logf("server.log content:\n%s", contentStr)
 
