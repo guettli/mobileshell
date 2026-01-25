@@ -67,16 +67,13 @@ func TestNohupRun(t *testing.T) {
 		exitStatusFile = filepath.Join(processDir, "exit-status")
 		_, err = os.Stat(exitStatusFile)
 		assert.NoError(collect, err)
+		// Read exit status
+		exitStatusData, err := os.ReadFile(exitStatusFile)
+		assert.NoError(collect, err)
+		exitCode, err := strconv.Atoi(string(exitStatusData))
+		assert.NoError(collect, err)
+		assert.Equal(collect, 0, exitCode)
 	}, testTimeout, 100*time.Millisecond)
-
-	// Read exit status
-	exitStatusData, err := os.ReadFile(exitStatusFile)
-	require.NoError(t, err)
-	exitCode, err := strconv.Atoi(string(exitStatusData))
-	require.NoError(t, err)
-	if exitCode != 0 {
-		t.Errorf("Expected exit code 0, got %d", exitCode)
-	}
 
 	// Verify output.log contains expected output with STDOUT prefix
 	outputFile := filepath.Join(processDir, "output.log")
@@ -89,13 +86,12 @@ func TestNohupRun(t *testing.T) {
 		t.Errorf("Expected output to contain 'stdout' and 'Hello, World!', got '%s'", output)
 	}
 
-	// Verify process metadata was updated
-	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
-	require.NoError(t, err)
-
-	if !proc.Completed {
-		t.Error("Expected process to be completed")
-	}
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		// Verify process metadata was updated
+		proc, err = process.LoadProcessFromDir(proc.ProcessDir)
+		assert.NoError(collect, err)
+		assert.True(collect, proc.Completed)
+	}, testTimeout, 100*time.Millisecond)
 
 	if proc.ExitCode != 0 {
 		t.Errorf("Expected exit code 0, got %d", proc.ExitCode)
