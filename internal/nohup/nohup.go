@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -172,9 +173,14 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 	detector := outputtype.NewDetector()
 	var detectedWritten atomic.Int32
 
+	// WaitGroup to ensure stdout/stderr goroutines finish before closing writer
+	var streamWg sync.WaitGroup
+
 	// Copy stdout from PTY to output log with type detection
 	stdoutWriter := outputLogWriter.StreamWriter("stdout")
+	streamWg.Add(1)
 	go func() {
+		defer streamWg.Done()
 		// Use a buffered reader to scan lines
 		reader := bufio.NewReader(ptmx)
 		for {
@@ -210,7 +216,9 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 
 	// Copy stderr from pipe to output log
 	stderrWriter := outputLogWriter.StreamWriter("stderr")
+	streamWg.Add(1)
 	go func() {
+		defer streamWg.Done()
 		_, err := io.Copy(stderrWriter, stderrPipe)
 		if err != nil {
 			slog.Error("io.Copy(stderrWriter, stderrPipe)", "error", err)
@@ -228,6 +236,8 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 		}
 	}
 
+	// Wait for stdout/stderr goroutines to finish before closing the writer
+	streamWg.Wait()
 	outputLogWriter.Close()
 
 	// Write output type detection results if not already written

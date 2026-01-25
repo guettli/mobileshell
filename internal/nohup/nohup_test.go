@@ -125,7 +125,7 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 
 		output := string(outputData)
 		if !contains(output, "stdout") || !contains(output, "hello") {
-			assert.Fail(collect, "Expected output to contain 'stdout' and 'hello', got '%s'", output)
+			assert.Failf(collect, "Expected output to contain 'stdout' and 'hello'", "got: %s", output)
 		}
 	}, time.Second, 10*time.Millisecond)
 }

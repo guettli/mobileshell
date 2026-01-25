@@ -31,7 +31,8 @@ func TestColorOutput(t *testing.T) {
 
 	// Use printf to output ANSI color codes
 	// Many tools like ls --color=auto check isatty() and only output colors with a TTY
-	proc, err := executor.Execute(ws, "printf '\\033[31mRED TEXT\\033[0m\\n'")
+	// Use $'...' syntax to enable escape sequences in bash
+	proc, err := executor.Execute(ws, "printf $'\\033[31mRED TEXT\\033[0m\\n'")
 	if err != nil {
 		t.Fatalf("Failed to create process: %v", err)
 	}
