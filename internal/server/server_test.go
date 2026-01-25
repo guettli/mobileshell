@@ -797,18 +797,16 @@ func TestServerLogCapture(t *testing.T) {
 	t.Parallel()
 	// Create a temporary directory for state
 	stateDir := t.TempDir()
+	logPath := filepath.Join(stateDir, "server.log")
 
 	// Set up server logging
-	logFile, err := setupServerLog(stateDir)
+	logHandle, err := setupServerLog(stateDir)
 	if err != nil {
 		t.Fatalf("Failed to setup server log: %v", err)
 	}
 	defer func() {
-		// Wait for the io.Copy goroutines in setupServerLog to finish
-		// After the test completes, give extra time for goroutines to finish
-		time.Sleep(100 * time.Millisecond)
-
-		if err := logFile.Close(); err != nil {
+		// Close automatically waits for io.Copy goroutines to finish
+		if err := logHandle.Close(); err != nil {
 			t.Errorf("Failed to close log file: %v", err)
 		}
 	}()
@@ -824,7 +822,6 @@ func TestServerLogCapture(t *testing.T) {
 	_, _ = fmt.Fprintln(os.Stderr, "Direct stderr message")
 
 	// Wait for all messages to be written to the log file
-	logPath := filepath.Join(stateDir, "server.log")
 	var contentStr string
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		content, err := os.ReadFile(logPath)

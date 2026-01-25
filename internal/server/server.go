@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -1742,10 +1743,58 @@ func GetStateDir(stateDir string, createIfMissing bool) (string, error) {
 	return stateDir, nil
 }
 
+// LogFileHandle wraps a log file and its associated goroutines
+type LogFileHandle struct {
+	file         *os.File
+	wg           *sync.WaitGroup
+	stdoutWriter *os.File
+	stderrWriter *os.File
+	origStdoutFD int
+	origStderrFD int
+}
+
+// Close restores original stdout/stderr, waits for goroutines to finish, then closes the file
+func (h *LogFileHandle) Close() error {
+	// Restore original stdout/stderr by duplicating the saved FDs back
+	// This causes the pipes to receive EOF
+	_ = syscall.Dup2(h.origStdoutFD, int(os.Stdout.Fd()))
+	_ = syscall.Dup2(h.origStderrFD, int(os.Stderr.Fd()))
+
+	// Close the pipe writers to signal EOF to the goroutines
+	_ = h.stdoutWriter.Close()
+	_ = h.stderrWriter.Close()
+
+	// Now wait for goroutines to finish reading
+	// Use a channel to signal completion
+	done := make(chan struct{})
+	go func() {
+		h.wg.Wait()
+		close(done)
+	}()
+
+	// Wait with a timeout of 2 seconds
+	select {
+	case <-done:
+		// Goroutines finished
+	case <-time.After(2 * time.Second):
+		// Timeout - this shouldn't happen now that we closed the pipes
+		slog.Warn("Timeout waiting for log goroutines to finish")
+	}
+
+	// Close the saved FDs
+	_ = syscall.Close(h.origStdoutFD)
+	_ = syscall.Close(h.origStderrFD)
+
+	// Sync the file to ensure all pending writes are flushed
+	_ = h.file.Sync()
+
+	return h.file.Close()
+}
+
 // setupServerLog redirects stdout/stderr to both their original destinations and server.log file
 // Uses syscall-level file descriptor duplication to ensure all output is captured
-// Returns the log file handle (to be closed by caller) and any error
-func setupServerLog(stateDir string) (*os.File, error) {
+// Returns a LogFileHandle (to be closed by caller) and any error
+func setupServerLog(stateDir string) (*LogFileHandle, error) {
 	logPath := filepath.Join(stateDir, "server.log")
 
 	// Open log file in append mode with create flag
@@ -1816,25 +1865,35 @@ func setupServerLog(stateDir string) (*os.File, error) {
 		return nil, fmt.Errorf("failed to dup2 stderr: %w", err)
 	}
 
+	// Create WaitGroup to track goroutines
+	var wg sync.WaitGroup
+
 	// Start goroutine to tee stdout
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		mw := io.MultiWriter(origStdout, logFile)
-		if _, err := io.Copy(mw, stdoutReader); err != nil {
-			slog.Error("Failed to copy stdout", "error", err)
-		}
+		_, _ = io.Copy(mw, stdoutReader) // errors are expected when pipes close
 		_ = origStdout.Close()
 	}()
 
 	// Start goroutine to tee stderr
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		mw := io.MultiWriter(origStderr, logFile)
-		if _, err := io.Copy(mw, stderrReader); err != nil {
-			slog.Error("Failed to copy stderr", "error", err)
-		}
+		_, _ = io.Copy(mw, stderrReader) // errors are expected when pipes close
 		_ = origStderr.Close()
 	}()
 
-	return logFile, nil
+	return &LogFileHandle{
+		file:         logFile,
+		wg:           &wg,
+		stdoutWriter: stdoutWriter,
+		stderrWriter: stderrWriter,
+		origStdoutFD: origStdoutFD,
+		origStderrFD: origStderrFD,
+	}, nil
 }
 
 // Run starts the server with the given configuration
