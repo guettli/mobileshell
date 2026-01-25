@@ -62,7 +62,7 @@ function validateHTML(html, context = '') {
     const startLine = Math.max(0, lineNum - 8); // lineNum is 1-based, array is 0-based
     const endLine = Math.min(lines.length, lineNum + 7);
     const contextLines = [];
-    
+
     for (let i = startLine; i < endLine; i++) {
       const currentLineNum = i + 1;
       const lineContent = lines[i];
@@ -1121,6 +1121,47 @@ async function testFileEditorDoubleSave() {
   console.log(`✓ ${testName} passed`);
 }
 
+async function testServerLog() {
+  const testName = 'Test 11: Server log';
+  const testID = 'test-11-server-log';
+  console.log(`\n=== ${testName} ===`);
+
+  const sessionCookie = await login();
+
+  // Request the server log page
+  const serverLogResponse = await request('GET', '/server-log', {
+    headers: {
+      Cookie: sessionCookie,
+    },
+    testID,
+  });
+
+  assert.equal(serverLogResponse.status, 200, 'Should load server log page');
+  const doc = parseHTML(serverLogResponse.text, 'GET /server-log');
+
+  // Check basic page structure
+  assert.ok(doc.querySelector('title'), 'Should have a title element');
+
+  // The page should use file-view.html template, check for key elements
+  const content = doc.querySelector('.file-content');
+  assert.ok(content, 'Should have file-content div');
+
+  // Check for navigation elements
+  const nav = doc.querySelector('nav') || doc.querySelector('.navbar');
+  assert.ok(nav, 'Should have navigation');
+
+  // Check that it contains log content or placeholder message
+  const pageText = doc.body.textContent;
+  const hasLogContent = pageText.includes('INFO') ||
+                        pageText.includes('ERROR') ||
+                        pageText.includes('Server log file does not exist yet');
+  assert.ok(hasLogContent, 'Should display log content or placeholder message');
+
+  console.log('✓ Server log page loads correctly');
+  console.log('✓ Page has proper structure');
+  console.log(`✓ ${testName} passed`);
+}
+
 // Helper to extract logs for a specific test ID
 async function extractTestLogs(testID) {
   if (!SERVER_LOG) {
@@ -1183,6 +1224,7 @@ async function runTests() {
       runTestWithLogging(testInteractiveTerminal, 'Test 8: Interactive Terminal', 'test-8-interactive-terminal'),
       runTestWithLogging(testRerunCommand, 'Test 9: Rerun command', 'test-9-rerun-command'),
       runTestWithLogging(testFileEditorDoubleSave, 'Test 10: File editor double save', 'test-10-file-editor-double-save'),
+      runTestWithLogging(testServerLog, 'Test 11: Server log', 'test-11-server-log'),
     ]);
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);

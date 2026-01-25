@@ -222,7 +222,7 @@
             }
         });
 
-        {{if .CurrentWorkspace}}
+        { { if .CurrentWorkspace} }
         // Process updates using WebSocket
         (function () {
             const workspaceID = '{{.CurrentWorkspace.ID}}';
@@ -385,7 +385,7 @@
                 connectWS();
             };
         })();
-        {{end}}
+        { { end } }
     </script>
 
     <script src="{{.BasePath}}/static/static/url-links.js"></script>

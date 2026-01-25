@@ -1,5 +1,7 @@
 # Later
 
+- provide a way to send a signal here, too: <http://localhost:22123/workspaces/fooob/processes/f9134b00eba33574>
+- show all streams in process detail view.
 - double check every time.Sleep
 - prepareProcessOutput: show all streams in html. Even unknown.
 - Fix, OUTPUT_LOG_FORMAT.md does no longer exist.
