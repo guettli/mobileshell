@@ -128,6 +128,17 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 			assert.Failf(collect, "Expected output to contain 'stdout' and 'hello'", "got: %s", output)
 		}
 	}, time.Second, 10*time.Millisecond)
+
+	// Wait for the process to complete to avoid cleanup issues
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		completedFile := filepath.Join(proc.ProcessDir, "completed")
+		data, err := os.ReadFile(completedFile)
+		if err != nil {
+			assert.Fail(collect, "completed file not found yet")
+			return
+		}
+		assert.Equal(collect, "true", string(data))
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestNohupRunWithFailingCommand(t *testing.T) {
@@ -203,6 +214,17 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 		assert.Equal(collect, "", stderr)
 		assert.Equal(collect, "", stdin)
 	}, time.Second, 10*time.Millisecond)
+
+	// Wait for the process to complete to avoid cleanup issues
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		completedFile := filepath.Join(proc.ProcessDir, "completed")
+		data, err := os.ReadFile(completedFile)
+		if err != nil {
+			assert.Fail(collect, "completed file not found yet")
+			return
+		}
+		assert.Equal(collect, "true", string(data))
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestNohupRunWithStdinViaGoRun(t *testing.T) {

@@ -1,6 +1,8 @@
 package nohup
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -42,5 +44,16 @@ func TestColorOutput(t *testing.T) {
 		stdout := string(stdoutBytes)
 		assert.NoError(collect, err)
 		assert.Contains(collect, stdout, "\033[31m")
-	}, time.Second, 50*time.Millisecond)
+	}, time.Second, 10*time.Millisecond)
+
+	// Wait for the process to complete to avoid cleanup issues
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		completedFile := filepath.Join(proc.ProcessDir, "completed")
+		data, err := os.ReadFile(completedFile)
+		if err != nil {
+			assert.Fail(collect, "completed file not found yet")
+			return
+		}
+		assert.Equal(collect, "true", string(data))
+	}, 2*time.Second, 10*time.Millisecond)
 }
