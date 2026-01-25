@@ -155,6 +155,7 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 			}
 			if hxre, ok := err.(*hxRedirectError); ok {
 				w.Header().Set("HX-Redirect", hxre.url)
+				w.WriteHeader(http.StatusOK)
 				return
 			}
 			if cte, ok := err.(*contentTypeError); ok {
