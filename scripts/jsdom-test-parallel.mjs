@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { strict as assert } from 'assert';
+import fs from 'fs';
 import { JSDOM } from 'jsdom';
+import path from 'path';
 
 // Get server URL from environment
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:22123';
@@ -37,8 +39,74 @@ async function request(method, path, options = {}) {
   };
 }
 
+// Helper to validate HTML for common issues
+function validateHTML(html, context = '') {
+  // Check for malformed Go template syntax that made it to HTML
+  // Pattern: "{ {" or "} }" with exactly one space between braces (template delimiter typo)
+  // We need to be careful not to match legitimate JavaScript like "}\n}"
+  // So we look for exactly one space, not multiple spaces or newlines
+  const malformedTemplateRegex = /\{\s{1}\{|\}\s{1}\}/;
+  const match = html.match(malformedTemplateRegex);
+  if (match) {
+    const lines = html.split('\n');
+    const lineNum = html.substring(0, html.indexOf(match[0])).split('\n').length;
+    const contextLine = lines[lineNum - 1];
+
+    // Write HTML to file for inspection
+    const tmpDir = process.env.TMPDIR || '/tmp';
+    const timestamp = new Date().toISOString().replace(/:/g, '-');
+    const sanitizedContext = context.replace(/[^a-zA-Z0-9-]/g, '_');
+    const filePath = path.join(tmpDir, `invalid-html-${sanitizedContext}-${timestamp}.html`);
+    fs.writeFileSync(filePath, html, 'utf-8');
+
+    throw new Error(
+      `Malformed template syntax found in HTML${context ? ` (${context})` : ''}: "${match[0]}" at line ${lineNum}\n` +
+      `Context: ${contextLine.trim()}\n` +
+      `Full HTML written to: ${filePath}`
+    );
+  }
+
+  // Check for basic HTML structure (only for full pages, not snippets)
+  if (html.includes('<!DOCTYPE') || html.includes('<html')) {
+    if (!html.includes('<html')) {
+      throw new Error(`Missing <html> tag in HTML${context ? ` (${context})` : ''}`);
+    }
+    if (!html.includes('<head')) {
+      throw new Error(`Missing <head> tag in HTML${context ? ` (${context})` : ''}`);
+    }
+    if (!html.includes('<body')) {
+      throw new Error(`Missing <body> tag in HTML${context ? ` (${context})` : ''}`);
+    }
+  }
+
+  // Check for balanced script tags
+  const scriptOpen = (html.match(/<script/g) || []).length;
+  const scriptClose = (html.match(/<\/script>/g) || []).length;
+  if (scriptOpen !== scriptClose) {
+    throw new Error(
+      `Mismatched script tags in HTML${context ? ` (${context})` : ''}: ` +
+      `${scriptOpen} opening tags but ${scriptClose} closing tags`
+    );
+  }
+
+  // Check for balanced div tags (only if we have full page)
+  if (html.includes('<!DOCTYPE') || html.includes('<html')) {
+    const divOpen = (html.match(/<div/g) || []).length;
+    const divClose = (html.match(/<\/div>/g) || []).length;
+    if (divOpen !== divClose) {
+      console.warn(
+        `Warning: Potentially mismatched div tags in HTML${context ? ` (${context})` : ''}: ` +
+        `${divOpen} opening tags but ${divClose} closing tags`
+      );
+    }
+  }
+}
+
 // Helper to parse HTML and check for HTMX attributes
-function parseHTML(html) {
+function parseHTML(html, context = '') {
+  // Validate HTML before parsing
+  validateHTML(html, context);
+
   const dom = new JSDOM(html, {
     url: SERVER_URL,
   });
@@ -102,7 +170,7 @@ async function testWorkspacesAndHTMX() {
   assert.ok(workspacesResponse.text.includes('hx-post'), 'Page should contain HTMX attributes');
 
   // Verify HTMX attributes in HTML
-  const doc = parseHTML(workspacesResponse.text);
+  const doc = parseHTML(workspacesResponse.text, 'GET /workspaces');
   const createForm = doc.querySelector('[hx-post*="hx-create"]');
   assert.ok(createForm, 'Should have workspace creation form with hx-post');
 
@@ -297,7 +365,7 @@ async function testPerProcessPages() {
   assert.ok(runningUpdate.html, 'Running process should have HTML');
 
   // Parse the HTML to find the badge link
-  const runningDoc = parseHTML(runningUpdate.html);
+  const runningDoc = parseHTML(runningUpdate.html, 'running processes update');
   const runningBadgeLink = runningDoc.querySelector('a[href*="/processes/"] .badge.bg-primary');
   assert.ok(runningBadgeLink, 'Running process badge should be inside a link');
 
@@ -461,7 +529,7 @@ async function testWorkspaceEditing() {
   assert.ok(editPageResponse.text.includes('Edit Workspace'), 'Page should have "Edit Workspace" title');
 
   // Parse the edit page to verify form fields
-  const editPageDoc = parseHTML(editPageResponse.text);
+  const editPageDoc = parseHTML(editPageResponse.text, 'workspace edit page');
   const nameInput = editPageDoc.querySelector('input[name="name"]');
   const directoryInput = editPageDoc.querySelector('input[name="directory"]');
   const preCommandInput = editPageDoc.querySelector('textarea[name="pre_command"]');
@@ -701,7 +769,7 @@ async function testInteractiveTerminal() {
   assert.ok(terminalPageResponse.text.includes('bash'), 'Page should show bash command');
 
   // Parse the page to find the WebSocket URL
-  const terminalDoc = parseHTML(terminalPageResponse.text);
+  const terminalDoc = parseHTML(terminalPageResponse.text, 'terminal page');
   const scriptContent = terminalPageResponse.text;
   const wsUrlMatch = scriptContent.match(/ws-terminal/);
   assert.ok(wsUrlMatch, 'Should have WebSocket terminal endpoint in script');
@@ -883,7 +951,7 @@ async function testRerunCommand() {
   console.log('✓ First command completed and appears in finished processes');
 
   // Parse the finished processes HTML to find the rerun button
-  const finishedDoc = parseHTML(finishedProcessHtml);
+  const finishedDoc = parseHTML(finishedProcessHtml, 'finished process');
   const rerunForm = finishedDoc.querySelector(`form[hx-post*="hx-execute"]`);
   assert.ok(rerunForm, 'Should have rerun form in finished processes');
 
@@ -989,7 +1057,7 @@ async function testFileEditorDoubleSave() {
   });
 
   assert.equal(readResponse.status, 200, 'Should read file for editing');
-  const readDoc = parseHTML(readResponse.text);
+  const readDoc = parseHTML(readResponse.text, 'file read');
   const originalChecksumInput = readDoc.querySelector('#original_checksum');
   assert.ok(originalChecksumInput, 'Should have original_checksum hidden field');
   const originalChecksum = originalChecksumInput.value;
@@ -1010,7 +1078,7 @@ async function testFileEditorDoubleSave() {
 
   // Extract the new checksum from the success response
   // The response should include the new checksum in an out-of-band swap element
-  const firstSaveDoc = parseHTML(firstSaveResponse.text);
+  const firstSaveDoc = parseHTML(firstSaveResponse.text, 'file save');
   const updatedChecksumInput = firstSaveDoc.querySelector('#original_checksum');
   assert.ok(updatedChecksumInput, 'Should have updated checksum in response');
   const newChecksum = updatedChecksumInput.value;

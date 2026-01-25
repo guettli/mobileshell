@@ -7,6 +7,7 @@ set -Eeuo pipefail
 # - shuffle: randomize test execution order
 # - rr --chaos: add scheduling chaos via rr record-and-replay
 # - GODEBUG=asyncpreemptoff=1: disable Go's SIGURG (fixes rr incompatibility)
+# Note: --chaos may occasionally crash on SIGCHLD from subprocesses, but it's worth the tradeoff
 
 # Verify rr is installed
 if ! command -v rr &>/dev/null; then

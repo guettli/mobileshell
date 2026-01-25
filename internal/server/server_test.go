@@ -40,7 +40,7 @@ func TestTemplateRendering(t *testing.T) {
 	stateDir := t.TempDir()
 
 	// Create server instance
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestGetBasePath(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
 
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestGetSessionToken(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
 
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestAuthMiddleware(t *testing.T) {
 		t.Fatalf("Failed to init auth: %v", err)
 	}
 
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -481,7 +481,7 @@ func TestHandleLogin(t *testing.T) {
 		t.Fatalf("Failed to init auth: %v", err)
 	}
 
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -547,7 +547,7 @@ func TestSetupRoutes(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
 
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -563,7 +563,7 @@ func TestErrorPageRendering(t *testing.T) {
 	t.Parallel()
 	stateDir := t.TempDir()
 
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -693,7 +693,7 @@ func TestBinaryDownload(t *testing.T) {
 	}
 
 	// Create server instance
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, true)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

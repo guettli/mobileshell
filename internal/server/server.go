@@ -39,6 +39,7 @@ import (
 	"mobileshell/pkg/outputtype"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/net/html"
 )
 
 //go:embed templates/*
@@ -48,12 +49,13 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	stateDir string
-	tmpl     *template.Template
-	wsHub    *wshub.Hub
+	stateDir  string
+	tmpl      *template.Template
+	wsHub     *wshub.Hub
+	debugHTML bool
 }
 
-func New(stateDir string) (*Server, error) {
+func New(stateDir string, debugHTML bool) (*Server, error) {
 	funcMap := template.FuncMap{
 		"formatDuration": formatDuration,
 		"split": func(s, sep string) []string {
@@ -69,9 +71,10 @@ func New(stateDir string) (*Server, error) {
 	}
 
 	s := &Server{
-		stateDir: stateDir,
-		tmpl:     tmpl,
-		wsHub:    wshub.NewHub(),
+		stateDir:  stateDir,
+		tmpl:      tmpl,
+		wsHub:     wshub.NewHub(),
+		debugHTML: debugHTML,
 	}
 
 	return s, nil
@@ -273,6 +276,176 @@ func (e *hxRedirectError) Error() string {
 	return fmt.Sprintf("htmx redirect to %s", e.url)
 }
 
+// validateHTMLResponse checks if HTML is well-formed
+func validateHTMLResponse(body []byte) error {
+	bodyStr := string(body)
+
+	// Check for malformed Go template syntax (spaces between braces)
+	if strings.Contains(bodyStr, "{ {") || strings.Contains(bodyStr, "} }") {
+		lines := strings.Split(bodyStr, "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "{ {") || strings.Contains(line, "} }") {
+				return fmt.Errorf("malformed template syntax at line %d: %s", i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+
+	// Parse HTML to check for structural validity
+	doc, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("HTML parsing failed: %w", err)
+	}
+
+	// Check for basic HTML structure in full pages
+	if !strings.Contains(bodyStr, "<html") && !strings.Contains(bodyStr, "<!DOCTYPE") {
+		// This is an HTML fragment (e.g., for htmx), which is OK
+		return nil
+	}
+
+	// For full HTML pages, verify essential elements exist
+	hasHTML := false
+	hasHead := false
+	hasBody := false
+
+	var traverse func(*html.Node)
+	traverse = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "html":
+				hasHTML = true
+			case "head":
+				hasHead = true
+			case "body":
+				hasBody = true
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			traverse(c)
+		}
+	}
+	traverse(doc)
+
+	if strings.Contains(bodyStr, "<!DOCTYPE") || strings.Contains(bodyStr, "<html") {
+		if !hasHTML {
+			return fmt.Errorf("HTML document missing <html> element")
+		}
+		if !hasHead {
+			return fmt.Errorf("HTML document missing <head> element")
+		}
+		if !hasBody {
+			return fmt.Errorf("HTML document missing <body> element")
+		}
+	}
+
+	return nil
+}
+
+// htmlValidationResponseWriter wraps http.ResponseWriter to validate HTML responses
+type htmlValidationResponseWriter struct {
+	http.ResponseWriter
+	buffer      *bytes.Buffer
+	statusCode  int
+	wroteHeader bool
+	debugHTML   bool
+}
+
+func (w *htmlValidationResponseWriter) WriteHeader(code int) {
+	if !w.wroteHeader {
+		w.statusCode = code
+		w.wroteHeader = true
+		// Don't write header yet, we need to validate first
+	}
+}
+
+func (w *htmlValidationResponseWriter) Write(data []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	// Buffer the response
+	return w.buffer.Write(data)
+}
+
+func (w *htmlValidationResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not support hijacking")
+}
+
+func (w *htmlValidationResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+// htmlValidationMiddleware validates HTML responses when debugHTML is enabled
+func (s *Server) htmlValidationMiddleware(next http.Handler) http.Handler {
+	if !s.debugHTML {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip validation for WebSocket upgrades and non-HTML endpoints
+		if r.Header.Get("Upgrade") == "websocket" ||
+			strings.HasPrefix(r.URL.Path, "/static/") ||
+			strings.HasPrefix(r.URL.Path, "/ws-") ||
+			strings.Contains(r.URL.Path, "/download") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Create buffering response writer
+		wrapped := &htmlValidationResponseWriter{
+			ResponseWriter: w,
+			buffer:         &bytes.Buffer{},
+			statusCode:     http.StatusOK,
+			debugHTML:      s.debugHTML,
+		}
+
+		// Call the next handler
+		next.ServeHTTP(wrapped, r)
+
+		body := wrapped.buffer.Bytes()
+
+		// Only validate if it looks like HTML (has HTML tags or is text/html)
+		contentType := w.Header().Get("Content-Type")
+		isHTML := strings.Contains(contentType, "text/html") ||
+			bytes.Contains(body, []byte("<html")) ||
+			bytes.Contains(body, []byte("<!DOCTYPE")) ||
+			bytes.Contains(body, []byte("<div")) ||
+			bytes.Contains(body, []byte("<body"))
+
+		if isHTML && len(body) > 0 {
+			if err := validateHTMLResponse(body); err != nil {
+				slog.Error("HTML validation failed",
+					"path", r.URL.Path,
+					"error", err.Error())
+
+				// Write 500 error
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusInternalServerError)
+				errorMsg := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head><title>HTML Validation Error</title></head>
+<body>
+<h1>HTML Validation Error (Debug Mode)</h1>
+<p><strong>Path:</strong> %s</p>
+<p><strong>Error:</strong> %s</p>
+<hr>
+<p>This error only appears when --debug-html is enabled.</p>
+</body>
+</html>`, html.EscapeString(r.URL.Path), html.EscapeString(err.Error()))
+				_, _ = w.Write([]byte(errorMsg))
+				return
+			}
+		}
+
+		// Write the validated response
+		w.WriteHeader(wrapped.statusCode)
+		_, _ = w.Write(body)
+	})
+}
+
 // loggingMiddleware logs each HTTP request
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -386,8 +559,9 @@ func (s *Server) SetupRoutes() http.Handler {
 	// Legacy/compatibility routes (can be removed later if needed)
 	mux.HandleFunc("/workspace/clear", s.authMiddleware(s.wrapHandler(s.handleWorkspaceClear)))
 
-	// Wrap all routes with logging middleware
-	return s.loggingMiddleware(mux)
+	// Wrap all routes with HTML validation middleware (if enabled), then logging middleware
+	handler := s.htmlValidationMiddleware(mux)
+	return s.loggingMiddleware(handler)
 }
 
 func (s *Server) handleIndex(ctx context.Context, r *http.Request) ([]byte, error) {
@@ -1896,7 +2070,7 @@ func setupServerLog(stateDir string) (*LogFileHandle, error) {
 }
 
 // Run starts the server with the given configuration
-func Run(stateDir, port string) error {
+func Run(stateDir, port string, debugHTML bool) error {
 	var err error
 	stateDir, err = GetStateDir(stateDir, false)
 	if err != nil {
@@ -1939,9 +2113,13 @@ func Run(stateDir, port string) error {
 		return fmt.Errorf("failed to initialize executor: %w", err)
 	}
 
-	srv, err := New(stateDir)
+	srv, err := New(stateDir, debugHTML)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	if debugHTML {
+		slog.Info("HTML validation enabled - invalid HTML will return 500 errors")
 	}
 
 	addr := fmt.Sprintf("localhost:%s", port)

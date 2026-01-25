@@ -17,6 +17,7 @@ var (
 	stateDir  string
 	port      string
 	allowRoot bool
+	debugHTML bool
 
 	inputUnixDomainSocket string
 	workingDirectory      string
@@ -44,7 +45,7 @@ var runCmd = &cobra.Command{
 		if err := checkRootUser(allowRoot); err != nil {
 			return err
 		}
-		return server.Run(stateDir, port)
+		return server.Run(stateDir, port, debugHTML)
 	},
 }
 
@@ -130,6 +131,7 @@ func init() {
 	runCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 	runCmd.Flags().StringVarP(&port, "port", "p", "22123", "Port to listen on")
 	runCmd.Flags().BoolVar(&allowRoot, "allow-root", false, "Allow running as root user (not recommended for security reasons)")
+	runCmd.Flags().BoolVar(&debugHTML, "debug-html", false, "Validate HTML responses and return 500 on invalid HTML (for development)")
 
 	addPasswordCmd.Flags().StringVarP(&stateDir, "state-dir", "s", "", "State directory for storing data (default: $STATE_DIRECTORY or .mobileshell)")
 	addPasswordCmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "Read password from stdin without prompting (for scripts)")
