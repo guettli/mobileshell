@@ -19,6 +19,9 @@ import (
 	"mobileshell/internal/process"
 	"mobileshell/pkg/httperror"
 	"mobileshell/pkg/outputlog"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTemplateRendering(t *testing.T) {
@@ -779,6 +782,15 @@ func TestBinaryDownload(t *testing.T) {
 	}
 
 	t.Logf("Successfully verified binary data message is shown on process page")
+
+	// Wait for the nohup process to complete to avoid cleanup issues
+	// The executor.Execute() spawned a real nohup process that needs to finish
+	// We don't care if it succeeded or failed, just that it completed
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		completedFile := filepath.Join(processDir, "completed")
+		_, err := os.Stat(completedFile)
+		assert.NoError(collect, err, "completed file should exist")
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestServerLogCapture(t *testing.T) {
@@ -792,6 +804,10 @@ func TestServerLogCapture(t *testing.T) {
 		t.Fatalf("Failed to setup server log: %v", err)
 	}
 	defer func() {
+		// Wait for the io.Copy goroutines in setupServerLog to finish
+		// After the test completes, give extra time for goroutines to finish
+		time.Sleep(100 * time.Millisecond)
+
 		if err := logFile.Close(); err != nil {
 			t.Errorf("Failed to close log file: %v", err)
 		}
@@ -807,20 +823,24 @@ func TestServerLogCapture(t *testing.T) {
 	_, _ = fmt.Fprintln(os.Stdout, "Direct stdout message")
 	_, _ = fmt.Fprintln(os.Stderr, "Direct stderr message")
 
-	// Give goroutines time to copy data
-	time.Sleep(100 * time.Millisecond)
-
-	// Read server.log
+	// Wait for all messages to be written to the log file
 	logPath := filepath.Join(stateDir, "server.log")
-	content, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("Failed to read server.log: %v", err)
-	}
+	var contentStr string
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		content, err := os.ReadFile(logPath)
+		assert.NoError(collect, err)
+		contentStr = string(content)
 
-	contentStr := string(content)
+		// Check all messages are present
+		assert.Contains(collect, contentStr, "Test log message", "log package message")
+		assert.Contains(collect, contentStr, "Test slog message", "slog package message")
+		assert.Contains(collect, contentStr, "Direct stdout message", "stdout message")
+		assert.Contains(collect, contentStr, "Direct stderr message", "stderr message")
+	}, 2*time.Second, 10*time.Millisecond)
+
 	t.Logf("server.log content:\n%s", contentStr)
 
-	// Verify all messages are captured
+	// Verify all messages are captured (redundant checks for clarity)
 	if !strings.Contains(contentStr, "Test log message") {
 		t.Error("server.log should contain 'Test log message' from log package")
 	}
@@ -834,7 +854,7 @@ func TestServerLogCapture(t *testing.T) {
 		t.Error("server.log should contain 'Direct stderr message' from stderr")
 	}
 
-	if len(content) == 0 {
+	if len(contentStr) == 0 {
 		t.Error("server.log should not be empty")
 	}
 }
