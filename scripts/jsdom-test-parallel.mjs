@@ -50,7 +50,6 @@ function validateHTML(html, context = '') {
   if (match) {
     const lines = html.split('\n');
     const lineNum = html.substring(0, html.indexOf(match[0])).split('\n').length;
-    const contextLine = lines[lineNum - 1];
 
     // Write HTML to file for inspection
     const tmpDir = process.env.TMPDIR || '/tmp';
@@ -59,9 +58,21 @@ function validateHTML(html, context = '') {
     const filePath = path.join(tmpDir, `invalid-html-${sanitizedContext}-${timestamp}.html`);
     fs.writeFileSync(filePath, html, 'utf-8');
 
+    // Extract context: 7 lines before and 7 lines after
+    const startLine = Math.max(0, lineNum - 8); // lineNum is 1-based, array is 0-based
+    const endLine = Math.min(lines.length, lineNum + 7);
+    const contextLines = [];
+    
+    for (let i = startLine; i < endLine; i++) {
+      const currentLineNum = i + 1;
+      const lineContent = lines[i];
+      const prefix = currentLineNum === lineNum ? '!!!' : `${currentLineNum.toString().padStart(3, ' ')}`;
+      contextLines.push(`${prefix} ${lineContent}`);
+    }
+
     throw new Error(
-      `Malformed template syntax found in HTML${context ? ` (${context})` : ''}: "${match[0]}" at line ${lineNum}\n` +
-      `Context: ${contextLine.trim()}\n` +
+      `Malformed template syntax found in HTML${context ? ` (${context})` : ''}: "${match[0]}" at line ${lineNum}\n\n` +
+      `Context:\n${contextLines.join('\n')}\n\n` +
       `Full HTML written to: ${filePath}`
     );
   }
