@@ -26,7 +26,7 @@ func HandleSysmon(tmpl *template.Template, ctx context.Context, r *http.Request,
 	}
 
 	var buf bytes.Buffer
-	err := tmpl.ExecuteTemplate(&buf, "sysmon.html", map[string]interface{}{
+	err := tmpl.ExecuteTemplate(&buf, "sysmon.gohtml", map[string]interface{}{
 		"BasePath": basePath,
 		"SortBy":   sortBy,
 		"Order":    order,
@@ -74,7 +74,7 @@ func HandleProcessList(tmpl *template.Template, ctx context.Context, r *http.Req
 	SortProcesses(processes, SortColumn(sortBy), SortOrder(order))
 
 	var buf bytes.Buffer
-	err = tmpl.ExecuteTemplate(&buf, "hx-sysmon-processes.html", map[string]interface{}{
+	err = tmpl.ExecuteTemplate(&buf, "hx-sysmon-processes.gohtml", map[string]interface{}{
 		"Processes": processes,
 		"SortBy":    sortBy,
 		"Order":     order,
@@ -183,7 +183,7 @@ func HandleProcessDetail(tmpl *template.Template, ctx context.Context, r *http.R
 	}
 
 	var buf bytes.Buffer
-	err = tmpl.ExecuteTemplate(&buf, "sysmon-process-detail.html", map[string]interface{}{
+	err = tmpl.ExecuteTemplate(&buf, "sysmon-process-detail.gohtml", map[string]interface{}{
 		"Process":  detail,
 		"Signals":  GetAllSignals(),
 		"BasePath": basePath,

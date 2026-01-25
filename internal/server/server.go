@@ -65,7 +65,7 @@ func New(stateDir string, debugHTML bool) (*Server, error) {
 			return float64(a) / b
 		},
 	}
-	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.html")
+	tmpl, err := template.New("").Funcs(funcMap).ParseFS(templatesFS, "templates/*.gohtml")
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 					title = "Error"
 				}
 
-				err := s.tmpl.ExecuteTemplate(&buf, "error.html", map[string]interface{}{
+				err := s.tmpl.ExecuteTemplate(&buf, "error.gohtml", map[string]interface{}{
 					"StatusCode": he.StatusCode,
 					"Title":      title,
 					"Message":    he.Message,
@@ -285,7 +285,38 @@ func validateHTMLResponse(body []byte) error {
 		lines := strings.Split(bodyStr, "\n")
 		for i, line := range lines {
 			if strings.Contains(line, "{ {") || strings.Contains(line, "} }") {
-				return fmt.Errorf("malformed template syntax at line %d: %s", i+1, strings.TrimSpace(line))
+				// Extract context: 7 lines before and 7 lines after
+				startLine := i - 7
+				if startLine < 0 {
+					startLine = 0
+				}
+				endLine := i + 8
+				if endLine > len(lines) {
+					endLine = len(lines)
+				}
+
+				var contextLines []string
+				for j := startLine; j < endLine; j++ {
+					lineNum := j + 1
+					var prefix string
+					if j == i {
+						prefix = "!!!"
+					} else {
+						prefix = fmt.Sprintf("%3d", lineNum)
+					}
+					contextLines = append(contextLines, fmt.Sprintf("%s %s", prefix, lines[j]))
+				}
+
+				// Find which pattern matched to provide helpful explanation
+				explanation := ""
+				if strings.Contains(line, "{ {") {
+					explanation = "Template delimiters should be '{{' not '{ {' (no space between braces)"
+				} else if strings.Contains(line, "} }") {
+					explanation = "Template delimiters should be '}}' not '} }' (no space between braces)"
+				}
+
+				return fmt.Errorf("malformed template syntax at line %d: %s\n\nContext:\n%s",
+					i+1, explanation, strings.Join(contextLines, "\n"))
 			}
 		}
 	}
@@ -421,16 +452,27 @@ func (s *Server) htmlValidationMiddleware(next http.Handler) http.Handler {
 					"path", r.URL.Path,
 					"error", err.Error())
 
-				// Write 500 error
+				// Write 500 error with formatted context
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.WriteHeader(http.StatusInternalServerError)
 				errorMsg := fmt.Sprintf(`<!DOCTYPE html>
 <html>
-<head><title>HTML Validation Error</title></head>
+<head>
+<title>HTML Validation Error</title>
+<style>
+body { font-family: monospace; margin: 2rem; }
+h1 { color: #d32f2f; }
+.error-details { background: #f5f5f5; padding: 1rem; border-radius: 4px; margin: 1rem 0; }
+pre { background: #fff; padding: 1rem; border: 1px solid #ddd; overflow-x: auto; }
+</style>
+</head>
 <body>
 <h1>HTML Validation Error (Debug Mode)</h1>
+<div class="error-details">
 <p><strong>Path:</strong> %s</p>
-<p><strong>Error:</strong> %s</p>
+<p><strong>Error:</strong></p>
+<pre>%s</pre>
+</div>
 <hr>
 <p>This error only appears when --debug-html is enabled.</p>
 </body>
@@ -588,7 +630,7 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 	// Handle GET request - show login form
 	if r.Method == http.MethodGet {
 		var buf bytes.Buffer
-		err := s.tmpl.ExecuteTemplate(&buf, "login.html", map[string]interface{}{
+		err := s.tmpl.ExecuteTemplate(&buf, "login.gohtml", map[string]interface{}{
 			"BasePath": basePath,
 		})
 		if err != nil {
@@ -607,7 +649,7 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 
 	if !ok {
 		var buf bytes.Buffer
-		err := s.tmpl.ExecuteTemplate(&buf, "login.html", map[string]interface{}{
+		err := s.tmpl.ExecuteTemplate(&buf, "login.gohtml", map[string]interface{}{
 			"error":    "Invalid password",
 			"BasePath": basePath,
 		})
@@ -676,7 +718,7 @@ func (s *Server) handleServerLog(ctx context.Context, r *http.Request) ([]byte, 
 	}
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "file-view.html", map[string]interface{}{
+	err = s.tmpl.ExecuteTemplate(&buf, "file-view.gohtml", map[string]interface{}{
 		"BasePath": basePath,
 		"Path":     logPath,
 		"Content":  string(content),
@@ -706,7 +748,7 @@ func (s *Server) handleWorkspaces(ctx context.Context, r *http.Request) ([]byte,
 	}
 
 	var buf bytes.Buffer
-	err := s.tmpl.ExecuteTemplate(&buf, "workspaces.html", map[string]any{
+	err := s.tmpl.ExecuteTemplate(&buf, "workspaces.gohtml", map[string]any{
 		"BasePath":   basePath,
 		"Workspaces": workspaceList,
 	})
@@ -735,7 +777,7 @@ func (s *Server) hxHandleWorkspaceCreate(ctx context.Context, r *http.Request) (
 		// Return just the form partial with error and preserved values
 		basePath := s.getBasePath(r)
 		var buf bytes.Buffer
-		renderErr := s.tmpl.ExecuteTemplate(&buf, "hx-workspace-form.html", map[string]any{
+		renderErr := s.tmpl.ExecuteTemplate(&buf, "hx-workspace-form.gohtml", map[string]any{
 			"BasePath": basePath,
 			"Error":    err.Error(),
 			"FormValues": map[string]string{
@@ -773,7 +815,7 @@ func (s *Server) handleWorkspaceByID(ctx context.Context, r *http.Request) ([]by
 	// Render workspace page
 	basePath := s.getBasePath(r)
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "workspaces.html", map[string]any{
+	err = s.tmpl.ExecuteTemplate(&buf, "workspaces.gohtml", map[string]any{
 		"BasePath": basePath,
 		"CurrentWorkspace": map[string]any{
 			"ID":         ws.ID,
@@ -806,7 +848,7 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 	// Handle GET request - show edit form
 	if r.Method == http.MethodGet {
 		var buf bytes.Buffer
-		err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
+		err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.gohtml", map[string]any{
 			"BasePath": basePath,
 			"Workspace": map[string]any{
 				"ID":                     ws.ID,
@@ -830,7 +872,7 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 
 		if name == "" {
 			var buf bytes.Buffer
-			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
+			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.gohtml", map[string]any{
 				"BasePath": basePath,
 				"Workspace": map[string]any{
 					"ID":                     ws.ID,
@@ -851,7 +893,7 @@ func (s *Server) handleWorkspaceEdit(ctx context.Context, r *http.Request) ([]by
 		_, err := workspace.UpdateWorkspace(s.stateDir, workspaceID, name, preCommand, defaultTerminalCommand)
 		if err != nil {
 			var buf bytes.Buffer
-			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.html", map[string]any{
+			err = s.tmpl.ExecuteTemplate(&buf, "edit-workspace.gohtml", map[string]any{
 				"BasePath": basePath,
 				"Workspace": map[string]any{
 					"ID":                     ws.ID,
@@ -1058,7 +1100,7 @@ func (s *Server) jsonHandleProcessUpdates(ctx context.Context, r *http.Request) 
 
 func (s *Server) renderRunningProcessSnippet(p *process.Process, workspaceID string, r *http.Request) (string, error) {
 	var buf bytes.Buffer
-	err := s.tmpl.ExecuteTemplate(&buf, "hx-running-process-single.html", map[string]interface{}{
+	err := s.tmpl.ExecuteTemplate(&buf, "hx-running-process-single.gohtml", map[string]interface{}{
 		"Process":     p,
 		"BasePath":    s.getBasePath(r),
 		"WorkspaceID": workspaceID,
@@ -1071,7 +1113,7 @@ func (s *Server) renderRunningProcessSnippet(p *process.Process, workspaceID str
 
 func (s *Server) renderFinishedProcessSnippet(p *process.Process, workspaceID string, r *http.Request) (string, error) {
 	var buf bytes.Buffer
-	err := s.tmpl.ExecuteTemplate(&buf, "hx-finished-process-single.html", map[string]interface{}{
+	err := s.tmpl.ExecuteTemplate(&buf, "hx-finished-process-single.gohtml", map[string]interface{}{
 		"Process":     p,
 		"BasePath":    s.getBasePath(r),
 		"WorkspaceID": workspaceID,
@@ -1399,9 +1441,9 @@ func (s *Server) hxHandleFinishedProcesses(ctx context.Context, r *http.Request)
 	var buf bytes.Buffer
 
 	// Use different template for initial load vs pagination
-	templateName := "hx-finished-processes-page.html"
+	templateName := "hx-finished-processes-page.gohtml"
 	if offset == 0 {
-		templateName = "hx-finished-processes-initial.html"
+		templateName = "hx-finished-processes-initial.gohtml"
 	}
 
 	err = s.tmpl.ExecuteTemplate(&buf, templateName, map[string]interface{}{
@@ -1484,7 +1526,7 @@ func (s *Server) handleProcessByID(ctx context.Context, r *http.Request) ([]byte
 	processDirURL := fmt.Sprintf("%s/files?path=%s", s.getBasePath(r), url.QueryEscape(processDirPath))
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "process.html", map[string]interface{}{
+	err = s.tmpl.ExecuteTemplate(&buf, "process.gohtml", map[string]interface{}{
 		"Process":       proc,
 		"Stdout":        stdout,
 		"StdoutHTML":    template.HTML(stdoutHTML),
@@ -1621,7 +1663,7 @@ func (s *Server) renderProcessOutput(proc *process.Process, workspaceID string, 
 	}
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.html", map[string]interface{}{
+	err = s.tmpl.ExecuteTemplate(&buf, "hx-output.gohtml", map[string]interface{}{
 		"Process":     proc,
 		"Stdout":      outputData.stdout,
 		"StdoutHTML":  template.HTML(outputData.stdoutHTML), // Mark as safe HTML
@@ -2190,7 +2232,7 @@ func (s *Server) handleTerminal(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	var buf bytes.Buffer
-	if err := s.tmpl.ExecuteTemplate(&buf, "terminal.html", data); err != nil {
+	if err := s.tmpl.ExecuteTemplate(&buf, "terminal.gohtml", data); err != nil {
 		return nil, err
 	}
 
@@ -2315,7 +2357,7 @@ func (s *Server) handleFileEditor(ctx context.Context, r *http.Request) ([]byte,
 	}
 
 	var buf bytes.Buffer
-	if err := s.tmpl.ExecuteTemplate(&buf, "file-editor.html", data); err != nil {
+	if err := s.tmpl.ExecuteTemplate(&buf, "file-editor.gohtml", data); err != nil {
 		return nil, err
 	}
 
@@ -2374,7 +2416,7 @@ func (s *Server) handleFileRead(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	var buf bytes.Buffer
-	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-content.html", data); err != nil {
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-content.gohtml", data); err != nil {
 		return nil, err
 	}
 
@@ -2452,7 +2494,7 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 		}
 
 		var buf bytes.Buffer
-		if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+		if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.gohtml", data); err != nil {
 			return nil, err
 		}
 		return buf.Bytes(), nil
@@ -2492,7 +2534,7 @@ func (s *Server) handleFileSave(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	var buf bytes.Buffer
-	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.html", data); err != nil {
+	if err := s.tmpl.ExecuteTemplate(&buf, "hx-file-save-result.gohtml", data); err != nil {
 		return nil, err
 	}
 
@@ -2638,7 +2680,7 @@ func (s *Server) handleFileBrowser(ctx context.Context, r *http.Request) ([]byte
 		}
 
 		var buf bytes.Buffer
-		err = s.tmpl.ExecuteTemplate(&buf, "file-browser.html", map[string]interface{}{
+		err = s.tmpl.ExecuteTemplate(&buf, "file-browser.gohtml", map[string]interface{}{
 			"BasePath":  basePath,
 			"Path":      filePath,
 			"ParentDir": parentDir,
@@ -2685,7 +2727,7 @@ func (s *Server) handleFileView(ctx context.Context, r *http.Request) ([]byte, e
 	}
 
 	var buf bytes.Buffer
-	err = s.tmpl.ExecuteTemplate(&buf, "file-view.html", map[string]interface{}{
+	err = s.tmpl.ExecuteTemplate(&buf, "file-view.gohtml", map[string]interface{}{
 		"BasePath": basePath,
 		"Path":     filePath,
 		"Content":  string(content),

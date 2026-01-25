@@ -1139,16 +1139,47 @@ async function testServerLog() {
   assert.equal(serverLogResponse.status, 200, 'Should load server log page');
   const doc = parseHTML(serverLogResponse.text, 'GET /server-log');
 
-  // Check basic page structure
+  // Check basic HTML structure
   assert.ok(doc.querySelector('title'), 'Should have a title element');
+  const title = doc.querySelector('title').textContent;
+  assert.ok(title.includes('MobileShell'), 'Title should contain MobileShell');
 
-  // The page should use file-view.html template, check for key elements
+  // Check navigation bar
+  const nav = doc.querySelector('nav.navbar');
+  assert.ok(nav, 'Should have navigation navbar');
+  const navBrand = nav.querySelector('.navbar-brand');
+  assert.ok(navBrand, 'Should have navbar brand');
+  const logoutBtn = nav.querySelector('a[href*="logout"]');
+  assert.ok(logoutBtn, 'Should have logout button in nav');
+
+  // Check main container
+  const container = doc.querySelector('.container-fluid');
+  assert.ok(container, 'Should have container-fluid');
+
+  // Check back button
+  const backBtn = doc.querySelector('a[href*="sysmon"]');
+  assert.ok(backBtn, 'Should have back button to sysmon');
+
+  // Check card structure
+  const card = doc.querySelector('.card');
+  assert.ok(card, 'Should have card element');
+  const cardHeader = card.querySelector('.card-header h5');
+  assert.ok(cardHeader, 'Should have card header with h5');
+  assert.ok(cardHeader.textContent.includes('File:'), 'Card header should show file path');
+
+  // Check file metadata
+  const cardBody = card.querySelector('.card-body');
+  assert.ok(cardBody, 'Should have card body');
+  assert.ok(cardBody.textContent.includes('Size:'), 'Should show file size');
+  assert.ok(cardBody.textContent.includes('Modified:'), 'Should show modification time');
+
+  // Check download button
+  const downloadBtn = cardBody.querySelector('a[href*="download"]');
+  assert.ok(downloadBtn, 'Should have download button');
+
+  // Check file content area
   const content = doc.querySelector('.file-content');
   assert.ok(content, 'Should have file-content div');
-
-  // Check for navigation elements
-  const nav = doc.querySelector('nav') || doc.querySelector('.navbar');
-  assert.ok(nav, 'Should have navigation');
 
   // Check that it contains log content or placeholder message
   const pageText = doc.body.textContent;
@@ -1157,8 +1188,16 @@ async function testServerLog() {
                         pageText.includes('Server log file does not exist yet');
   assert.ok(hasLogContent, 'Should display log content or placeholder message');
 
+  // Check for htmx script
+  const htmxScript = doc.querySelector('script[src*="htmx"]');
+  assert.ok(htmxScript, 'Should include htmx script');
+
   console.log('✓ Server log page loads correctly');
-  console.log('✓ Page has proper structure');
+  console.log('✓ Page has proper HTML structure');
+  console.log('✓ Navigation bar with logout button present');
+  console.log('✓ File metadata (size, modified time) shown');
+  console.log('✓ Download button available');
+  console.log('✓ File content area present');
   console.log(`✓ ${testName} passed`);
 }
 

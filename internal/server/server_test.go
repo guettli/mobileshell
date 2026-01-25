@@ -142,7 +142,7 @@ func TestTemplateRendering(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var buf bytes.Buffer
-			err := srv.tmpl.ExecuteTemplate(&buf, "hx-finished-processes-initial.html", map[string]interface{}{
+			err := srv.tmpl.ExecuteTemplate(&buf, "hx-finished-processes-initial.gohtml", map[string]interface{}{
 				"FinishedProcesses": tc.processes,
 				"HasMore":           false,
 				"Offset":            10,
