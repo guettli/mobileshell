@@ -1781,9 +1781,8 @@ func (h *LogFileHandle) Close() error {
 		slog.Warn("Timeout waiting for log goroutines to finish")
 	}
 
-	// Close the saved FDs
-	_ = syscall.Close(h.origStdoutFD)
-	_ = syscall.Close(h.origStderrFD)
+	// Don't close origStdoutFD and origStderrFD here - they're now the active stdout/stderr
+	// after Dup2, and closing them would make stdout/stderr invalid
 
 	// Sync the file to ensure all pending writes are flushed
 	_ = h.file.Sync()
