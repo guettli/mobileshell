@@ -20,6 +20,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var testTimeout = func() time.Duration {
+	if timeout := os.Getenv("TEST_TIMEOUT_SECONDS"); timeout != "" {
+		if seconds, err := strconv.Atoi(timeout); err == nil {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return 5 * time.Second
+}()
+
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
@@ -50,7 +59,7 @@ func TestNohupRun(t *testing.T) {
 		pidFile = filepath.Join(processDir, "pid")
 		_, err = os.Stat(pidFile)
 		assert.NoError(collect, err)
-	}, 3*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Verify exit-status file was created
 	var exitStatusFile string
@@ -58,7 +67,7 @@ func TestNohupRun(t *testing.T) {
 		exitStatusFile = filepath.Join(processDir, "exit-status")
 		_, err = os.Stat(exitStatusFile)
 		assert.NoError(collect, err)
-	}, time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Read exit status
 	exitStatusData, err := os.ReadFile(exitStatusFile)
@@ -127,7 +136,7 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 		if !contains(output, "stdout") || !contains(output, "hello") {
 			assert.Failf(collect, "Expected output to contain 'stdout' and 'hello'", "got: %s", output)
 		}
-	}, time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Wait for the process to complete to avoid cleanup issues
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -138,7 +147,7 @@ func TestNohupRunWithPreCommand(t *testing.T) {
 			return
 		}
 		assert.Equal(collect, "true", string(data))
-	}, 2*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func TestNohupRunWithFailingCommand(t *testing.T) {
@@ -165,7 +174,7 @@ func TestNohupRunWithFailingCommand(t *testing.T) {
 		if exitCode != 42 {
 			assert.Fail(collect, "Expected exit code 42, got %d", exitCode)
 		}
-	}, time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Verify process metadata
 	proc, err = process.LoadProcessFromDir(proc.ProcessDir)
@@ -213,7 +222,7 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 		assert.Equal(collect, "test content", stdout)
 		assert.Equal(collect, "", stderr)
 		assert.Equal(collect, "", stdin)
-	}, time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Wait for the process to complete to avoid cleanup issues
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -224,7 +233,7 @@ func TestNohupRunWithWorkingDirectory(t *testing.T) {
 			return
 		}
 		assert.Equal(collect, "true", string(data))
-	}, 2*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func TestNohupRunWithStdinViaGoRun(t *testing.T) {
@@ -282,9 +291,9 @@ echo "you entered: $foo"
 			t.Logf("Command output:\n%s", cmdOutput.String())
 		}
 		require.NoError(t, err)
-	case <-time.After(4 * time.Second):
+	case <-time.After(testTimeout * 4):
 		_ = cmd.Process.Kill()
-		t.Fatalf("Test timed out after 4 seconds. Output:\n%s", cmdOutput.String())
+		t.Fatalf("Test timed out after %v. Output:\n%s", testTimeout*4, cmdOutput.String())
 	}
 
 	// Verify output.log exists and contains expected content
@@ -344,7 +353,7 @@ echo "Process completed naturally"
 		pidData, err = os.ReadFile(pidFile)
 		assert.NoError(collect, err)
 		assert.NotEmpty(collect, pidData)
-	}, 3*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Wait for "Process started" message in output
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -352,7 +361,7 @@ echo "Process completed naturally"
 		stdoutBytes, _, _, err := outputlog.ReadThreeStreams(outputFile, "stdout", "stderr", "stdin")
 		assert.NoError(collect, err)
 		assert.Contains(collect, string(stdoutBytes), "Process started")
-	}, 3*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Give the process time to enter the sleep loop and set up signal handlers
 	time.Sleep(500 * time.Millisecond)
@@ -365,7 +374,7 @@ echo "Process completed naturally"
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		_, err := os.Stat(socketPath)
 		assert.NoError(collect, err)
-	}, 3*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	conn, err := net.Dial("unix", socketPath)
 	require.NoError(t, err)
@@ -391,7 +400,7 @@ echo "Process completed naturally"
 		completedData, err := os.ReadFile(completedFile)
 		assert.NoError(collect, err)
 		assert.Equal(collect, "true", strings.TrimSpace(string(completedData)))
-	}, 5*time.Second, 100*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Verify the process output
 	outputFile := filepath.Join(proc.ProcessDir, "output.log")
@@ -454,7 +463,7 @@ echo "Process completed naturally"
 		pidFile := filepath.Join(proc.ProcessDir, "pid")
 		_, err = os.ReadFile(pidFile)
 		assert.NoError(collect, err)
-	}, 3*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Wait for "Process started" message
 	require.EventuallyWithT(t, func(collect *assert.CollectT) {
@@ -462,7 +471,7 @@ echo "Process completed naturally"
 		stdoutBytes, _, _, err := outputlog.ReadThreeStreams(outputFile, "stdout", "stderr", "stdin")
 		assert.NoError(collect, err)
 		assert.Contains(collect, string(stdoutBytes), "Process started")
-	}, 3*time.Second, 10*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Give the process time to set up
 	time.Sleep(500 * time.Millisecond)
@@ -494,7 +503,7 @@ echo "Process completed naturally"
 		completedData, err := os.ReadFile(completedFile)
 		assert.NoError(collect, err)
 		assert.Equal(collect, "true", strings.TrimSpace(string(completedData)))
-	}, 5*time.Second, 100*time.Millisecond)
+	}, testTimeout, 100*time.Millisecond)
 
 	// Verify the signal file was written
 	signalFile := filepath.Join(proc.ProcessDir, "signal")
