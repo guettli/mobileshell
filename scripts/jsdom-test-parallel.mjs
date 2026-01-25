@@ -6,18 +6,26 @@ import { JSDOM } from 'jsdom';
 // Get server URL from environment
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:22123';
 const PASSWORD = process.env.PASSWORD || 'test-password-123456789012345678901234567890';
+const SERVER_LOG = process.env.SERVER_LOG || '';
 
 console.log(`Testing MobileShell server at ${SERVER_URL}`);
 
 // Helper to make HTTP requests
 async function request(method, path, options = {}) {
   const url = `${SERVER_URL}${path}`;
+  const headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    ...options.headers,
+  };
+
+  // Add test context header if provided
+  if (options.testID) {
+    headers['X-Test-ID'] = options.testID;
+  }
+
   const response = await fetch(url, {
     method,
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      ...options.headers,
-    },
+    headers,
     body: options.body,
     redirect: 'manual',
   });
@@ -51,13 +59,14 @@ async function login() {
 }
 
 // Create workspace helper
-async function createWorkspace(sessionCookie, workspaceName) {
+async function createWorkspace(sessionCookie, workspaceName, testID = null) {
   const createWorkspaceResponse = await request('POST', '/workspaces/hx-create', {
     headers: {
       Cookie: sessionCookie,
       'HX-Request': 'true',
     },
     body: `name=${encodeURIComponent(workspaceName)}&directory=/tmp&pre_command=`,
+    testID,
   });
 
   assert.equal(createWorkspaceResponse.status, 200, 'Should create workspace');
@@ -77,6 +86,7 @@ async function createWorkspace(sessionCookie, workspaceName) {
 // Test 1: Workspaces and HTMX
 async function testWorkspacesAndHTMX() {
   const testName = 'Test 1: Workspaces and HTMX';
+  const testID = 'test-1-workspaces-htmx';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
@@ -85,6 +95,7 @@ async function testWorkspacesAndHTMX() {
   // Get workspaces page
   const workspacesResponse = await request('GET', '/workspaces', {
     headers: { Cookie: sessionCookie },
+    testID,
   });
 
   assert.equal(workspacesResponse.status, 200, 'Should get workspaces page');
@@ -105,12 +116,13 @@ async function testWorkspacesAndHTMX() {
 
   // Create workspace
   const workspaceName = `test-workspace-${Date.now()}-1`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Navigate to workspace and verify
   const workspacePageResponse = await request('GET', `/workspaces/${workspaceId}`, {
     headers: { Cookie: sessionCookie },
+    testID,
   });
 
   assert.equal(workspacePageResponse.status, 200, 'Should load workspace page');
@@ -122,11 +134,12 @@ async function testWorkspacesAndHTMX() {
 // Test 2: Command execution and output
 async function testCommandExecution() {
   const testName = 'Test 2: Command execution';
+  const testID = 'test-2-command-execution';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-2`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Execute a command via HTMX
@@ -136,6 +149,7 @@ async function testCommandExecution() {
       'HX-Request': 'true',
     },
     body: 'command=echo "Hello from JSDOM test"',
+    testID,
   });
 
   assert.equal(executeResponse.status, 200, 'Should execute command');
@@ -156,6 +170,7 @@ async function testCommandExecution() {
         Cookie: sessionCookie,
         'HX-Request': 'true',
       },
+      testID,
     });
 
     if (outputResponse.text.includes('Hello from JSDOM test')) {
@@ -171,11 +186,12 @@ async function testCommandExecution() {
 // Test 3: Process transitions
 async function testProcessTransitions() {
   const testName = 'Test 3: Process transitions';
+  const testID = 'test-3-process-transitions';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-3`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Execute a short-lived command
@@ -185,6 +201,7 @@ async function testProcessTransitions() {
       'HX-Request': 'true',
     },
     body: 'command=sleep 0.1',
+    testID,
   });
 
   assert.equal(shortCommandResponse.status, 200, 'Should execute sleep command');
@@ -205,6 +222,7 @@ async function testProcessTransitions() {
       headers: {
         Cookie: sessionCookie,
       },
+      testID,
     });
 
     const updateData = JSON.parse(updateCheck.text);
@@ -219,6 +237,7 @@ async function testProcessTransitions() {
           Cookie: sessionCookie,
           'HX-Request': 'true',
         },
+        testID,
       });
 
       if (finishedCheck.text.includes(sleepProcessId) || finishedCheck.text.includes('sleep 0.1')) {
@@ -235,11 +254,12 @@ async function testProcessTransitions() {
 // Test 4: Per-process pages
 async function testPerProcessPages() {
   const testName = 'Test 4: Per-process pages';
+  const testID = 'test-4-per-process-pages';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-4`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Execute a long-running command
@@ -249,6 +269,7 @@ async function testPerProcessPages() {
       'HX-Request': 'true',
     },
     body: 'command=sleep 10',
+    testID,
   });
 
   assert.equal(longCommandResponse.status, 200, 'Should execute long command');
@@ -264,6 +285,7 @@ async function testPerProcessPages() {
     headers: {
       Cookie: sessionCookie,
     },
+    testID,
   });
 
   const runningData = JSON.parse(runningCheckResponse.text);
@@ -289,6 +311,7 @@ async function testPerProcessPages() {
     headers: {
       Cookie: sessionCookie,
     },
+    testID,
   });
 
   assert.equal(processPageResponse.status, 200, 'Should load per-process page');
@@ -302,6 +325,7 @@ async function testPerProcessPages() {
       'HX-Request': 'true',
     },
     body: 'signal=15',
+    testID,
   });
 
   console.log(`✓ ${testName} passed`);
@@ -310,11 +334,12 @@ async function testPerProcessPages() {
 // Test 5: Stdin input
 async function testStdinInput() {
   const testName = 'Test 5: Stdin input';
+  const testID = 'test-5-stdin-input';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-5`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Start cat command
@@ -324,6 +349,7 @@ async function testStdinInput() {
       'HX-Request': 'true',
     },
     body: 'command=cat',
+    testID,
   });
 
   assert.equal(catCommandResponse.status, 200, 'Should execute cat command');
@@ -341,6 +367,7 @@ async function testStdinInput() {
       'HX-Request': 'true',
     },
     body: 'stdin=foo1',
+    testID,
   });
 
   assert.equal(stdin1Response.status, 200, 'Should send first stdin');
@@ -355,6 +382,7 @@ async function testStdinInput() {
         Cookie: sessionCookie,
         'HX-Request': 'true',
       },
+      testID,
     });
 
     if (outputResponse.text.includes('foo1')) {
@@ -372,6 +400,7 @@ async function testStdinInput() {
       'HX-Request': 'true',
     },
     body: 'stdin=foo2',
+    testID,
   });
 
   assert.equal(stdin2Response.status, 200, 'Should send second stdin');
@@ -386,6 +415,7 @@ async function testStdinInput() {
         Cookie: sessionCookie,
         'HX-Request': 'true',
       },
+      testID,
     });
 
     if (outputResponse.text.includes('foo2')) {
@@ -404,6 +434,7 @@ async function testStdinInput() {
       'HX-Request': 'true',
     },
     body: 'signal=15',
+    testID,
   });
 
   console.log(`✓ ${testName} passed`);
@@ -412,16 +443,18 @@ async function testStdinInput() {
 // Test 6: Workspace editing
 async function testWorkspaceEditing() {
   const testName = 'Test 6: Workspace editing';
+  const testID = 'test-6-workspace-editing';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-6`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Navigate to edit page
   const editPageResponse = await request('GET', `/workspaces/${workspaceId}/edit`, {
     headers: { Cookie: sessionCookie },
+    testID,
   });
 
   assert.equal(editPageResponse.status, 200, 'Should load edit workspace page');
@@ -446,6 +479,7 @@ async function testWorkspaceEditing() {
       Cookie: sessionCookie,
     },
     body: `name=${encodeURIComponent(updatedName)}&directory=/tmp&pre_command=${encodeURIComponent(updatedPreCommand)}`,
+    testID,
   });
 
   assert.ok([302, 303].includes(updateResponse.status), `Should redirect after update (got ${updateResponse.status})`);
@@ -453,6 +487,7 @@ async function testWorkspaceEditing() {
   // Verify the changes
   const workspaceAfterEditResponse = await request('GET', `/workspaces/${workspaceId}`, {
     headers: { Cookie: sessionCookie },
+    testID,
   });
 
   assert.equal(workspaceAfterEditResponse.status, 200, 'Should load workspace page after edit');
@@ -464,6 +499,7 @@ async function testWorkspaceEditing() {
       Cookie: sessionCookie,
     },
     body: `name=&directory=/tmp&pre_command=`,
+    testID,
   });
 
   assert.equal(invalidUpdateResponse.status, 200, 'Should return form with error (not redirect)');
@@ -475,11 +511,12 @@ async function testWorkspaceEditing() {
 // Test 7: File autocomplete
 async function testFileAutocomplete() {
   const testName = 'Test 7: File autocomplete';
+  const testID = 'test-7-file-autocomplete';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-7`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Create test files with a single command to ensure they all exist
@@ -491,6 +528,7 @@ async function testFileAutocomplete() {
       'HX-Request': 'true',
     },
     body: `command=${encodeURIComponent(setupCommand)}`,
+    testID,
   });
 
   // Extract process ID to wait for command completion
@@ -508,6 +546,7 @@ async function testFileAutocomplete() {
         headers: {
           Cookie: sessionCookie,
         },
+        testID,
       });
 
       const statusData = JSON.parse(statusResponse.text);
@@ -538,6 +577,7 @@ async function testFileAutocomplete() {
     headers: {
       Cookie: sessionCookie,
     },
+    testID,
   });
 
   assert.equal(simplePatternResponse.status, 200, 'Should get autocomplete results');
@@ -552,6 +592,7 @@ async function testFileAutocomplete() {
         'HX-Request': 'true',
       },
       body: `command=${encodeURIComponent('ls -la')}`,
+      testID,
     });
     console.log('Directory listing response:', listResponse.text.substring(0, 500));
   }
@@ -566,6 +607,7 @@ async function testFileAutocomplete() {
     headers: {
       Cookie: sessionCookie,
     },
+    testID,
   });
 
   assert.equal(recursivePatternResponse.status, 200, 'Should get recursive autocomplete results');
@@ -592,6 +634,7 @@ async function testFileAutocomplete() {
     headers: {
       Cookie: sessionCookie,
     },
+    testID,
   });
 
   const emptyData = JSON.parse(emptyPatternResponse.text);
@@ -603,6 +646,7 @@ async function testFileAutocomplete() {
     headers: {
       Cookie: sessionCookie,
     },
+    testID,
   });
 
   const subdirData = JSON.parse(subdirPatternResponse.text);
@@ -617,11 +661,12 @@ async function testFileAutocomplete() {
 // Test 8: Interactive Terminal with bash prompt
 async function testInteractiveTerminal() {
   const testName = 'Test 8: Interactive Terminal';
+  const testID = 'test-8-interactive-terminal';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-8`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Launch interactive terminal with bash
@@ -630,6 +675,7 @@ async function testInteractiveTerminal() {
       Cookie: sessionCookie,
     },
     body: 'command=bash',
+    testID,
   });
 
   assert.ok([302, 303].includes(terminalExecuteResponse.status), `Should redirect to terminal page (got ${terminalExecuteResponse.status})`);
@@ -647,6 +693,7 @@ async function testInteractiveTerminal() {
   // Load the terminal page
   const terminalPageResponse = await request('GET', location, {
     headers: { Cookie: sessionCookie },
+    testID,
   });
 
   assert.equal(terminalPageResponse.status, 200, 'Should load terminal page');
@@ -781,14 +828,15 @@ async function testInteractiveTerminal() {
   console.log(`✓ ${testName} passed`);
 }
 
-// Test 8: Rerun command functionality
+// Test 9: Rerun command functionality
 async function testRerunCommand() {
-  const testName = 'Test 8: Rerun command';
+  const testName = 'Test 9: Rerun command';
+  const testID = 'test-9-rerun-command';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
-  const workspaceName = `test-workspace-${Date.now()}-8`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceName = `test-workspace-${Date.now()}-9`;
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Execute a unique command
@@ -801,6 +849,7 @@ async function testRerunCommand() {
       'HX-Request': 'true',
     },
     body: `command=${encodeURIComponent(testCommand)}`,
+    testID,
   });
 
   assert.equal(executeResponse.status, 200, 'Should execute first command');
@@ -821,6 +870,7 @@ async function testRerunCommand() {
         Cookie: sessionCookie,
         'HX-Request': 'true',
       },
+      testID,
     });
 
     if (finishedResponse.text.includes(firstProcessId) && finishedResponse.text.includes(uniqueMarker)) {
@@ -867,6 +917,7 @@ async function testRerunCommand() {
       'HX-Request': 'true',
     },
     body: `command=${encodeURIComponent(testCommand)}`,
+    testID,
   });
 
   assert.equal(rerunResponse.status, 200, 'Should execute rerun command');
@@ -888,6 +939,7 @@ async function testRerunCommand() {
         Cookie: sessionCookie,
         'HX-Request': 'true',
       },
+      testID,
     });
 
     if (outputResponse.text.includes(uniqueMarker)) {
@@ -904,11 +956,12 @@ async function testRerunCommand() {
 // Test 10: File editor double save (issue #60)
 async function testFileEditorDoubleSave() {
   const testName = 'Test 10: File editor double save';
+  const testID = 'test-10-file-editor-double-save';
   console.log(`\n=== ${testName} ===`);
 
   const sessionCookie = await login();
   const workspaceName = `test-workspace-${Date.now()}-10`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName);
+  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
   console.log(`✓ Workspace created: ${workspaceName}`);
 
   // Create a test file
@@ -919,6 +972,7 @@ async function testFileEditorDoubleSave() {
       'HX-Request': 'true',
     },
     body: `command=echo "initial content" > ${testFilePath}`,
+    testID,
   });
 
   // Wait for file creation
@@ -931,6 +985,7 @@ async function testFileEditorDoubleSave() {
       'HX-Request': 'true',
     },
     body: `file_path=${encodeURIComponent(testFilePath)}`,
+    testID,
   });
 
   assert.equal(readResponse.status, 200, 'Should read file for editing');
@@ -947,6 +1002,7 @@ async function testFileEditorDoubleSave() {
       'HX-Request': 'true',
     },
     body: `file_path=${encodeURIComponent(testFilePath)}&content=${encodeURIComponent('first save content')}&original_checksum=${encodeURIComponent(originalChecksum)}`,
+    testID,
   });
 
   assert.equal(firstSaveResponse.status, 200, 'First save should succeed');
@@ -968,6 +1024,7 @@ async function testFileEditorDoubleSave() {
       'HX-Request': 'true',
     },
     body: `file_path=${encodeURIComponent(testFilePath)}&content=${encodeURIComponent('second save content')}&original_checksum=${encodeURIComponent(newChecksum)}`,
+    testID,
   });
 
   assert.equal(secondSaveResponse.status, 200, 'Second save should return 200');
@@ -985,6 +1042,49 @@ async function testFileEditorDoubleSave() {
   console.log(`✓ ${testName} passed`);
 }
 
+// Helper to extract logs for a specific test ID
+async function extractTestLogs(testID) {
+  if (!SERVER_LOG) {
+    return [];
+  }
+
+  try {
+    const fs = await import('fs');
+    const content = await fs.promises.readFile(SERVER_LOG, 'utf8');
+    const lines = content.split('\n');
+    return lines.filter(line => line.includes(testID));
+  } catch (error) {
+    return [];
+  }
+}
+
+// Wrapper to run test with log extraction on failure
+async function runTestWithLogging(testFn, testName, testID) {
+  try {
+    await testFn();
+  } catch (error) {
+    console.error(`\n❌ ${testName} FAILED`);
+    console.error(`Test ID: ${testID}`);
+    console.error(`Error: ${error.message}`);
+
+    // Extract and display relevant server logs
+    const logs = await extractTestLogs(testID);
+    if (logs.length > 0) {
+      console.error(`\nRelevant server logs (${logs.length} lines):`);
+      console.error('---');
+      logs.forEach(log => console.error(log));
+      console.error('---');
+    }
+
+    if (SERVER_LOG) {
+      console.error(`\nTo see all logs for this test:`);
+      console.error(`  grep '${testID}' ${SERVER_LOG}`);
+    }
+
+    throw error;
+  }
+}
+
 // Main test runner
 async function runTests() {
   try {
@@ -994,16 +1094,16 @@ async function runTests() {
 
     // Run all tests in parallel
     await Promise.all([
-      testWorkspacesAndHTMX(),
-      testCommandExecution(),
-      testProcessTransitions(),
-      testPerProcessPages(),
-      testStdinInput(),
-      testWorkspaceEditing(),
-      testFileAutocomplete(),
-      testInteractiveTerminal(),
-      testRerunCommand(),
-      testFileEditorDoubleSave(),
+      runTestWithLogging(testWorkspacesAndHTMX, 'Test 1: Workspaces and HTMX', 'test-1-workspaces-htmx'),
+      runTestWithLogging(testCommandExecution, 'Test 2: Command execution', 'test-2-command-execution'),
+      runTestWithLogging(testProcessTransitions, 'Test 3: Process transitions', 'test-3-process-transitions'),
+      runTestWithLogging(testPerProcessPages, 'Test 4: Per-process pages', 'test-4-per-process-pages'),
+      runTestWithLogging(testStdinInput, 'Test 5: Stdin input', 'test-5-stdin-input'),
+      runTestWithLogging(testWorkspaceEditing, 'Test 6: Workspace editing', 'test-6-workspace-editing'),
+      runTestWithLogging(testFileAutocomplete, 'Test 7: File autocomplete', 'test-7-file-autocomplete'),
+      runTestWithLogging(testInteractiveTerminal, 'Test 8: Interactive Terminal', 'test-8-interactive-terminal'),
+      runTestWithLogging(testRerunCommand, 'Test 9: Rerun command', 'test-9-rerun-command'),
+      runTestWithLogging(testFileEditorDoubleSave, 'Test 10: File editor double save', 'test-10-file-editor-double-save'),
     ]);
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);

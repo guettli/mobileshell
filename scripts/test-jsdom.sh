@@ -92,7 +92,7 @@ cd "$(dirname "$0")"
 # Run the JSDOM tests in parallel
 log "Running JSDOM tests in parallel..."
 log ""
-if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" node jsdom-test-parallel.mjs; then
+if ! SERVER_URL="http://localhost:$PORT" PASSWORD="$PASSWORD" SERVER_LOG="$SERVER_LOG" node jsdom-test-parallel.mjs; then
   echo ""
   echo "Test failed. Server log (last 100 lines):"
   grep -vP 'INFO HTTP request' "$SERVER_LOG" | tail -100

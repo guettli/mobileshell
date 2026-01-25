@@ -285,12 +285,24 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 
 		// Log the request
 		duration := time.Since(start)
-		slog.Info("HTTP request",
+
+		// Extract test context header if present
+		testID := r.Header.Get("X-Test-ID")
+
+		// Build log attributes
+		attrs := []any{
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", wrapped.statusCode,
 			"duration_ms", duration.Milliseconds(),
-		)
+		}
+
+		// Add test context if present
+		if testID != "" {
+			attrs = append(attrs, "test_id", testID)
+		}
+
+		slog.Info("HTTP request", attrs...)
 	})
 }
 
