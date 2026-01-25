@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -94,6 +95,7 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 
 	// Handle input from Unix domain socket if provided
 	var socketListener net.Listener
+	var processHolder *os.Process // Store process reference for signal delivery
 	if inputUnixDomainSocket != "" {
 		// Create and listen on Unix domain socket for stdin input
 		// Remove existing socket file if it exists
@@ -106,7 +108,8 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 		}
 
 		// Accept connections and read stdin data from the socket
-		go acceptSocketConnections(socketListener, outputLogWriter.Channel())
+		// processHolder will be set after cmd.Start()
+		go acceptSocketConnections(socketListener, outputLogWriter.Channel(), &processHolder)
 	} else {
 		// Read input from stdin. Do not read outputlog format. Read from stdin, emit Chunks from
 		// stream "stdin".
@@ -148,6 +151,11 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 	_ = tty.Close()
 
 	pid := cmd.Process.Pid
+
+	// Set process reference for signal delivery via Unix socket
+	if inputUnixDomainSocket != "" {
+		processHolder = cmd.Process
+	}
 
 	// Write PID to file
 	pidFile := filepath.Join(processDir, "pid")
@@ -278,7 +286,7 @@ func Run(commandSlice []string, inputUnixDomainSocket string, workingDirectory s
 
 // acceptSocketConnections listens for connections on a Unix domain socket and processes stdin input
 // It reads OutputLog formatted data and logs all chunks (stdin is NOT forwarded to the command)
-func acceptSocketConnections(listener net.Listener, outputChan chan<- outputlog.Chunk) {
+func acceptSocketConnections(listener net.Listener, outputChan chan<- outputlog.Chunk, processHolder **os.Process) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -288,12 +296,12 @@ func acceptSocketConnections(listener net.Listener, outputChan chan<- outputlog.
 		}
 
 		// Handle each connection in a separate goroutine
-		go handleSocketConnection(conn, outputChan)
+		go handleSocketConnection(conn, outputChan, processHolder)
 	}
 }
 
 // handleSocketConnection processes a single connection to the Unix domain socket
-func handleSocketConnection(conn net.Conn, outputChan chan<- outputlog.Chunk) {
+func handleSocketConnection(conn net.Conn, outputChan chan<- outputlog.Chunk, processHolder **os.Process) {
 	defer func() { _ = conn.Close() }()
 
 	slog.Info("Client connected to Unix domain socket")
@@ -312,6 +320,32 @@ func handleSocketConnection(conn net.Conn, outputChan chan<- outputlog.Chunk) {
 			continue
 		}
 
+		// Handle signal stream - send signal to process
+		if chunk.Stream == "signal" {
+			if processHolder != nil && *processHolder != nil {
+				signalName := string(chunk.Line)
+				signalName = strings.TrimSpace(signalName)
+				slog.Info("Received signal request via Unix socket", "signal", signalName)
+
+				// Parse signal name to syscall.Signal
+				sig, err := parseSignal(signalName)
+				if err != nil {
+					slog.Error("Failed to parse signal", "error", err, "signal", signalName)
+					continue
+				}
+
+				// Send signal to process
+				if err := (*processHolder).Signal(sig); err != nil {
+					slog.Error("Failed to send signal to process", "error", err, "signal", signalName)
+				} else {
+					slog.Info("Signal sent to process successfully", "signal", signalName, "pid", (*processHolder).Pid)
+				}
+			} else {
+				slog.Warn("Cannot send signal: process not started yet")
+			}
+			continue
+		}
+
 		// Send chunk to output channel for logging (non-blocking)
 		select {
 		case outputChan <- chunk:
@@ -322,4 +356,92 @@ func handleSocketConnection(conn net.Conn, outputChan chan<- outputlog.Chunk) {
 	}
 
 	slog.Info("Unix domain socket connection closed")
+}
+
+// parseSignal converts a signal name string to syscall.Signal
+func parseSignal(signalName string) (syscall.Signal, error) {
+	signalName = strings.TrimSpace(signalName)
+
+	// Try parsing as a number first
+	if num, err := strconv.Atoi(signalName); err == nil {
+		if num < 0 || num > 64 {
+			return 0, fmt.Errorf("signal number out of range: %d", num)
+		}
+		return syscall.Signal(num), nil
+	}
+
+	signalName = strings.ToUpper(signalName)
+
+	// Remove "SIG" prefix if present
+	signalName = strings.TrimPrefix(signalName, "SIG")
+
+	// Map signal names to numbers
+	switch signalName {
+	case "EXIT":
+		return syscall.Signal(0), nil
+	case "HUP":
+		return syscall.SIGHUP, nil
+	case "INT":
+		return syscall.SIGINT, nil
+	case "QUIT":
+		return syscall.SIGQUIT, nil
+	case "ILL":
+		return syscall.SIGILL, nil
+	case "TRAP":
+		return syscall.SIGTRAP, nil
+	case "ABRT":
+		return syscall.SIGABRT, nil
+	case "BUS":
+		return syscall.SIGBUS, nil
+	case "FPE":
+		return syscall.SIGFPE, nil
+	case "KILL":
+		return syscall.SIGKILL, nil
+	case "USR1":
+		return syscall.SIGUSR1, nil
+	case "SEGV":
+		return syscall.SIGSEGV, nil
+	case "USR2":
+		return syscall.SIGUSR2, nil
+	case "PIPE":
+		return syscall.SIGPIPE, nil
+	case "ALRM":
+		return syscall.SIGALRM, nil
+	case "TERM":
+		return syscall.SIGTERM, nil
+	case "STKFLT":
+		return syscall.SIGSTKFLT, nil
+	case "CHLD":
+		return syscall.SIGCHLD, nil
+	case "CONT":
+		return syscall.SIGCONT, nil
+	case "STOP":
+		return syscall.SIGSTOP, nil
+	case "TSTP":
+		return syscall.SIGTSTP, nil
+	case "TTIN":
+		return syscall.SIGTTIN, nil
+	case "TTOU":
+		return syscall.SIGTTOU, nil
+	case "URG":
+		return syscall.SIGURG, nil
+	case "XCPU":
+		return syscall.SIGXCPU, nil
+	case "XFSZ":
+		return syscall.SIGXFSZ, nil
+	case "VTALRM":
+		return syscall.SIGVTALRM, nil
+	case "PROF":
+		return syscall.SIGPROF, nil
+	case "WINCH":
+		return syscall.SIGWINCH, nil
+	case "POLL", "IO":
+		return syscall.SIGIO, nil
+	case "PWR":
+		return syscall.SIGPWR, nil
+	case "SYS":
+		return syscall.SIGSYS, nil
+	default:
+		return 0, fmt.Errorf("unknown signal: %s", signalName)
+	}
 }

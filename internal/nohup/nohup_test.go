@@ -2,6 +2,7 @@ package nohup
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -274,4 +275,210 @@ echo "you entered: $foo"
 		assert.Equal(collect, "", stderr)
 		assert.Equal(collect, "hello word\n", stdin)
 	}, time.Second, 10*time.Millisecond)
+}
+
+func TestNohupSignalViaUnixSocket(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Initialize workspace storage
+	err := workspace.InitWorkspaces(tmpDir)
+	require.NoError(t, err)
+
+	// Create workspace
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
+	require.NoError(t, err)
+
+	// Create a long-running process that handles SIGTERM gracefully
+	// The trap will write to a file since PTY output might not be captured reliably during signal handling
+	signalReceivedFile := filepath.Join(tmpDir, "signal-received")
+	script := fmt.Sprintf(`#!/bin/bash
+set -e
+trap 'echo "SIGTERM" > %s; exit 143' TERM
+echo "Process started"
+# Use a loop that checks frequently instead of one long sleep
+for i in {1..300}; do
+  sleep 0.1
+done
+echo "Process completed naturally"
+`, signalReceivedFile)
+	scriptPath := filepath.Join(tmpDir, "test-signal.sh")
+	err = os.WriteFile(scriptPath, []byte(script), 0o755)
+	require.NoError(t, err)
+
+	// Execute the process
+	proc, err := executor.Execute(ws, scriptPath)
+	require.NoError(t, err)
+
+	// Wait for process to start and write PID
+	var pidData []byte
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		pidFile := filepath.Join(proc.ProcessDir, "pid")
+		pidData, err = os.ReadFile(pidFile)
+		assert.NoError(collect, err)
+		assert.NotEmpty(collect, pidData)
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Wait for "Process started" message in output
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		outputFile := filepath.Join(proc.ProcessDir, "output.log")
+		stdoutBytes, _, _, err := outputlog.ReadThreeStreams(outputFile, "stdout", "stderr", "stdin")
+		assert.NoError(collect, err)
+		assert.Contains(collect, string(stdoutBytes), "Process started")
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Give the process time to enter the sleep loop and set up signal handlers
+	time.Sleep(500 * time.Millisecond)
+
+	// Connect to the Unix domain socket
+	// Socket path is in /tmp with format: /tmp/ms-<commandId>.sock
+	socketPath := filepath.Join("/tmp", "ms-"+proc.CommandId+".sock")
+
+	// Wait for socket to be available
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		_, err := os.Stat(socketPath)
+		assert.NoError(collect, err)
+	}, 3*time.Second, 10*time.Millisecond)
+
+	conn, err := net.Dial("unix", socketPath)
+	require.NoError(t, err)
+
+	// Create an OutputLog writer to send the signal
+	writer := outputlog.NewOutputLogWriter(conn, nil)
+	signalWriter := writer.StreamWriter("signal")
+
+	// Send SIGTERM signal
+	_, err = signalWriter.Write([]byte("TERM"))
+	require.NoError(t, err)
+
+	// Close the writer to flush
+	writer.Close()
+	_ = conn.Close()
+
+	// Give the signal time to be processed
+	time.Sleep(200 * time.Millisecond)
+
+	// Wait for the process to complete
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		completedFile := filepath.Join(proc.ProcessDir, "completed")
+		completedData, err := os.ReadFile(completedFile)
+		assert.NoError(collect, err)
+		assert.Equal(collect, "true", strings.TrimSpace(string(completedData)))
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// Verify the process output
+	outputFile := filepath.Join(proc.ProcessDir, "output.log")
+	stdoutBytes, _, _, err := outputlog.ReadThreeStreams(outputFile, "stdout", "stderr", "stdin")
+	require.NoError(t, err)
+	stdout := string(stdoutBytes)
+
+	// Should contain the startup message
+	require.Contains(t, stdout, "Process started")
+	// Should NOT contain the natural completion message (process was killed by signal)
+	require.NotContains(t, stdout, "Process completed naturally")
+
+	// Verify the signal file was written (indicating process was terminated by signal)
+	signalFile := filepath.Join(proc.ProcessDir, "signal")
+	signalData, err := os.ReadFile(signalFile)
+	require.NoError(t, err)
+	// The signal should be SIGTERM
+	require.Contains(t, string(signalData), "terminated")
+
+	// Verify exit status - process was killed by signal, so non-zero exit
+	exitStatusFile := filepath.Join(proc.ProcessDir, "exit-status")
+	exitStatusData, err := os.ReadFile(exitStatusFile)
+	require.NoError(t, err)
+	exitCode, err := strconv.Atoi(strings.TrimSpace(string(exitStatusData)))
+	require.NoError(t, err)
+	// Exit code should be non-zero (process was terminated by signal)
+	require.NotEqual(t, 0, exitCode)
+}
+
+func TestNohupSignalViaUnixSocketNumeric(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Initialize workspace storage
+	err := workspace.InitWorkspaces(tmpDir)
+	require.NoError(t, err)
+
+	// Create workspace
+	ws, err := workspace.CreateWorkspace(tmpDir, "test", tmpDir, "")
+	require.NoError(t, err)
+
+	// Create a long-running process - SIGKILL cannot be trapped
+	script := `#!/bin/bash
+echo "Process started"
+for i in {1..300}; do
+  sleep 0.1
+done
+echo "Process completed naturally"
+`
+	scriptPath := filepath.Join(tmpDir, "test-signal-numeric.sh")
+	err = os.WriteFile(scriptPath, []byte(script), 0o755)
+	require.NoError(t, err)
+
+	// Execute the process
+	proc, err := executor.Execute(ws, scriptPath)
+	require.NoError(t, err)
+
+	// Wait for process to start
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		pidFile := filepath.Join(proc.ProcessDir, "pid")
+		_, err = os.ReadFile(pidFile)
+		assert.NoError(collect, err)
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Wait for "Process started" message
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		outputFile := filepath.Join(proc.ProcessDir, "output.log")
+		stdoutBytes, _, _, err := outputlog.ReadThreeStreams(outputFile, "stdout", "stderr", "stdin")
+		assert.NoError(collect, err)
+		assert.Contains(collect, string(stdoutBytes), "Process started")
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// Give the process time to set up
+	time.Sleep(500 * time.Millisecond)
+
+	// Connect to the Unix domain socket
+	socketPath := filepath.Join("/tmp", "ms-"+proc.CommandId+".sock")
+
+	conn, err := net.Dial("unix", socketPath)
+	require.NoError(t, err)
+
+	// Create an OutputLog writer to send the signal
+	writer := outputlog.NewOutputLogWriter(conn, nil)
+	signalWriter := writer.StreamWriter("signal")
+
+	// Send SIGKILL signal using numeric value (9) - more forceful than SIGINT
+	_, err = signalWriter.Write([]byte("9"))
+	require.NoError(t, err)
+
+	// Close the writer to flush
+	writer.Close()
+	_ = conn.Close()
+
+	// Give the signal time to be processed
+	time.Sleep(200 * time.Millisecond)
+
+	// Wait for the process to complete
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		completedFile := filepath.Join(proc.ProcessDir, "completed")
+		completedData, err := os.ReadFile(completedFile)
+		assert.NoError(collect, err)
+		assert.Equal(collect, "true", strings.TrimSpace(string(completedData)))
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// Verify the signal file was written
+	signalFile := filepath.Join(proc.ProcessDir, "signal")
+	signalData, err := os.ReadFile(signalFile)
+	require.NoError(t, err)
+	// The signal should be SIGKILL (killed)
+	require.Contains(t, string(signalData), "killed")
+
+	// Verify exit status is non-zero
+	exitStatusFile := filepath.Join(proc.ProcessDir, "exit-status")
+	exitStatusData, err := os.ReadFile(exitStatusFile)
+	require.NoError(t, err)
+	exitCode, err := strconv.Atoi(strings.TrimSpace(string(exitStatusData)))
+	require.NoError(t, err)
+	require.NotEqual(t, 0, exitCode)
 }
