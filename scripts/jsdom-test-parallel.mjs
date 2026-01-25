@@ -414,7 +414,7 @@ async function testPerProcessPages() {
   assert.ok(processPageResponse.text.includes('sleep 10'), 'Page should show the command');
 
   // Terminate the long process
-  await request('POST', `/workspaces/${workspaceId}/processes/${longProcessId}/hx-send-signal`, {
+  const signalResponse = await request('POST', `/workspaces/${workspaceId}/processes/${longProcessId}/hx-send-signal`, {
     headers: {
       Cookie: sessionCookie,
       'HX-Request': 'true',
@@ -422,6 +422,34 @@ async function testPerProcessPages() {
     body: 'signal=15',
     testID,
   });
+
+  assert.equal(signalResponse.status, 200, 'Should send signal successfully');
+
+  // Wait and verify process terminated
+  let terminated = false;
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const updateCheck = await request('GET', `/workspaces/${workspaceId}/json-process-updates?process_ids=${longProcessId}`, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+      testID,
+    });
+
+    const data = JSON.parse(updateCheck.text);
+    const finishedUpdate = data.updates && data.updates.find(u =>
+      u.id === longProcessId && u.status === 'finished'
+    );
+
+    if (finishedUpdate) {
+      terminated = true;
+      console.log(`✓ Process terminated after signal`);
+      break;
+    }
+  }
+
+  assert.ok(terminated, 'Process should be terminated after SIGTERM signal');
 
   console.log(`✓ ${testName} passed`);
 }
@@ -523,7 +551,7 @@ async function testStdinInput() {
   assert.ok(foo2Found, 'Should find "foo2" in cat output');
 
   // Terminate the cat process
-  await request('POST', `/workspaces/${workspaceId}/processes/${catProcessId}/hx-send-signal`, {
+  const signalResponse = await request('POST', `/workspaces/${workspaceId}/processes/${catProcessId}/hx-send-signal`, {
     headers: {
       Cookie: sessionCookie,
       'HX-Request': 'true',
@@ -531,6 +559,34 @@ async function testStdinInput() {
     body: 'signal=15',
     testID,
   });
+
+  assert.equal(signalResponse.status, 200, 'Should send signal successfully');
+
+  // Wait and verify process terminated
+  let terminated = false;
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const updateCheck = await request('GET', `/workspaces/${workspaceId}/json-process-updates?process_ids=${catProcessId}`, {
+      headers: {
+        Cookie: sessionCookie,
+      },
+      testID,
+    });
+
+    const data = JSON.parse(updateCheck.text);
+    const finishedUpdate = data.updates && data.updates.find(u =>
+      u.id === catProcessId && u.status === 'finished'
+    );
+
+    if (finishedUpdate) {
+      terminated = true;
+      console.log(`✓ Process terminated after signal`);
+      break;
+    }
+  }
+
+  assert.ok(terminated, 'Cat process should be terminated after SIGTERM signal');
 
   console.log(`✓ ${testName} passed`);
 }

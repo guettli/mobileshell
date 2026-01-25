@@ -1,5 +1,6 @@
 # Later
 
+- File Explorer. Show all files.
 - provide a way to send a signal here, too: <http://localhost:22123/workspaces/fooob/processes/f9134b00eba33574>
 - show all streams in process detail view.
 - double check every time.Sleep
