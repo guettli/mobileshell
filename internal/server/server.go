@@ -1942,10 +1942,119 @@ func (s *Server) getBasePath(r *http.Request) string {
 	return ""
 }
 
+// cleanupStaleProcesses checks for processes marked as running but no longer active
+func (s *Server) cleanupStaleProcesses() {
+	workspacesDir := filepath.Join(s.stateDir, "workspaces")
+	workspaceEntries, err := os.ReadDir(workspacesDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Error("Failed to read workspaces directory for cleanup", "error", err)
+		}
+		return
+	}
+
+	for _, workspaceEntry := range workspaceEntries {
+		if !workspaceEntry.IsDir() {
+			continue
+		}
+
+		processesDir := filepath.Join(workspacesDir, workspaceEntry.Name(), "processes")
+		processEntries, err := os.ReadDir(processesDir)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				slog.Error("Failed to read processes directory for cleanup", "workspace", workspaceEntry.Name(), "error", err)
+			}
+			continue
+		}
+
+		for _, processEntry := range processEntries {
+			if !processEntry.IsDir() {
+				continue
+			}
+
+			processDir := filepath.Join(processesDir, processEntry.Name())
+			proc, err := process.LoadProcessFromDir(processDir)
+			if err != nil {
+				slog.Warn("Failed to load process for cleanup check", "processDir", processDir, "error", err)
+				continue
+			}
+
+			// Skip processes that are already marked as completed
+			if proc.Completed {
+				continue
+			}
+
+			// Skip processes without a PID
+			if proc.PID == 0 {
+				continue
+			}
+
+			// Check if the process is still running
+			osProc, err := os.FindProcess(proc.PID)
+			if err != nil {
+				// Process doesn't exist, mark as completed
+				slog.Info("Marking stale process as completed", "workspace", workspaceEntry.Name(), "process", processEntry.Name(), "pid", proc.PID)
+				s.markProcessAsCompleted(processDir, -1, "cleanup-stale-process")
+				continue
+			}
+
+			// Try to send signal 0 to check if process exists
+			err = osProc.Signal(syscall.Signal(0))
+			if err != nil {
+				// Process doesn't exist or we don't have permission
+				slog.Info("Marking stale process as completed", "workspace", workspaceEntry.Name(), "process", processEntry.Name(), "pid", proc.PID, "error", err)
+				s.markProcessAsCompleted(processDir, -1, "cleanup-stale-process")
+			}
+		}
+	}
+}
+
+// markProcessAsCompleted marks a process as completed by writing the necessary files
+func (s *Server) markProcessAsCompleted(processDir string, exitCode int, signal string) {
+	now := time.Now()
+
+	// Write completed file
+	if err := os.WriteFile(filepath.Join(processDir, "completed"), []byte("true"), 0o644); err != nil {
+		slog.Error("Failed to write completed file", "processDir", processDir, "error", err)
+	}
+
+	// Write endtime file
+	if err := os.WriteFile(filepath.Join(processDir, "endtime"), []byte(now.Format(time.RFC3339Nano)), 0o644); err != nil {
+		slog.Error("Failed to write endtime file", "processDir", processDir, "error", err)
+	}
+
+	// Write exit status if provided
+	if exitCode >= 0 {
+		if err := os.WriteFile(filepath.Join(processDir, "exit-status"), []byte(fmt.Sprintf("%d", exitCode)), 0o644); err != nil {
+			slog.Error("Failed to write exit-status file", "processDir", processDir, "error", err)
+		}
+	}
+
+	// Write signal if provided
+	if signal != "" {
+		if err := os.WriteFile(filepath.Join(processDir, "signal"), []byte(signal), 0o644); err != nil {
+			slog.Error("Failed to write signal file", "processDir", processDir, "error", err)
+		}
+	}
+}
+
 func (s *Server) Start(addr string) error {
+	// Run cleanup immediately on startup
+	s.cleanupStaleProcesses()
+
+	// Clean up stale processes periodically
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			s.cleanupStaleProcesses()
+		}
+	}()
+
 	// Clean expired sessions periodically
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
 		for range ticker.C {
 			auth.CleanExpiredSessions(s.stateDir)
 		}

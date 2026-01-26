@@ -1,6 +1,10 @@
 # Later
 
 - run playwright tests with --debug-html
+- Clean up job (every 10s): Dont to it, if there are not running processes. Start again, as soon as
+  a process gets started.
+- Signal sent to process is not in output.log
+- stdin sent to process is not in output.log, and seems to not reach process: echo "your input please"; read -r input; echo "your input: $input"
 - Everytime there is a 500, the user should see that in the web ui
 - File Explorer. Show all files.
 - provide a way to send a signal here, too: <http://localhost:22123/workspaces/fooob/processes/f9134b00eba33574>
