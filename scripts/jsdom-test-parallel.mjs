@@ -413,44 +413,6 @@ async function testPerProcessPages() {
   assert.ok(processPageResponse.text.includes('Process Details'), 'Page should have "Process Details" heading');
   assert.ok(processPageResponse.text.includes('sleep 10'), 'Page should show the command');
 
-  // Terminate the long process
-  const signalResponse = await request('POST', `/workspaces/${workspaceId}/processes/${longProcessId}/hx-send-signal`, {
-    headers: {
-      Cookie: sessionCookie,
-      'HX-Request': 'true',
-    },
-    body: 'signal=15',
-    testID,
-  });
-
-  assert.equal(signalResponse.status, 200, 'Should send signal successfully');
-
-  // Wait and verify process terminated
-  let terminated = false;
-  for (let i = 0; i < 10; i++) {
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const updateCheck = await request('GET', `/workspaces/${workspaceId}/json-process-updates?process_ids=${longProcessId}`, {
-      headers: {
-        Cookie: sessionCookie,
-      },
-      testID,
-    });
-
-    const data = JSON.parse(updateCheck.text);
-    const finishedUpdate = data.updates && data.updates.find(u =>
-      u.id === longProcessId && u.status === 'finished'
-    );
-
-    if (finishedUpdate) {
-      terminated = true;
-      console.log(`✓ Process terminated after signal`);
-      break;
-    }
-  }
-
-  assert.ok(terminated, 'Process should be terminated after SIGTERM signal');
-
   console.log(`✓ ${testName} passed`);
 }
 

@@ -128,4 +128,41 @@ test.describe.parallel('MobileShell basic flows', () => {
     await expect(page).toHaveURL(/workspaces\/[^/]+$/);
     await expect(page.locator(`text=${updatedName}`)).toBeVisible();
   });
+
+  test('Send signal to process', async ({ page }, testInfo) => {
+    const testID = `send-signal-${testInfo.workerIndex}-${testInfo.repeatEachIndex}`;
+    page.on('console', msg => console.log(`[browser][${testID}]`, msg.type(), msg.text()));
+    page.on('pageerror', err => console.error(`[browser][${testID}] PAGE ERROR:`, err));
+    await login(page, testID);
+    // Create workspace
+    const workspaceName = `pw-test-${Date.now()}`;
+    await page.fill('input[name="name"]', workspaceName);
+    await page.fill('input[name="directory"]', '/tmp');
+    await page.click('button[type="submit"]');
+    await expect(page).toHaveURL(/workspaces\//);
+    // Execute a long-running command
+    await page.fill('input[name="command"]', 'sleep 30');
+    await page.click('button[type="submit"]');
+    // Wait for the process to appear in running processes
+    await page.waitForTimeout(1000);
+    // Wait for the running process card to be visible
+    const processBadge = page.locator('.badge.bg-primary:has-text("Running")').first();
+    await expect(processBadge).toBeVisible({ timeout: 5000 });
+    // Find the process card by looking for the card that contains this badge
+    // The badge is inside: a > h6 > div > .card-body > .card
+    const processCard = page.locator('.process-card').filter({ has: processBadge }).first();
+    // Within this process card, find and use the signal form
+    const signalSelect = processCard.locator('select[name="signal"]');
+    await expect(signalSelect).toBeVisible();
+    await signalSelect.selectOption('15'); // SIGTERM
+    // Click the send signal button
+    const sendSignalButton = processCard.locator('button[type="submit"]:has-text("Send Signal")');
+    await expect(sendSignalButton).toBeVisible();
+    await sendSignalButton.click();
+    // Wait for the process to be terminated and move to finished processes
+    await page.waitForTimeout(2000);
+    // Check that the process status shows as finished/terminated
+    const finishedBadge = page.locator('.badge:has-text("Finished"), .badge:has-text("Exited"), .badge:has-text("Completed")').first();
+    await expect(finishedBadge).toBeVisible({ timeout: 10000 });
+  });
 });

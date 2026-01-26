@@ -1,5 +1,7 @@
 # Later
 
+- run playwright tests with --debug-html
+- Everytime there is a 500, the user should see that in the web ui
 - File Explorer. Show all files.
 - provide a way to send a signal here, too: <http://localhost:22123/workspaces/fooob/processes/f9134b00eba33574>
 - show all streams in process detail view.

@@ -1803,6 +1803,11 @@ func (s *Server) hxHandleSendSignal(ctx context.Context, r *http.Request) ([]byt
 		return nil, httperror.HTTPError{StatusCode: http.StatusNotFound, Message: err.Error()}
 	}
 
+	// Check if process has already completed
+	if proc.Completed {
+		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Cannot send signal to completed process"}
+	}
+
 	if proc.PID == 0 {
 		return nil, httperror.HTTPError{StatusCode: http.StatusBadRequest, Message: "Process has no PID"}
 	}
