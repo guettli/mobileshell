@@ -10,7 +10,7 @@ if [[ -z "${IN_NIX_SHELL:-}" ]]; then
 fi
 
 # shellcheck disable=SC2046
-http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$' | grep -vP 'internal/server/static|scripts/test-jsdom|jsdom.*.mjs|playwright') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s|Found string|example.com|http://"\s*\+\s*host|https://"\s*\+\s*host|xmlns="http://www.w3.org' || true; })
+http_locations=$(rg -n 'https?://' $(git ls-files | grep -vP '\.md$' | grep -vP 'internal/server/static|scripts/test-jsdom|jsdom.*.mjs|playwright.global') | { grep -vP 'github.com/guettli/bash-strict-mode|http://%s|Found string|example.com|http://"\s*\+\s*host|https://"\s*\+\s*host|xmlns="http://www.w3.org' || true; })
 if [[ -n $http_locations ]]; then
     echo "Found string 'https://' in code. This should be avoided. All needed files should be embeded into the binary via go:embed"
     echo

@@ -9,7 +9,7 @@ const config = {
   fullyParallel: true,
   workers: undefined, // Use all CPU cores
   use: {
-    baseURL: process.env.SERVER_URL || 'http://localhost:22123',
+    baseURL: process.env.SERVER_URL,
     headless: true,
     ignoreHTTPSErrors: true,
     screenshot: 'only-on-failure',
