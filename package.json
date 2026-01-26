@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npx playwright test && node scripts/show-playwright-report.js"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +21,7 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.0",
     "jscpd": "^4.0.5"
   }
 }
