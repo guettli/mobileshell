@@ -916,8 +916,8 @@ async function testInteractiveTerminal() {
 
         // Check for bash completion errors
         if (receivedData.includes('bash: complete: command not found') ||
-            receivedData.includes('bash: shopt: progcomp: invalid shell option name') ||
-            receivedData.includes('bash: compgen: command not found')) {
+          receivedData.includes('bash: shopt: progcomp: invalid shell option name') ||
+          receivedData.includes('bash: compgen: command not found')) {
           reject(new Error('Bash completion errors detected. Please configure bash to suppress these errors in your .bashrc'));
         }
 
@@ -1190,7 +1190,7 @@ async function testFileEditorDoubleSave() {
   // After the fix, this should succeed
   if (secondSaveResponse.text.includes('Conflict Detected')) {
     console.log('✗ Bug reproduced: Second save shows false conflict');
-        assert.fail('Second save should succeed but shows conflict (bug #60)');
+    assert.fail('Second save should succeed but shows conflict (bug #60)');
   } else if (secondSaveResponse.text.includes('Success')) {
     console.log('✓ Second save succeeded (bug is fixed)');
   } else {
@@ -1262,8 +1262,8 @@ async function testServerLog() {
   // Check that it contains log content or placeholder message
   const pageText = doc.body.textContent;
   const hasLogContent = pageText.includes('INFO') ||
-                        pageText.includes('ERROR') ||
-                        pageText.includes('Server log file does not exist yet');
+    pageText.includes('ERROR') ||
+    pageText.includes('Server log file does not exist yet');
   assert.ok(hasLogContent, 'Should display log content or placeholder message');
 
   // Check for htmx script

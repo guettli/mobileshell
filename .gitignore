@@ -18,3 +18,4 @@ node_modules/
 playwright-report/
 test-results/
 .playwright-server-pid
+.playwright-state-dir
