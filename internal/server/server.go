@@ -154,6 +154,9 @@ func (s *Server) wrapHandler(h handlerFunc) http.HandlerFunc {
 				return
 			}
 			if hxre, ok := err.(*hxRedirectError); ok {
+				if hxre.cookie != nil {
+					http.SetCookie(w, hxre.cookie)
+				}
 				w.Header().Set("HX-Redirect", hxre.url)
 				w.WriteHeader(http.StatusOK)
 				return
@@ -270,7 +273,8 @@ func (e *downloadError) Error() string {
 
 // hxRedirectError represents an htmx redirect using HX-Redirect header
 type hxRedirectError struct {
-	url string
+	url    string
+	cookie *http.Cookie
 }
 
 func (e *hxRedirectError) Error() string {
@@ -660,15 +664,29 @@ func (s *Server) handleLogin(ctx context.Context, r *http.Request) ([]byte, erro
 		return buf.Bytes(), nil
 	}
 
-	// Return cookie and redirect to home (which will show workspaces)
+	// Create session cookie
+	cookie := &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   86400, // 24 hours
+	}
+
+	// Check if this is an HTMX request
+	isHtmx := r.Header.Get("HX-Request") == "true"
+
+	if isHtmx {
+		// For HTMX requests, use HX-Redirect header
+		return nil, &hxRedirectError{
+			url:    basePath + "/",
+			cookie: cookie,
+		}
+	}
+
+	// For regular requests, use standard HTTP redirect
 	return nil, &cookieRedirectError{
-		cookie: &http.Cookie{
-			Name:     "session",
-			Value:    token,
-			Path:     "/",
-			HttpOnly: true,
-			MaxAge:   86400, // 24 hours
-		},
+		cookie:     cookie,
 		redirect:   basePath + "/",
 		statusCode: http.StatusSeeOther,
 	}

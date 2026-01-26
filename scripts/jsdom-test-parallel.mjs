@@ -592,73 +592,6 @@ async function testStdinInput() {
 }
 
 // Workspace editing
-async function testWorkspaceEditing() {
-  const testName = 'Workspace editing';
-  const testID = 'workspace-editing';
-  console.log(`\n=== ${testName} ===`);
-
-  const sessionCookie = await login();
-  const workspaceName = `test-workspace-${testID}-${Date.now()}`;
-  const workspaceId = await createWorkspace(sessionCookie, workspaceName, testID);
-  console.log(`✓ Workspace created: ${workspaceName}`);
-
-  // Navigate to edit page
-  const editPageResponse = await request('GET', `/workspaces/${workspaceId}/edit`, {
-    headers: { Cookie: sessionCookie },
-    testID,
-  });
-
-  assert.equal(editPageResponse.status, 200, 'Should load edit workspace page');
-  assert.ok(editPageResponse.text.includes('Edit Workspace'), 'Page should have "Edit Workspace" title');
-
-  // Parse the edit page to verify form fields
-  const editPageDoc = parseHTML(editPageResponse.text, 'workspace edit page');
-  const nameInput = editPageDoc.querySelector('input[name="name"]');
-  const directoryInput = editPageDoc.querySelector('input[name="directory"]');
-  const preCommandInput = editPageDoc.querySelector('textarea[name="pre_command"]');
-
-  assert.ok(nameInput, 'Should have name input field');
-  assert.ok(directoryInput, 'Should have directory input field');
-  assert.ok(preCommandInput, 'Should have pre-command textarea field');
-  assert.equal(nameInput.value, workspaceName, 'Name field should have current name');
-
-  // Update the workspace
-  const updatedName = `${workspaceName}-updated`;
-  const updatedPreCommand = 'source .env';
-  const updateResponse = await request('POST', `/workspaces/${workspaceId}/edit`, {
-    headers: {
-      Cookie: sessionCookie,
-    },
-    body: `name=${encodeURIComponent(updatedName)}&directory=/tmp&pre_command=${encodeURIComponent(updatedPreCommand)}`,
-    testID,
-  });
-
-  assert.ok([302, 303].includes(updateResponse.status), `Should redirect after update (got ${updateResponse.status})`);
-
-  // Verify the changes
-  const workspaceAfterEditResponse = await request('GET', `/workspaces/${workspaceId}`, {
-    headers: { Cookie: sessionCookie },
-    testID,
-  });
-
-  assert.equal(workspaceAfterEditResponse.status, 200, 'Should load workspace page after edit');
-  assert.ok(workspaceAfterEditResponse.text.includes(updatedName), 'Page should show updated workspace name');
-
-  // Test validation: try to update with empty name
-  const invalidUpdateResponse = await request('POST', `/workspaces/${workspaceId}/edit`, {
-    headers: {
-      Cookie: sessionCookie,
-    },
-    body: `name=&directory=/tmp&pre_command=`,
-    testID,
-  });
-
-  assert.equal(invalidUpdateResponse.status, 200, 'Should return form with error (not redirect)');
-  assert.ok(invalidUpdateResponse.text.includes('required'), 'Should show validation error message');
-
-  console.log(`✓ ${testName} passed`);
-}
-
 // File autocomplete
 async function testFileAutocomplete() {
   const testName = 'File autocomplete';
@@ -1199,86 +1132,6 @@ async function testFileEditorDoubleSave() {
   console.log(`✓ ${testName} passed`);
 }
 
-async function testServerLog() {
-  const testName = 'Server log';
-  const testID = 'server-log';
-  console.log(`\n=== ${testName} ===`);
-
-  const sessionCookie = await login();
-
-  // Request the server log page
-  const serverLogResponse = await request('GET', '/server-log', {
-    headers: {
-      Cookie: sessionCookie,
-    },
-    testID,
-  });
-
-  assert.equal(serverLogResponse.status, 200, 'Should load server log page');
-  const doc = parseHTML(serverLogResponse.text, 'GET /server-log');
-
-  // Check basic HTML structure
-  assert.ok(doc.querySelector('title'), 'Should have a title element');
-  const title = doc.querySelector('title').textContent;
-  assert.ok(title.includes('MobileShell'), 'Title should contain MobileShell');
-
-  // Check navigation bar
-  const nav = doc.querySelector('nav.navbar');
-  assert.ok(nav, 'Should have navigation navbar');
-  const navBrand = nav.querySelector('.navbar-brand');
-  assert.ok(navBrand, 'Should have navbar brand');
-  const logoutBtn = nav.querySelector('a[href*="logout"]');
-  assert.ok(logoutBtn, 'Should have logout button in nav');
-
-  // Check main container
-  const container = doc.querySelector('.container-fluid');
-  assert.ok(container, 'Should have container-fluid');
-
-  // Check back button
-  const backBtn = doc.querySelector('a[href*="sysmon"]');
-  assert.ok(backBtn, 'Should have back button to sysmon');
-
-  // Check card structure
-  const card = doc.querySelector('.card');
-  assert.ok(card, 'Should have card element');
-  const cardHeader = card.querySelector('.card-header h5');
-  assert.ok(cardHeader, 'Should have card header with h5');
-  assert.ok(cardHeader.textContent.includes('File:'), 'Card header should show file path');
-
-  // Check file metadata
-  const cardBody = card.querySelector('.card-body');
-  assert.ok(cardBody, 'Should have card body');
-  assert.ok(cardBody.textContent.includes('Size:'), 'Should show file size');
-  assert.ok(cardBody.textContent.includes('Modified:'), 'Should show modification time');
-
-  // Check download button
-  const downloadBtn = cardBody.querySelector('a[href*="download"]');
-  assert.ok(downloadBtn, 'Should have download button');
-
-  // Check file content area
-  const content = doc.querySelector('.file-content');
-  assert.ok(content, 'Should have file-content div');
-
-  // Check that it contains log content or placeholder message
-  const pageText = doc.body.textContent;
-  const hasLogContent = pageText.includes('INFO') ||
-    pageText.includes('ERROR') ||
-    pageText.includes('Server log file does not exist yet');
-  assert.ok(hasLogContent, 'Should display log content or placeholder message');
-
-  // Check for htmx script
-  const htmxScript = doc.querySelector('script[src*="htmx"]');
-  assert.ok(htmxScript, 'Should include htmx script');
-
-  console.log('✓ Server log page loads correctly');
-  console.log('✓ Page has proper HTML structure');
-  console.log('✓ Navigation bar with logout button present');
-  console.log('✓ File metadata (size, modified time) shown');
-  console.log('✓ Download button available');
-  console.log('✓ File content area present');
-  console.log(`✓ ${testName} passed`);
-}
-
 // Helper to extract logs for a specific test ID
 async function extractTestLogs(testID) {
   if (!SERVER_LOG) {
@@ -1336,12 +1189,11 @@ async function runTests() {
       runTestWithLogging(testProcessTransitions, 'Process transitions', 'process-transitions'),
       runTestWithLogging(testPerProcessPages, 'Per-process pages', 'per-process-pages'),
       runTestWithLogging(testStdinInput, 'Stdin input', 'stdin-input'),
-      runTestWithLogging(testWorkspaceEditing, 'Workspace editing', 'workspace-editing'),
       runTestWithLogging(testFileAutocomplete, 'File autocomplete', 'file-autocomplete'),
       runTestWithLogging(testInteractiveTerminal, 'Interactive Terminal', 'interactive-terminal'),
       runTestWithLogging(testRerunCommand, 'Rerun command', 'rerun-command'),
       runTestWithLogging(testFileEditorDoubleSave, 'File editor double save', 'file-editor-double-save'),
-      runTestWithLogging(testServerLog, 'Server log', 'server-log'),
+      // NOTE: testWorkspaceEditing and testServerLog have been converted to playwright
       // TODO: Fix testInteractiveRead - has issues with output buffering in non-interactive processes
       // runTestWithLogging(testInteractiveRead, 'Interactive read with stdin', 'interactive-read'),
     ]);

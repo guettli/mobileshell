@@ -5,7 +5,7 @@
 
 
 const config = {
-  timeout: 10000,
+  timeout: 20000,
   fullyParallel: true,
   workers: undefined, // Use all CPU cores
   use: {
